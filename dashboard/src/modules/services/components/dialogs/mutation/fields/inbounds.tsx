@@ -72,7 +72,7 @@ export const InboundsField = () => {
             render={() => (
                 <FormItem>
                     <FormLabel>{t("inbounds")}</FormLabel>
-                    <ScrollArea className="flex flex-col justify-start  h-full max-h-[20rem]">
+                    <ScrollArea className="flex flex-col justify-start h-full">
                         {data.entities.map((inbound) => (
                             <FormField
                                 key={inbound.id}

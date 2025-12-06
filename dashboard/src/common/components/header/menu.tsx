@@ -28,8 +28,8 @@ export const HeaderMenu: FC = () => {
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button
-                    variant="secondary"
-                    className="bg-gray-800 text-secondary dark:hover:bg-secondary-foreground dark:hover:text-secondary dark:text-secondary-foreground"
+                    variant="ghost"
+                    className="bg-background/60 backdrop-blur-xl border border-border hover:bg-accent/50"
                     size="icon"
                 >
                     <MenuIcon />

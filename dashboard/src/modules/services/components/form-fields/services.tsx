@@ -71,7 +71,7 @@ const ServicesList: FC<{ services: ServiceType[] }> = ({ services }) => {
     const form = useFormContext();
 
     return (
-        <ScrollArea className="flex flex-col justify-start px-1 h-full max-h-[20rem]">
+        <ScrollArea className="flex flex-col justify-start px-1 h-full">
             {services.map((service) => (
                 <FormField
                     key={service.id}

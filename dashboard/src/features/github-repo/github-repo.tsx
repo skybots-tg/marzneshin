@@ -21,14 +21,14 @@ interface GithubRepoProps {
 
 export const GithubRepo: FC<GithubRepoProps> = ({ variant = "full", stargazers_count, full_name, description }) => {
     return (
-        <Button variant="secondary" className="bg-gray-800 border-0 dark:text-primary text-secondary dark:hover:text-secondary dark:hover:bg-primary hover:bg-secondary hover:text-primary p-2" asChild>
-            <Card>
+        <Button variant="ghost" className="bg-background/60 backdrop-blur-xl border border-border hover:bg-accent/50 p-2 h-auto rounded-2xl" asChild>
+            <Card className="border-0 shadow-none bg-transparent">
                 <a href={projectInfo.github} target="_blank">
                     <CardContent className="hstack size-fit p-0 gap-2 items-center">
                         <GithubIcon className="size-6" />
                         {variant === "full" ? (
                             <div className="vstack items-start">
-                                <CardTitle className="font-mono text-xs hstack justify-between w-full">
+                                <CardTitle className="font-semibold text-xs hstack justify-between w-full gap-2 text-foreground">
                                     {full_name}
                                     <div className="hstack gap-1 font-bold items-center text-xs">
                                         <StarIcon className="size-3" />
