@@ -3,13 +3,11 @@ import {
     Table, TableHeader, TableRow, TableBody, TableHead,
     ScrollArea, Button,
 } from "@marzneshin/common/components";
-import { useScreenBreakpoint } from "@marzneshin/common/hooks";
 import { cn } from "@marzneshin/common/utils";
 import {
     SidebarEntityCard,
 } from "@marzneshin/libs/entity-table/components";
 import {
-    useEntityTableContext,
     useSidebarEntityTableContext
 } from "@marzneshin/libs/entity-table/contexts";
 import { useTranslation } from "react-i18next";
@@ -21,10 +19,8 @@ export const SidebarEntitySelection = () => {
         setSidebarEntityId,
         sidebarCardProps,
     } = useSidebarEntityTableContext()
-    const { table } = useEntityTableContext()
-    const isDesktop = useScreenBreakpoint("md");
 
-    const scrollBarHeight = (table.getState().pagination.pageSize <= 10 && isDesktop) ? "max-h-[45rem]" : "max-h-[20rem]"
+    const scrollBarHeight = "h-full"
     const { t } = useTranslation();
 
     return (

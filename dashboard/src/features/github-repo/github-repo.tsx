@@ -28,14 +28,14 @@ export const GithubRepo: FC<GithubRepoProps> = ({ variant = "full", stargazers_c
                         <GithubIcon className="size-6" />
                         {variant === "full" ? (
                             <div className="vstack items-start">
-                                <CardTitle className="font-semibold text-xs hstack justify-between w-full gap-2 text-foreground">
+                                <CardTitle className="font-semibold text-xs hstack justify-between w-full gap-2 text-primary">
                                     {full_name}
-                                    <div className="hstack gap-1 font-bold items-center text-xs">
+                                    <div className="hstack gap-1 font-bold items-center text-xs text-foreground">
                                         <StarIcon className="size-3" />
                                         {stargazers_count}
                                     </div>
                                 </CardTitle>
-                                <CardDescription className="text-xs">
+                                <CardDescription className="text-xs text-muted-foreground/80">
                                     {description}
                                 </CardDescription>
                             </div>
