@@ -162,6 +162,20 @@ async def record_user_usages():
     with GetDB() as db:
         await data_usage_percent_reached(db, users_usage)
 
+        # Check which users are about to cross the limit
+        user_ids = [u["id"] for u in users_usage]
+        users_map = {
+            u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()
+        }
+        users_to_check = []
+
+        for u_usage in users_usage:
+            uid = u_usage["id"]
+            user = users_map.get(uid)
+            # Check if user exists, has limit, and is currently UNDER limit
+            if user and user.data_limit and user.used_traffic < user.data_limit:
+                users_to_check.append(user)
+
         stmt = update(User).values(
             used_traffic=User.used_traffic + bindparam("value"),
             lifetime_used_traffic=User.lifetime_used_traffic
@@ -173,6 +187,12 @@ async def record_user_usages():
             stmt, users_usage, execution_options={"synchronize_session": None}
         )
         db.commit()
+
+        # Refresh and check users who were under limit
+        for user in users_to_check:
+            db.refresh(user)
+            if user.data_limit_reached:
+                marznode.operations.update_user(user)
 
     for node_id, params in api_params.items():
         record_user_usage_logs(

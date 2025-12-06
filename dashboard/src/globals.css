@@ -4,97 +4,111 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Cyberpunk Light Theme - Редко используется, но остаётся */
+    --background: 240 10% 8%;
+    --foreground: 180 100% 85%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 240 10% 12%;
+    --card-foreground: 180 100% 85%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 240 10% 10%;
+    --popover-foreground: 180 100% 85%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 180 100% 50%;
+    --primary-foreground: 240 10% 5%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 280 100% 60%;
+    --secondary-foreground: 240 10% 5%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 240 10% 15%;
+    --muted-foreground: 180 30% 60%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 320 100% 60%;
+    --accent-foreground: 240 10% 5%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-accent: 0 27% 100%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 80% 60%;
+    --destructive-accent: 0 100% 40%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 147 100% 40%;
-    --success-accent: 147 100% 80%;
-    --success-foreground: 210 40% 98%;
+    --success: 140 100% 50%;
+    --success-accent: 140 100% 35%;
+    --success-foreground: 240 10% 5%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 180 100% 40%;
+    --input: 240 10% 18%;
+    --ring: 180 100% 50%;
 
-    --radius: 0.5rem;
+    --radius: 0.25rem;
 
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    --chart-1: 180 100% 50%;
+    --chart-2: 280 100% 60%;
+    --chart-3: 320 100% 60%;
+    --chart-4: 50 100% 60%;
+    --chart-5: 0 80% 60%;
+
+    /* Neon glow colors */
+    --neon-cyan: 180 100% 50%;
+    --neon-magenta: 320 100% 60%;
+    --neon-purple: 280 100% 60%;
+    --neon-yellow: 50 100% 60%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    /* Cyberpunk Dark Theme - Основная тема */
+    --background: 240 10% 3%;
+    --foreground: 180 100% 90%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 240 15% 6%;
+    --card-foreground: 180 100% 90%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 240 15% 5%;
+    --popover-foreground: 180 100% 90%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 180 100% 50%;
+    --primary-foreground: 240 10% 5%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 280 100% 65%;
+    --secondary-foreground: 240 10% 5%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 240 10% 10%;
+    --muted-foreground: 180 30% 50%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 320 100% 65%;
+    --accent-foreground: 240 10% 5%;
 
-    --success: 147 100% 40%;
-    --success-accent: 147 100% 80%;
-    --success-foreground: 210 40% 98%;
+    --success: 140 100% 50%;
+    --success-accent: 140 100% 35%;
+    --success-foreground: 240 10% 5%;
 
-    --destructive: 0 55% 57%;
-    --destructive-accent: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 85% 65%;
+    --destructive-accent: 0 100% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 180 80% 30%;
+    --input: 240 15% 10%;
+    --ring: 180 100% 50%;
 
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --chart-1: 180 100% 50%;
+    --chart-2: 280 100% 65%;
+    --chart-3: 320 100% 65%;
+    --chart-4: 50 100% 60%;
+    --chart-5: 0 85% 65%;
+
+    /* Neon glow colors */
+    --neon-cyan: 180 100% 50%;
+    --neon-magenta: 320 100% 65%;
+    --neon-purple: 280 100% 65%;
+    --neon-yellow: 50 100% 60%;
   }
 }
 
 @layer base {
   .font-body {
-    font-family: "Lato", sans-serif;
+    font-family: "Rajdhani", sans-serif;
   }
 
   .font-header {
-    font-family: "Ubuntu", sans-serif;
+    font-family: "Orbitron", sans-serif;
   }
 
   .vstack {
@@ -110,7 +124,138 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground relative overflow-hidden;
+  }
+
+  /* Cyberpunk Grid Background */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+      linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Animated scan lines */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 255, 255, 0.03) 0px,
+      rgba(0, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+    pointer-events: none;
+    z-index: 0;
+    animation: scan 8s linear infinite;
+  }
+
+  @keyframes scan {
+    0% {
+      transform: translateY(0);
+    }
+    100% {
+      transform: translateY(50px);
+    }
+  }
+
+  /* Neon glow effects */
+  .neon-glow-cyan {
+    box-shadow: 
+      0 0 5px hsl(var(--neon-cyan)),
+      0 0 10px hsl(var(--neon-cyan) / 0.5),
+      0 0 20px hsl(var(--neon-cyan) / 0.3);
+  }
+
+  .neon-glow-magenta {
+    box-shadow: 
+      0 0 5px hsl(var(--neon-magenta)),
+      0 0 10px hsl(var(--neon-magenta) / 0.5),
+      0 0 20px hsl(var(--neon-magenta) / 0.3);
+  }
+
+  .neon-glow-purple {
+    box-shadow: 
+      0 0 5px hsl(var(--neon-purple)),
+      0 0 10px hsl(var(--neon-purple) / 0.5),
+      0 0 20px hsl(var(--neon-purple) / 0.3);
+  }
+
+  .neon-text-cyan {
+    text-shadow: 
+      0 0 5px hsl(var(--neon-cyan)),
+      0 0 10px hsl(var(--neon-cyan) / 0.5),
+      0 0 20px hsl(var(--neon-cyan) / 0.3);
+  }
+
+  .neon-text-magenta {
+    text-shadow: 
+      0 0 5px hsl(var(--neon-magenta)),
+      0 0 10px hsl(var(--neon-magenta) / 0.5),
+      0 0 20px hsl(var(--neon-magenta) / 0.3);
+  }
+
+  /* Glitch effect */
+  .glitch {
+    position: relative;
+  }
+
+  .glitch::before,
+  .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .glitch::before {
+    left: 2px;
+    text-shadow: -2px 0 hsl(var(--neon-cyan));
+    clip: rect(24px, 550px, 90px, 0);
+    animation: glitch-anim 3s infinite linear alternate-reverse;
+  }
+
+  .glitch::after {
+    left: -2px;
+    text-shadow: -2px 0 hsl(var(--neon-magenta));
+    clip: rect(85px, 550px, 140px, 0);
+    animation: glitch-anim 2.5s infinite linear alternate-reverse;
+  }
+
+  @keyframes glitch-anim {
+    0% {
+      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
+    }
+    20% {
+      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
+    }
+    40% {
+      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
+    }
+    60% {
+      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
+    }
+    80% {
+      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
+    }
+    100% {
+      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
+    }
   }
 }
 

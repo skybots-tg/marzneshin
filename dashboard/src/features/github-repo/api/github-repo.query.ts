@@ -19,7 +19,7 @@ export interface GithubRepoStatsResponse {
 
 export const GithubRepoStatsResponseDefault: GithubRepoStatsResponse = {
     full_name: projectInfo.repo,
-    description: "A fork of Marzban aiming for scalability",
+    description: "A fork of Marzneshin with a better UI, bugs fixes and more features",
     stargazers_count: 0,
 }
 

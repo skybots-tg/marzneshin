@@ -127,6 +127,10 @@ def get_node_users(
     db: Session,
     node_id: int,
 ):
+    node = db.query(Node).filter(Node.id == node_id).first()
+    if not node:
+        return []
+
     query = (
         db.query(User.id, User.username, User.key, Inbound)
         .distinct()
@@ -135,6 +139,10 @@ def get_node_users(
         .filter(Inbound.node_id == node_id)
         .filter(User.activated == True)
     )
+
+    if node.usage_coefficient > 0:
+        query = query.filter(User.data_limit_reached == False)
+
     return query.all()
 
 
@@ -557,6 +565,9 @@ def get_user_usages(
     )
 
     for node_id, rows in usages.items():
+        if not node_id or node_id not in node_id_names:
+            continue
+
         node_usages = UserNodeUsageSeries(
             node_id=node_id, node_name=node_id_names[node_id], usages=[]
         )
@@ -564,7 +575,7 @@ def get_user_usages(
             minute=0, second=0, microsecond=0
         )
 
-        while current <= end:
+        while current <= end.replace(tzinfo=timezone.utc):
             usage = rows.get(current.timestamp()) or 0
             node_usages.usages.append((int(current.timestamp()), usage))
             current += timedelta(hours=1)
@@ -1010,7 +1021,7 @@ def update_node(db: Session, dbnode: Node, modify: NodeModify):
     else:
         dbnode.status = NodeStatus.unhealthy
 
-    if modify.usage_coefficient:
+    if modify.usage_coefficient is not None:
         dbnode.usage_coefficient = modify.usage_coefficient
 
     if modify.connection_backend:

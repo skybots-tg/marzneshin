@@ -1,12 +1,21 @@
 import { SidebarObject } from '@marzneshin/common/components';
-import { Box, Home, ShieldCheck, Server, ServerCog, Settings, UsersIcon } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+    faHouse, 
+    faUsers, 
+    faServer, 
+    faCubes, 
+    faNetworkWired, 
+    faUserShield, 
+    faGear 
+} from '@fortawesome/free-solid-svg-icons';
 
 export const sidebarItems: SidebarObject = {
     Dashboard: [
         {
             title: 'Home',
             to: '/',
-            icon: <Home />,
+            icon: <FontAwesomeIcon icon={faHouse} className="w-5 h-5" />,
             isParent: false,
         },
     ],
@@ -14,25 +23,25 @@ export const sidebarItems: SidebarObject = {
         {
             title: 'Users',
             to: '/users',
-            icon: <UsersIcon />,
+            icon: <FontAwesomeIcon icon={faUsers} className="w-5 h-5" />,
             isParent: false,
         },
         {
             title: 'Services',
             to: '/services',
-            icon: <Server />,
+            icon: <FontAwesomeIcon icon={faServer} className="w-5 h-5" />,
             isParent: false,
         },
         {
             title: 'Nodes',
             to: '/nodes',
-            icon: <Box />,
+            icon: <FontAwesomeIcon icon={faCubes} className="w-5 h-5" />,
             isParent: false,
         },
         {
             title: 'Hosts',
             to: '/hosts',
-            icon: <ServerCog />,
+            icon: <FontAwesomeIcon icon={faNetworkWired} className="w-5 h-5" />,
             isParent: false,
         },
     ],
@@ -40,13 +49,13 @@ export const sidebarItems: SidebarObject = {
         {
             title: 'Admins',
             to: '/admins',
-            icon: <ShieldCheck />,
+            icon: <FontAwesomeIcon icon={faUserShield} className="w-5 h-5" />,
             isParent: false,
         },
         {
             title: 'Settings',
             to: '/settings',
-            icon: <Settings />,
+            icon: <FontAwesomeIcon icon={faGear} className="w-5 h-5" />,
             isParent: false,
         },
     ]
@@ -57,7 +66,7 @@ export const sidebarItemsNonSudoAdmin: SidebarObject = {
         {
             title: 'Home',
             to: '/',
-            icon: <Home />,
+            icon: <FontAwesomeIcon icon={faHouse} className="w-5 h-5" />,
             isParent: false,
         },
     ],
@@ -65,7 +74,7 @@ export const sidebarItemsNonSudoAdmin: SidebarObject = {
         {
             title: 'Users',
             to: '/users',
-            icon: <UsersIcon />,
+            icon: <FontAwesomeIcon icon={faUsers} className="w-5 h-5" />,
             isParent: false,
         },
     ],

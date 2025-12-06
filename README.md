@@ -6,11 +6,11 @@
 
 <br/>
 <p align="center">
-    <a href="https://github.com/marzneshin/marzneshin/actions/workflows/dashboard-ci.yml">
-        <img src="https://github.com/marzneshin/marzneshin/actions/workflows/dashboard-ci.yml/badge.svg" />
+    <a href="https://github.com/skybots-tg/marzneshin/actions/workflows/dashboard-ci.yml">
+        <img src="https://github.com/skybots-tg/marzneshin/actions/workflows/dashboard-ci.yml/badge.svg" />
     </a>
-    <a href="https://github.com/marzneshin/marzneshin/actions/workflows/package.yml" target="_blank">
-        <img src="https://github.com/marzneshin/marzneshin/actions/workflows/package.yml/badge.svg" />
+    <a href="https://github.com/skybots-tg/marzneshin/actions/workflows/package.yml" target="_blank">
+        <img src="https://github.com/skybots-tg/marzneshin/actions/workflows/package.yml/badge.svg" />
     </a>
     <a href="https://hub.docker.com/r/dawsh/marzneshin" target="_blank">
         <img src="https://img.shields.io/docker/pulls/dawsh/marzneshin?style=flat-square&logo=docker" />
@@ -31,8 +31,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/marzneshin/marzneshin" target="_blank" rel="noopener noreferrer" >
-    <img src="https://github.com/marzneshin/marzneshin/raw/master/docs/assets/Desktop-full.png" alt="screenshots" width="600" height="auto">
+  <a href="https://github.com/skybots-tg/marzneshin" target="_blank" rel="noopener noreferrer" >
+    <img src="https://github.com/skybots-tg/marzneshin/raw/master/docs/assets/Desktop-full.png" alt="screenshots" width="600" height="auto">
   </a>
 </p>
 
@@ -73,7 +73,7 @@ Marzneshin documentation may be found [here](https://docs.marzneshin.org).
 - Automated **Share link** and **QRcode** generator
 - System, nodes, traffic statistics, users monitoring
 - Integrated **Command Line Interface (CLI)**
-- [**Multi-admin** support](https://github.com/marzneshin/marzneshin/issues/73) (WIP)
+- [**Multi-admin** support](https://github.com/skybots-tg/marzneshin/issues/73) (WIP)
 - Marzneshin is decoupled from VPN backends
 - Resilient and fault tolerant node management
 
@@ -118,13 +118,13 @@ We ❤️‍🔥 contributors! If you'd like to contribute, please check out our
 feel free to submit a pull request or open an issue. We also welcome you to join
 our [Telegram](https://t.me/marzneshins) group for either support or contributing guidance.
 
-Check [open issues](https://github.com/marzneshin/marzneshin/issues) to help the progress of this project.
+Check [open issues](https://github.com/skybots-tg/marzneshin/issues) to help the progress of this project.
 
 <p align="center">
 Thanks to all contributors who have helped Marzneshin:
 </p>
 <p align="center">
-<a href="https://github.com/marzneshin/marzneshin/graphs/contributors">
+<a href="https://github.com/skybots-tg/marzneshin/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=marzneshin/marzneshin" />
 </a>
 </p>

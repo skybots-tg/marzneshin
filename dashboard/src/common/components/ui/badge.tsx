@@ -4,25 +4,25 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@marzneshin/common/utils"
 
 const badgeVariants = cva(
-    "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+    "inline-flex items-center rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold font-header uppercase tracking-wider transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
     {
         variants: {
             variant: {
                 default:
-                    "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
+                    "border-primary/50 bg-primary/20 text-primary hover:bg-primary/30 shadow-[0_0_10px_rgba(0,255,255,0.2)]",
                 secondary:
-                    "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                    "border-secondary/50 bg-secondary/20 text-secondary hover:bg-secondary/30 shadow-[0_0_10px_rgba(255,0,255,0.2)]",
                 destructive:
-                    "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
+                    "border-destructive/50 bg-destructive/20 text-destructive hover:bg-destructive/30 shadow-[0_0_10px_rgba(255,0,100,0.2)]",
                 royal:
-                    "border-transparent text-indigo-200 bg-indigo-700 hover:bg-indigo/80",
+                    "border-indigo-500/50 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-900/30 shadow-[0_0_10px_rgba(99,102,241,0.2)]",
                 positive:
-                    "border-transparent text-emerald-100 bg-emerald-800 hover:bg-emerald/80",
+                    "border-emerald-500/50 bg-emerald-900/20 text-emerald-300 hover:bg-emerald-900/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]",
                 disabled:
-                    "border-transparent bg-gray-400 text-gray-800 hover:bg-gray/80",
+                    "border-gray-500/50 bg-gray-900/20 text-gray-400 hover:bg-gray-900/30",
                 warning:
-                    "border-transparent bg-amber-200 text-amber-700 hover:bg-amber/80",
-                outline: "text-foreground",
+                    "border-amber-500/50 bg-amber-900/20 text-amber-300 hover:bg-amber-900/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]",
+                outline: "text-foreground border-primary/30",
             },
         },
         defaultVariants: {

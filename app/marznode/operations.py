@@ -25,7 +25,11 @@ def update_user(
             node_inbounds[inb.node_id]
     else:
         for inb in user.inbounds:
-            node_inbounds[inb.node_id].append(inb.tag)
+            node = marznode.nodes.get(inb.node_id)
+            if user.data_limit_reached and node and node.usage_coefficient > 0:
+                node_inbounds[inb.node_id]
+            else:
+                node_inbounds[inb.node_id].append(inb.tag)
 
     for inb in old_inbounds:
         node_inbounds[inb[0]]
