@@ -18,7 +18,7 @@ export const Logout: FC<LogoutProps> = () => {
             className="hstack gap-2 items-center justify-end w-full h-4 p-0"
         >
             Logout
-            <LogOut className="size-4" />
+            <LogOut className="size-4 text-foreground" />
         </Button>
     );
 };

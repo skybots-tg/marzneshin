@@ -89,7 +89,7 @@ export const RuleItem = ({ index, field, onRemove: remove }: RuleItemProps) => {
                         className="size-8 shrink-0"
                     >
                         <DragHandleDots2Icon
-                            className="size-4"
+                            className="size-4 text-foreground"
                             aria-hidden="true"
                         />
                     </SortableDragHandle>

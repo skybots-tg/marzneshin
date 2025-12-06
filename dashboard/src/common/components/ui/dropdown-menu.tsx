@@ -36,8 +36,8 @@ const DropdownMenuSubTrigger = React.forwardRef<
     >
         {children}
         {arrowDir === "right" ?
-            <FontAwesomeIcon icon={faChevronRight} className="ml-auto size-4" /> :
-            <FontAwesomeIcon icon={faChevronLeft} className="mr-auto size-4" />}
+            <FontAwesomeIcon icon={faChevronRight} className="ml-auto size-4 text-foreground" /> :
+            <FontAwesomeIcon icon={faChevronLeft} className="mr-auto size-4 text-foreground" />}
     </DropdownMenuPrimitive.SubTrigger>
 ))
 DropdownMenuSubTrigger.displayName =

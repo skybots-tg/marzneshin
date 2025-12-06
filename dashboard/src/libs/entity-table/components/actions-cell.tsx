@@ -33,20 +33,20 @@ export function DataTableActionsCell<TData>({
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" data-testid="action-menu-open" className="p-0 w-8 h-8">
                     <span className="sr-only">Open menu</span>
-                    <MoreHorizontal className="w-4 h-4" />
+                    <MoreHorizontal className="w-4 h-4 text-foreground" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
                 <DropdownMenuLabel>{t('actions')}</DropdownMenuLabel>
                 <DropdownMenuItem data-testid="action-row-open" onClick={() => { onOpen(row.original) }}>
-                    <OpenInNewWindowIcon className="mr-1 w-4 h-4" /> {t('open')}
+                    <OpenInNewWindowIcon className="mr-1 w-4 h-4 text-foreground" /> {t('open')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem data-testid="action-row-edit" onClick={(e) => { e.stopPropagation(); onEdit(row.original) }}>
-                    <PencilIcon className="mr-1 w-4 h-4" />    {t('edit')}
+                    <PencilIcon className="mr-1 w-4 h-4 text-foreground" />    {t('edit')}
                 </DropdownMenuItem>
                 <DropdownMenuItem data-testid="action-row-delete" onClick={(e) => { e.stopPropagation(); onDelete(row.original) }} className="text-destructive">
-                    <TrashIcon className="mr-1 w-4 h-4" />{t('delete')}
+                    <TrashIcon className="mr-1 w-4 h-4 text-destructive" />{t('delete')}
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

@@ -32,7 +32,7 @@ export const HeaderMenu: FC = () => {
                     className="bg-gradient-to-br from-primary/10 to-secondary/10 backdrop-blur-xl border border-border/50 hover:bg-accent/50 hover:border-primary/30 shadow-sm hover:shadow-md transition-all duration-300"
                     size="icon"
                 >
-                    <MenuIcon />
+                    <MenuIcon className="text-foreground" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
@@ -43,14 +43,14 @@ export const HeaderMenu: FC = () => {
                         <DropdownMenuItem className="w-full">
                             <Link to="/settings" className="hstack gap-1 items-center justify-between w-full h-fit p-0">
                                 {t("settings")}
-                                <Settings className="size-4" />
+                                <Settings className="size-4 text-foreground" />
                             </Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="w-full">
                             <Link to="/admins" className="hstack gap-1 items-center justify-between w-full h-fit p-0" >
                                 {t("admins")}
-                                <ShieldCheck className="size-4" />
+                                <ShieldCheck className="size-4 text-foreground" />
                             </Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />

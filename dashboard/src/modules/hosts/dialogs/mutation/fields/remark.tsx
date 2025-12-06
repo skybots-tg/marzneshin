@@ -28,7 +28,7 @@ export const RemarkField = () => {
                         {t('name')}
                         <Popover>
                             <PopoverTrigger>
-                                <InfoIcon className="size-5" />
+                                <InfoIcon className="size-5 text-foreground" />
                             </PopoverTrigger>
                             <PopoverContent className="w-80">
                                 <PopoverGuide />

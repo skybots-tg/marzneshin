@@ -25,23 +25,23 @@ export const GithubRepo: FC<GithubRepoProps> = ({ variant = "full", stargazers_c
             <Card className="border-0 shadow-none bg-transparent">
                 <a href={projectInfo.github} target="_blank">
                     <CardContent className="hstack size-fit p-0 gap-2 items-center">
-                        <GithubIcon className="size-6" />
+                        <GithubIcon className="size-6 text-foreground" />
                         {variant === "full" ? (
                             <div className="vstack items-start">
                                 <CardTitle className="font-semibold text-xs hstack justify-between w-full gap-2 text-primary">
                                     {full_name}
                                     <div className="hstack gap-1 font-bold items-center text-xs text-foreground">
-                                        <StarIcon className="size-3" />
+                                        <StarIcon className="size-3 text-foreground fill-foreground" />
                                         {stargazers_count}
                                     </div>
                                 </CardTitle>
-                                <CardDescription className="text-xs text-muted-foreground/80">
+                                <CardDescription className="text-xs text-muted-foreground">
                                     {description}
                                 </CardDescription>
                             </div>
                         ) : (
-                            <CardDescription className="hstack gap-1 font-bold items-center text-xs">
-                                <StarIcon className="size-3" />
+                            <CardDescription className="hstack gap-1 font-bold items-center text-xs text-foreground">
+                                <StarIcon className="size-3 text-foreground fill-foreground" />
                                 {stargazers_count}
                             </CardDescription>
                         )}

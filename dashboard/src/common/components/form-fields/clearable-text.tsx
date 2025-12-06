@@ -58,7 +58,7 @@ export const ClearableTextField = ({
                                 }
                                 className="absolute hover:fg-destructive-background right-1 top-1/2 -translate-y-1/2 h-7"
                             >
-                                <X className="h-4 w-4 " />
+                                <X className="h-4 w-4 text-foreground" />
                                 <span className="sr-only">Clear</span>
                             </Button>
                         </div>

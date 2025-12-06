@@ -34,7 +34,7 @@ export const HttpHeadersDynamicFields = () => {
                         className="p-1"
                         onClick={() => replace([])}
                     >
-                        <Trash />
+                        <Trash className="text-foreground" />
                     </Button>
                     <Button
                         variant="ghost"
@@ -45,7 +45,7 @@ export const HttpHeadersDynamicFields = () => {
                             append({ name: "", value: "" });
                         }}
                     >
-                        <ListPlus />
+                        <ListPlus className="text-foreground" />
                     </Button>
                 </div>
             </FormLabel>

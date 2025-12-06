@@ -66,7 +66,7 @@ export function SidebarEntityTable<T, S>(props: SidebarEntityTableProps<T, S>) {
                                 <SidebarEntityTablePopover
                                     buttonChild={
                                         <HStack className="items-center p-1">
-                                            <Server className="size-4" /> {t("inbounds")}
+                                            <Server className="size-4 text-foreground" /> {t("inbounds")}
                                         </HStack>
                                     }
                                 />

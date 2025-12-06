@@ -122,7 +122,7 @@ export const NoiseField = () => {
                                                 addForm();
                                             }}
                                         >
-                                            <ListPlus />
+                                            <ListPlus className="text-foreground" />
                                         </Button>
                                     )}
                                 </div>
