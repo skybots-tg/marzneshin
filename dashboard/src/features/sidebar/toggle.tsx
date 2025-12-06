@@ -19,7 +19,7 @@ export const ToggleButton: FC<ToggleButtonProps> = ({ collapsed, onToggle }) => 
             variant="outline"
             size="icon"
         >
-            <FontAwesomeIcon icon={icon} className="w-4 h-4" />
+            <FontAwesomeIcon icon={icon} className="w-4 h-4 text-foreground" />
         </Button>
     );
 };

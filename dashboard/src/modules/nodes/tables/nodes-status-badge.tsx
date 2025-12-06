@@ -27,7 +27,7 @@ export const NodesStatusBadge: FC<NodesStatusBadgeProps> = ({ status }) => {
 
     return (
         <Badge variant={badgeVariant} className="h-6">
-            {Icon && <Icon className="mr-1 w-5 h-4" />} <Label className="capitalize">{label}</Label>
+            {Icon && <Icon className="mr-1 w-5 h-4 text-foreground" />} <Label className="capitalize">{label}</Label>
         </Badge>
     );
 };

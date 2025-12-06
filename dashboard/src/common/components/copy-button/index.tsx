@@ -69,7 +69,7 @@ export const CopyToClipboardButton: React.FC<CopyToClipboardButtonProps> = ({
                         disabled={disabled || !healthy}
                         onClick={handleClick}
                     >
-                        <Icon />
+                        <Icon className="text-foreground" />
                         {isWithLabel &&
                             t(copied ? successMessage : healthy ? copyLabel : errorLabel)}
                     </Button>

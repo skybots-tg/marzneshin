@@ -34,7 +34,7 @@ export const LanguageSwitchMenu: FC = () => {
             <DropdownMenuSubTrigger arrowDir="left">
                 <div className="hstack items-center gap-2 w-full justify-end">
                     <span>{t("language")}</span>
-                    <Languages className="size-[1rem]" />
+                    <Languages className="size-[1rem] text-foreground" />
                 </div>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>

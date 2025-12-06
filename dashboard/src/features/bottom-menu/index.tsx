@@ -23,12 +23,12 @@ const adminItems: BottomMenuItemProps[] = [
     {
         title: i18n.t('users'),
         to: '/users',
-        icon: <UsersIcon />,
+        icon: <UsersIcon className="text-foreground" />,
     },
     {
         title: i18n.t('home'),
         to: '/',
-        icon: <Home />,
+        icon: <Home className="text-foreground" />,
     },
 ]
 
@@ -36,27 +36,27 @@ const sudoAdminItems: BottomMenuItemProps[] = [
     {
         title: i18n.t('users'),
         to: '/users',
-        icon: <UsersIcon />,
+        icon: <UsersIcon className="text-foreground" />,
     },
     {
         title: i18n.t('services'),
         to: '/services',
-        icon: <Server />,
+        icon: <Server className="text-foreground" />,
     },
     {
         title: i18n.t('home'),
         to: '/',
-        icon: <Home />,
+        icon: <Home className="text-foreground" />,
     },
     {
         title: i18n.t('nodes'),
         to: '/nodes',
-        icon: <Box />,
+        icon: <Box className="text-foreground" />,
     },
     {
         title: i18n.t('hosts'),
         to: '/hosts',
-        icon: <ServerCog />,
+        icon: <ServerCog className="text-foreground" />,
     },
 ]
 

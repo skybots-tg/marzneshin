@@ -37,7 +37,7 @@ export const AllowInsecureField = () => {
                     <FormMessage />
                     {form.getValues().allowinsecure &&
                         <Alert variant="destructive">
-                            <ExclamationTriangleIcon className="w-4 h-4" />
+                            <ExclamationTriangleIcon className="w-4 h-4 text-foreground" />
                             <AlertTitle>
                                 Warning
                             </AlertTitle>

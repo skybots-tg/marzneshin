@@ -48,7 +48,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 size="icon"
                 onClick={onRemove}
             >
-                <ListX />
+                <ListX className="text-foreground" />
             </Button>
         </div>
     );

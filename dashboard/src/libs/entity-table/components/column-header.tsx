@@ -43,26 +43,26 @@ export function DataTableColumnHeader<TData, TValue>({
                     >
                         <span>{title}</span>
                         {column.getIsSorted() === "desc" ? (
-                            <ArrowDownIcon className="ml-2 w-4 h-4" />
+                            <ArrowDownIcon className="ml-2 w-4 h-4 text-foreground" />
                         ) : column.getIsSorted() === "asc" ? (
-                            <ArrowUpIcon className="ml-2 w-4 h-4" />
+                            <ArrowUpIcon className="ml-2 w-4 h-4 text-foreground" />
                         ) : (
-                            <CaretSortIcon className="ml-2 w-4 h-4" />
+                            <CaretSortIcon className="ml-2 w-4 h-4 text-foreground" />
                         )}
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                     <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
-                        <ArrowUpIcon className="mr-2 w-3.5 h-3.5 text-muted-foreground/70" />
+                        <ArrowUpIcon className="mr-2 w-3.5 h-3.5 text-muted-foreground" />
                         Asc
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
-                        <ArrowDownIcon className="mr-2 w-3.5 h-3.5 text-muted-foreground/70" />
+                        <ArrowDownIcon className="mr-2 w-3.5 h-3.5 text-muted-foreground" />
                         Desc
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => column.toggleVisibility(false)}>
-                        <EyeNoneIcon className="mr-2 w-3.5 h-3.5 text-muted-foreground/70" />
+                        <EyeNoneIcon className="mr-2 w-3.5 h-3.5 text-muted-foreground" />
                         Hide
                     </DropdownMenuItem>
                 </DropdownMenuContent>

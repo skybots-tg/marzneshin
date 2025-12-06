@@ -40,7 +40,7 @@ export const UserInfoTable: FC<UserProp> = ({ user: entity }) => {
                         className="rounded-2xl"
                         onClick={() => resetUsage(entity)}
                     >
-                        <TimerReset className="mr-2" />
+                        <TimerReset className="mr-2 text-foreground" />
                         <span>{t("page.users.reset_usage")}</span>
                     </Button>
                     <UserStatusEnableButton user={entity} />
