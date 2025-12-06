@@ -28,6 +28,14 @@ async def review_users():
         for user in get_users(db, activated=True, is_active=False):
             """looking for expired/to be limited users who are still active"""
 
+            if (
+                user.data_limit_reached
+                and not user.expired
+                and user.enabled
+                and not user.removed
+            ):
+                continue
+
             marznode.operations.update_user(user, remove=True)
             user.activated = False
             db.commit()

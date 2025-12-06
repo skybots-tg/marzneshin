@@ -1,4 +1,5 @@
-import { Moon, Sun } from "lucide-react";
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 import {
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -15,7 +16,7 @@ const ThemeItem = ({ schema }: { schema: Theme }) => {
     const { t } = useTranslation();
     return (
         <DropdownMenuItem
-            className={cn({ "bg-primary text-secondary": theme === schema })}
+            className={cn({ "bg-primary/20 text-primary border-l-2 border-primary": theme === schema })}
             onMouseDown={() => setTheme(schema)}>
             {t(schema)}
         </DropdownMenuItem>
@@ -29,10 +30,10 @@ export function ThemeToggle() {
         <DropdownMenuSub>
             <DropdownMenuSubTrigger arrowDir="left" className="w-full flex">
                 <div className="hstack gap-2  items-center justify-end w-full">
-                    <span>{t('theme')}</span>
+                    <span className="font-header uppercase tracking-wider">{t('theme')}</span>
                     <div className="flex items-center">
-                        <Sun className="w-4 h-4 m-0 transition-all transform scale-100 rotate-0 dark:scale-0 dark:-rotate-90" />
-                        <Moon className="w-4 h-4 m-0 transition-all transform scale-0 rotate-90 dark:scale-100 dark:rotate-0" />
+                        <FontAwesomeIcon icon={faSun} className="w-4 h-4 m-0 transition-all transform scale-100 rotate-0 dark:scale-0 dark:-rotate-90 text-neon-yellow" />
+                        <FontAwesomeIcon icon={faMoon} className="w-4 h-4 m-0 transition-all transform scale-0 rotate-90 dark:scale-100 dark:rotate-0 text-primary absolute" />
                     </div>
                 </div>
             </DropdownMenuSubTrigger>
