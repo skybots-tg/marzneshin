@@ -45,7 +45,7 @@ const DialogContent = React.forwardRef<
             <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-secondary/8 pointer-events-none" />
             <div className="relative z-10">
                 {children}
-                <DialogPrimitive.Close className="absolute right-6 top-6 rounded-2xl opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/5 p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border border-primary/10 hover:border-primary/20">
+                <DialogPrimitive.Close className="absolute right-6 rounded-2xl opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border border-primary/10 hover:border-primary/20">
                     <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
                     <span className="sr-only">Close</span>
                 </DialogPrimitive.Close>
