@@ -37,18 +37,20 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
             ref={ref}
             className={cn(
-                "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border border-primary/20 bg-background/85 backdrop-blur-2xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.32)] rounded-3xl relative max-h-[calc(100vh-3rem)] overflow-y-auto transition duration-200 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95",
+                "fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6",
                 className
             )}
             {...props}
         >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-secondary/8 pointer-events-none" />
-            <div className="relative z-10">
-                {children}
-                <DialogPrimitive.Close className="absolute right-6 top-6 rounded-2xl opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border border-primary/10 hover:border-primary/20">
-                    <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
-                    <span className="sr-only">Close</span>
-                </DialogPrimitive.Close>
+            <div className="relative grid w-full max-w-lg gap-4 border border-primary/20 bg-background/85 backdrop-blur-2xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.32)] rounded-3xl max-h-[calc(100vh-3rem)] overflow-y-auto transition duration-200 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-secondary/8 pointer-events-none" />
+                <div className="relative z-10">
+                    {children}
+                    <DialogPrimitive.Close className="absolute right-6 top-6 rounded-2xl opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border border-primary/10 hover:border-primary/20">
+                        <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
+                        <span className="sr-only">Close</span>
+                    </DialogPrimitive.Close>
+                </div>
             </div>
         </DialogPrimitive.Content>
     </DialogPortal>
