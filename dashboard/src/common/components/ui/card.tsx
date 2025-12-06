@@ -9,12 +9,12 @@ const Card = React.forwardRef<
     <div
         ref={ref}
         className={cn(
-            "rounded-xl border-2 border-primary/20 bg-card/90 backdrop-blur-md text-card-foreground shadow-lg hover:border-primary/40 hover:shadow-[0_0_15px_rgba(0,200,200,0.15)] dark:hover:shadow-[0_0_20px_rgba(0,255,255,0.2)] transition-all duration-300 relative overflow-hidden",
+            "rounded-3xl border border-border bg-card/70 backdrop-blur-2xl text-card-foreground shadow-lg hover:shadow-xl transition-all duration-300 relative overflow-hidden",
             className
         )}
         {...props}
     >
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/3 to-transparent pointer-events-none dark:from-primary/5" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5 pointer-events-none" />
         <div className="relative z-10">{props.children}</div>
     </div>
 ))
@@ -39,7 +39,7 @@ const CardTitle = React.forwardRef<
     <h3
         ref={ref}
         className={cn(
-            "text-2xl font-semibold leading-none tracking-tight font-header uppercase text-primary",
+            "text-2xl font-semibold leading-none tracking-tight font-header text-foreground",
             className
         )}
         {...props}

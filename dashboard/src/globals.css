@@ -4,101 +4,101 @@
 
 @layer base {
   :root {
-    /* Cyberpunk Light Theme - Основная тема по умолчанию */
-    --background: 200 20% 98%;
-    --foreground: 220 30% 15%;
+    /* iOS Liquid Glass Light Theme - По умолчанию */
+    --background: 240 25% 97%;
+    --foreground: 220 30% 20%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 30% 15%;
+    --card-foreground: 220 30% 20%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 30% 15%;
+    --popover-foreground: 220 30% 20%;
 
-    --primary: 190 95% 45%;
+    --primary: 200 90% 50%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 280 85% 55%;
+    --secondary: 270 80% 60%;
     --secondary-foreground: 0 0% 100%;
 
-    --muted: 200 20% 95%;
-    --muted-foreground: 220 20% 50%;
+    --muted: 220 15% 92%;
+    --muted-foreground: 220 15% 45%;
 
-    --accent: 320 85% 55%;
+    --accent: 320 80% 60%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 75% 55%;
-    --destructive-accent: 0 80% 70%;
+    --destructive: 0 70% 55%;
+    --destructive-accent: 0 75% 70%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 140 70% 45%;
-    --success-accent: 140 70% 65%;
+    --success: 140 65% 50%;
+    --success-accent: 140 65% 65%;
     --success-foreground: 0 0% 100%;
 
-    --border: 190 50% 75%;
-    --input: 200 15% 95%;
-    --ring: 190 95% 45%;
+    --border: 220 20% 88%;
+    --input: 220 15% 94%;
+    --ring: 200 90% 50%;
 
-    --radius: 0.5rem;
+    --radius: 1rem;
 
-    --chart-1: 190 95% 45%;
-    --chart-2: 280 85% 55%;
-    --chart-3: 320 85% 55%;
-    --chart-4: 50 95% 55%;
-    --chart-5: 0 75% 55%;
+    --chart-1: 200 90% 50%;
+    --chart-2: 270 80% 60%;
+    --chart-3: 320 80% 60%;
+    --chart-4: 50 90% 55%;
+    --chart-5: 0 70% 55%;
 
-    /* Neon glow colors for light theme */
-    --neon-cyan: 190 95% 45%;
-    --neon-magenta: 320 85% 55%;
-    --neon-purple: 280 85% 55%;
-    --neon-yellow: 50 95% 50%;
+    /* Мягкие цвета для светлой темы */
+    --neon-cyan: 200 90% 50%;
+    --neon-magenta: 320 80% 60%;
+    --neon-purple: 270 80% 60%;
+    --neon-yellow: 50 90% 55%;
   }
 
   .dark {
-    /* Cyberpunk Dark Theme - Более темная и гладкая */
-    --background: 220 25% 4%;
-    --foreground: 180 70% 90%;
+    /* iOS Liquid Glass Dark Theme - Более темная и контрастная */
+    --background: 220 30% 8%;
+    --foreground: 210 20% 92%;
 
-    --card: 220 20% 6%;
-    --card-foreground: 180 70% 90%;
+    --card: 220 25% 10%;
+    --card-foreground: 210 20% 92%;
 
-    --popover: 220 25% 5%;
-    --popover-foreground: 180 70% 90%;
+    --popover: 220 25% 10%;
+    --popover-foreground: 210 20% 92%;
 
-    --primary: 180 100% 55%;
-    --primary-foreground: 220 25% 8%;
+    --primary: 190 95% 55%;
+    --primary-foreground: 220 30% 10%;
 
-    --secondary: 280 90% 65%;
-    --secondary-foreground: 220 25% 8%;
+    --secondary: 280 85% 65%;
+    --secondary-foreground: 220 30% 10%;
 
-    --muted: 220 20% 12%;
-    --muted-foreground: 180 20% 55%;
+    --muted: 220 20% 18%;
+    --muted-foreground: 220 15% 60%;
 
-    --accent: 320 90% 65%;
-    --accent-foreground: 220 25% 8%;
+    --accent: 320 85% 65%;
+    --accent-foreground: 220 30% 10%;
 
-    --success: 140 85% 50%;
-    --success-accent: 140 85% 35%;
-    --success-foreground: 220 25% 8%;
+    --success: 145 80% 50%;
+    --success-accent: 145 80% 35%;
+    --success-foreground: 220 30% 10%;
 
-    --destructive: 0 80% 60%;
-    --destructive-accent: 0 85% 45%;
+    --destructive: 0 75% 60%;
+    --destructive-accent: 0 80% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 180 60% 25%;
-    --input: 220 20% 10%;
-    --ring: 180 100% 55%;
+    --border: 220 20% 22%;
+    --input: 220 20% 15%;
+    --ring: 190 95% 55%;
 
-    --chart-1: 180 100% 55%;
-    --chart-2: 280 90% 65%;
-    --chart-3: 320 90% 65%;
-    --chart-4: 50 90% 60%;
-    --chart-5: 0 80% 60%;
+    --chart-1: 190 95% 55%;
+    --chart-2: 280 85% 65%;
+    --chart-3: 320 85% 65%;
+    --chart-4: 50 85% 60%;
+    --chart-5: 0 75% 60%;
 
-    /* Neon glow colors for dark theme */
-    --neon-cyan: 180 100% 55%;
-    --neon-magenta: 320 90% 65%;
-    --neon-purple: 280 90% 65%;
-    --neon-yellow: 50 90% 60%;
+    /* Более яркие цвета для темной темы */
+    --neon-cyan: 190 95% 55%;
+    --neon-magenta: 320 85% 65%;
+    --neon-purple: 280 85% 65%;
+    --neon-yellow: 50 85% 60%;
   }
 }
 
@@ -128,7 +128,7 @@
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
-  /* Cyberpunk Grid Background - Light Theme */
+  /* Liquid Glass Grid Background - Light Theme */
   body::before {
     content: '';
     position: fixed;
@@ -137,9 +137,9 @@
     width: 100%;
     height: 100%;
     background-image: 
-      linear-gradient(rgba(0, 200, 200, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 200, 200, 0.04) 1px, transparent 1px);
-    background-size: 50px 50px;
+      linear-gradient(rgba(100, 150, 200, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(100, 150, 200, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
     pointer-events: none;
     z-index: 0;
     opacity: 1;
@@ -148,12 +148,12 @@
 
   .dark body::before {
     background-image: 
-      linear-gradient(rgba(0, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 255, 255, 0.02) 1px, transparent 1px);
-    opacity: 0.5;
+      linear-gradient(rgba(100, 200, 255, 0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(100, 200, 255, 0.015) 1px, transparent 1px);
+    opacity: 0.4;
   }
 
-  /* Animated scan lines */
+  /* Subtle scan lines */
   body::after {
     content: '';
     position: fixed;
@@ -163,27 +163,27 @@
     height: 100%;
     background: repeating-linear-gradient(
       0deg,
-      rgba(0, 200, 200, 0.02) 0px,
-      rgba(0, 200, 200, 0.02) 1px,
+      rgba(100, 150, 200, 0.015) 0px,
+      rgba(100, 150, 200, 0.015) 1px,
       transparent 1px,
-      transparent 2px
+      transparent 3px
     );
     pointer-events: none;
     z-index: 0;
-    animation: scan 8s linear infinite;
-    opacity: 1;
+    animation: scan 10s linear infinite;
+    opacity: 0.6;
     transition: opacity 0.3s ease;
   }
 
   .dark body::after {
     background: repeating-linear-gradient(
       0deg,
-      rgba(0, 255, 255, 0.015) 0px,
-      rgba(0, 255, 255, 0.015) 1px,
+      rgba(100, 200, 255, 0.01) 0px,
+      rgba(100, 200, 255, 0.01) 1px,
       transparent 1px,
-      transparent 2px
+      transparent 3px
     );
-    opacity: 0.6;
+    opacity: 0.4;
   }
 
   @keyframes scan {
@@ -191,7 +191,7 @@
       transform: translateY(0);
     }
     100% {
-      transform: translateY(50px);
+      transform: translateY(60px);
     }
   }
 

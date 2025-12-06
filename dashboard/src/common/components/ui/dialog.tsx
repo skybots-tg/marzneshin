@@ -37,16 +37,16 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
             ref={ref}
             className={cn(
-                "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border-2 border-primary/30 bg-background/95 backdrop-blur-xl p-6 shadow-[0_0_30px_rgba(0,200,200,0.25)] dark:shadow-[0_0_40px_rgba(0,255,255,0.3)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-xl relative overflow-hidden",
+                "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-primary/20 bg-background/80 backdrop-blur-2xl p-8 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.32)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-3xl relative overflow-hidden",
                 className
             )}
             {...props}
         >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none dark:from-primary/10" />
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-secondary/8 pointer-events-none" />
             <div className="relative z-10">
                 {children}
-                <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/10 p-2 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border-2 border-transparent hover:border-primary/30">
-                    <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-primary" />
+                <DialogPrimitive.Close className="absolute right-6 top-6 rounded-2xl opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/5 p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border border-primary/10 hover:border-primary/20">
+                    <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
                     <span className="sr-only">Close</span>
                 </DialogPrimitive.Close>
             </div>
@@ -90,7 +90,7 @@ const DialogTitle = React.forwardRef<
     <DialogPrimitive.Title
         ref={ref}
         className={cn(
-            "text-xl font-semibold leading-none tracking-tight font-header uppercase text-primary",
+            "text-2xl font-semibold leading-none tracking-tight font-header text-foreground",
             className
         )}
         {...props}
