@@ -21,17 +21,17 @@ interface GithubRepoProps {
 
 export const GithubRepo: FC<GithubRepoProps> = ({ variant = "full", stargazers_count, full_name, description }) => {
     return (
-        <Button variant="ghost" className="bg-background/60 backdrop-blur-xl border border-border hover:bg-accent/50 p-2 h-auto rounded-2xl" asChild>
+        <Button variant="ghost" className="bg-background/60 backdrop-blur-xl border border-border hover:bg-accent/50 p-2 h-auto rounded-2xl text-foreground" asChild>
             <Card className="border-0 shadow-none bg-transparent">
                 <a href={projectInfo.github} target="_blank">
                     <CardContent className="hstack size-fit p-0 gap-2 items-center">
                         <GithubIcon className="size-6 text-foreground" />
                         {variant === "full" ? (
                             <div className="vstack items-start">
-                                <CardTitle className="font-semibold text-xs hstack justify-between w-full gap-2 text-primary">
+                                <CardTitle className="font-semibold text-xs hstack justify-between w-full gap-2 text-foreground">
                                     {full_name}
                                     <div className="hstack gap-1 font-bold items-center text-xs text-foreground">
-                                        <StarIcon className="size-3 text-foreground fill-foreground" />
+                                        <StarIcon className="size-3 text-primary fill-primary" />
                                         {stargazers_count}
                                     </div>
                                 </CardTitle>
@@ -41,7 +41,7 @@ export const GithubRepo: FC<GithubRepoProps> = ({ variant = "full", stargazers_c
                             </div>
                         ) : (
                             <CardDescription className="hstack gap-1 font-bold items-center text-xs text-foreground">
-                                <StarIcon className="size-3 text-foreground fill-foreground" />
+                                <StarIcon className="size-3 text-primary fill-primary" />
                                 {stargazers_count}
                             </CardDescription>
                         )}
