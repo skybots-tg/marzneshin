@@ -14,7 +14,7 @@ export const ToggleButton: FC<ToggleButtonProps> = ({ collapsed, onToggle }) => 
 
     return (
         <Button 
-            className="p-2 bg-background/30 backdrop-blur-sm border-2 border-primary/50 text-primary hover:bg-primary/20 hover:border-primary shadow-[0_0_10px_rgba(0,255,255,0.2)] hover:shadow-[0_0_20px_rgba(0,255,255,0.4)]" 
+            className="p-2 bg-background/40 backdrop-blur-md border-2 border-primary/30 text-primary hover:bg-primary/15 hover:border-primary/50 shadow-[0_0_8px_rgba(0,200,200,0.15)] hover:shadow-[0_0_15px_rgba(0,200,200,0.25)] dark:shadow-[0_0_10px_rgba(0,255,255,0.2)] dark:hover:shadow-[0_0_20px_rgba(0,255,255,0.4)]" 
             onClick={onToggle}
             variant="outline"
         >

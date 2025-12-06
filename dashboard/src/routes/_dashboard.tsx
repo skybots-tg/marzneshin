@@ -69,7 +69,7 @@ export const DashboardLayout = () => {
                             onCollapse={() => setCollapsed(true)}
                             onExpand={() => setCollapsed(false)}
                             minSize={15}
-                            className={cn("w-[120px] min-w-[70px] border-r-2 border-primary/30 bg-background/80 backdrop-blur-md")}
+                            className={cn("w-[120px] min-w-[70px] border-r-2 border-primary/20 bg-background/90 backdrop-blur-lg")}
                             defaultSize={20}
                             ref={panelRef}
                             maxSize={30}
@@ -79,8 +79,8 @@ export const DashboardLayout = () => {
                                 setCollapsed={setCollapsed}
                             />
                         </ResizablePanel>
-                        <ResizableHandle withHandle className="w-[2px] bg-gradient-to-b from-primary/50 via-secondary/50 to-primary/50 hover:shadow-[0_0_10px_rgba(0,255,255,0.5)]" />
-                        <ResizablePanel className="flex flex-col h-full bg-background/50 backdrop-blur-sm">
+                        <ResizableHandle withHandle className="w-[2px] bg-gradient-to-b from-primary/40 via-secondary/40 to-primary/40 hover:shadow-[0_0_8px_rgba(0,200,200,0.4)] dark:hover:shadow-[0_0_10px_rgba(0,255,255,0.5)] transition-all duration-300" />
+                        <ResizablePanel className="flex flex-col h-full bg-background/60 backdrop-blur-sm">
                             <main className="flex-grow flex flex-col overflow-y-auto p-4">
                                 <Suspense fallback={<Loading />}>
                                     <Outlet />
