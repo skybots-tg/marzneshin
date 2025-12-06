@@ -9,20 +9,20 @@ const badgeVariants = cva(
         variants: {
             variant: {
                 default:
-                    "border-primary/50 bg-primary/20 text-primary hover:bg-primary/30 shadow-[0_0_10px_rgba(0,255,255,0.2)]",
+                    "border-primary/35 bg-primary/15 text-primary hover:bg-primary/25 shadow-[0_0_8px_rgba(0,200,200,0.15)] dark:shadow-[0_0_10px_rgba(0,255,255,0.2)]",
                 secondary:
-                    "border-secondary/50 bg-secondary/20 text-secondary hover:bg-secondary/30 shadow-[0_0_10px_rgba(255,0,255,0.2)]",
+                    "border-secondary/35 bg-secondary/15 text-secondary hover:bg-secondary/25 shadow-[0_0_8px_rgba(255,0,255,0.15)] dark:shadow-[0_0_10px_rgba(255,0,255,0.2)]",
                 destructive:
-                    "border-destructive/50 bg-destructive/20 text-destructive hover:bg-destructive/30 shadow-[0_0_10px_rgba(255,0,100,0.2)]",
+                    "border-destructive/35 bg-destructive/15 text-destructive hover:bg-destructive/25 shadow-[0_0_8px_rgba(255,0,100,0.15)] dark:shadow-[0_0_10px_rgba(255,0,100,0.2)]",
                 royal:
-                    "border-indigo-500/50 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-900/30 shadow-[0_0_10px_rgba(99,102,241,0.2)]",
+                    "border-indigo-400/35 bg-indigo-900/15 text-indigo-400 hover:bg-indigo-900/25 shadow-[0_0_8px_rgba(99,102,241,0.15)] dark:text-indigo-300 dark:shadow-[0_0_10px_rgba(99,102,241,0.2)]",
                 positive:
-                    "border-emerald-500/50 bg-emerald-900/20 text-emerald-300 hover:bg-emerald-900/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]",
+                    "border-emerald-400/35 bg-emerald-900/15 text-emerald-500 hover:bg-emerald-900/25 shadow-[0_0_8px_rgba(16,185,129,0.15)] dark:text-emerald-300 dark:shadow-[0_0_10px_rgba(16,185,129,0.2)]",
                 disabled:
-                    "border-gray-500/50 bg-gray-900/20 text-gray-400 hover:bg-gray-900/30",
+                    "border-gray-400/35 bg-gray-900/15 text-gray-500 hover:bg-gray-900/25 dark:text-gray-400",
                 warning:
-                    "border-amber-500/50 bg-amber-900/20 text-amber-300 hover:bg-amber-900/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]",
-                outline: "text-foreground border-primary/30",
+                    "border-amber-400/35 bg-amber-900/15 text-amber-500 hover:bg-amber-900/25 shadow-[0_0_8px_rgba(245,158,11,0.15)] dark:text-amber-300 dark:shadow-[0_0_10px_rgba(245,158,11,0.2)]",
+                outline: "text-foreground border-primary/25 hover:bg-primary/10",
             },
         },
         defaultVariants: {

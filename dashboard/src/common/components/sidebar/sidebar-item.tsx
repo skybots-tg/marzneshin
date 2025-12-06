@@ -8,8 +8,8 @@ import { useSidebarContext } from "./sidebar-provider";
 const sidebarItemVariants = cva("w-full rounded-lg border-2 p-2 transition-all duration-300 relative overflow-hidden group", {
     variants: {
         variant: {
-            default: "bg-background/30 backdrop-blur-sm text-foreground hover:bg-accent/20 border-primary/20 hover:border-primary/50 hover:shadow-[0_0_15px_rgba(0,255,255,0.2)]",
-            active: "bg-gradient-to-r from-primary/20 to-secondary/20 text-primary border-primary/50 shadow-[0_0_20px_rgba(0,255,255,0.3)] font-bold",
+            default: "bg-background/40 backdrop-blur-sm text-foreground hover:bg-accent/15 border-primary/15 hover:border-primary/35 hover:shadow-[0_0_10px_rgba(0,200,200,0.12)] dark:hover:shadow-[0_0_15px_rgba(0,255,255,0.2)]",
+            active: "bg-gradient-to-r from-primary/15 to-secondary/15 text-primary border-primary/40 shadow-[0_0_15px_rgba(0,200,200,0.2)] dark:shadow-[0_0_20px_rgba(0,255,255,0.3)] font-bold",
         },
         size: {
             default: "",
