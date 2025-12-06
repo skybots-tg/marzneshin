@@ -16,8 +16,8 @@ type Story = StoryObj<typeof GithubRepo>;
  * */
 export const GithubRepoStats: Story = {
     args: {
-        full_name: "marzneshin/marzneshin",
-        description: "Scalable and Comprehensive Backend Proxy Management",
+        full_name: "skybots-tg/marzneshin",
+        description: "A fork of Marzneshin with a better UI, bugs fixes and more features",
         stargazers_count: 1000,
     }
 }
