@@ -9,7 +9,7 @@ import {
 } from "@marzneshin/modules/devices";
 
 interface UpdateDeviceParams {
-    userId: number;
+    userId: number | string;
     deviceId: number;
     data: DeviceMutationType;
 }
@@ -23,7 +23,7 @@ export async function updateDevice({ userId, deviceId, data }: UpdateDeviceParam
     });
 }
 
-const handleError = (error: Error, value: UpdateDeviceParams) => {
+const handleError = (error: Error, _value: UpdateDeviceParams) => {
     toast.error(
         i18n.t('Device update failed'),
         {
@@ -31,7 +31,7 @@ const handleError = (error: Error, value: UpdateDeviceParams) => {
         })
 }
 
-const handleSuccess = (data: any, value: UpdateDeviceParams) => {
+const handleSuccess = (_data: any, value: UpdateDeviceParams) => {
     toast.success(
         i18n.t('Device updated successfully'),
         {

@@ -29,7 +29,7 @@ import { useDevicesUpdateMutation } from "@marzneshin/modules/devices";
 interface DeviceEditDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    userId: number;
+    userId: number | string;
     device: DeviceType;
 }
 

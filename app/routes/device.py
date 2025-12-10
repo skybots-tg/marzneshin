@@ -1,13 +1,13 @@
 """Device tracking and management API routes"""
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Annotated
+from typing import Optional, Annotated, Union
 
 from fastapi import APIRouter, HTTPException, Query, Path
 from fastapi_pagination import Page, Params
 from fastapi_pagination.ext.sqlalchemy import paginate as sqlalchemy_paginate
 
-from app.db import device_crud
+from app.db import device_crud, crud
 from app.db.models import UserDevice as DBUserDevice, User as DBUser
 from app.dependencies import (
     DBDep,
@@ -29,6 +29,19 @@ from app.models.device import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Devices"])
+
+
+def get_user_id_from_identifier(db: DBDep, user_identifier: Union[int, str]) -> int:
+    """Convert username or user_id to user_id"""
+    # Try to parse as int first
+    try:
+        return int(user_identifier)
+    except (ValueError, TypeError):
+        # It's a username, look up the user
+        user = crud.get_user(db, str(user_identifier))
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user.id
 
 
 # ============================================================================
@@ -99,14 +112,18 @@ def admin_get_all_devices(
 def admin_get_user_devices(
     db: DBDep,
     admin: AdminDep,
-    user_id: int = Path(...),
+    user_id: str = Path(...),
     is_blocked: Optional[bool] = Query(None),
 ):
     """
     Get all devices for a specific user (admin only).
+    Accepts both user_id (int) and username (str).
     """
+    # Convert username/user_id to user_id
+    actual_user_id = get_user_id_from_identifier(db, user_id)
+    
     # Check if user exists
-    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    user = db.query(DBUser).filter(DBUser.id == actual_user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -114,7 +131,7 @@ def admin_get_user_devices(
     if not admin.is_sudo and user.admin_id != admin.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    devices = device_crud.get_user_devices(db, user_id, is_blocked=is_blocked)
+    devices = device_crud.get_user_devices(db, actual_user_id, is_blocked=is_blocked)
     
     result = []
     for device in devices:
@@ -138,18 +155,20 @@ def admin_get_user_devices(
 def admin_get_device_details(
     db: DBDep,
     admin: AdminDep,
-    user_id: int = Path(...),
+    user_id: str = Path(...),
     device_id: int = Path(...),
 ):
     """
     Get detailed information about a specific device (admin only).
     """
+    actual_user_id = get_user_id_from_identifier(db, user_id)
+    
     device = device_crud.get_device_by_id(db, device_id)
-    if not device or device.user_id != user_id:
+    if not device or device.user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Device not found")
     
     # Check permissions
-    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    user = db.query(DBUser).filter(DBUser.id == actual_user_id).first()
     if not admin.is_sudo and (not user or user.admin_id != admin.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -179,19 +198,21 @@ def admin_update_device(
     db: DBDep,
     admin: AdminDep,
     modifications: UserDeviceModify,
-    user_id: int = Path(...),
+    user_id: str = Path(...),
     device_id: int = Path(...),
 ):
     """
     Update device settings (admin only).
     Can modify display_name, is_blocked, trust_level.
     """
+    actual_user_id = get_user_id_from_identifier(db, user_id)
+    
     device = device_crud.get_device_by_id(db, device_id)
-    if not device or device.user_id != user_id:
+    if not device or device.user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Device not found")
     
     # Check permissions
-    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    user = db.query(DBUser).filter(DBUser.id == actual_user_id).first()
     if not admin.is_sudo and (not user or user.admin_id != admin.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -231,18 +252,20 @@ def admin_update_device(
 def admin_delete_device(
     db: DBDep,
     admin: AdminDep,
-    user_id: int = Path(...),
+    user_id: str = Path(...),
     device_id: int = Path(...),
 ):
     """
     Delete a device and all its data (admin only).
     """
+    actual_user_id = get_user_id_from_identifier(db, user_id)
+    
     device = device_crud.get_device_by_id(db, device_id)
-    if not device or device.user_id != user_id:
+    if not device or device.user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Device not found")
     
     # Check permissions
-    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    user = db.query(DBUser).filter(DBUser.id == actual_user_id).first()
     if not admin.is_sudo and (not user or user.admin_id != admin.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -257,7 +280,7 @@ def admin_delete_device(
 def admin_get_device_traffic(
     db: DBDep,
     admin: AdminDep,
-    user_id: int = Path(...),
+    user_id: str = Path(...),
     device_id: int = Path(...),
     from_date: Optional[datetime] = Query(None),
     to_date: Optional[datetime] = Query(None),
@@ -266,12 +289,14 @@ def admin_get_device_traffic(
     """
     Get traffic history for a device (admin only).
     """
+    actual_user_id = get_user_id_from_identifier(db, user_id)
+    
     device = device_crud.get_device_by_id(db, device_id)
-    if not device or device.user_id != user_id:
+    if not device or device.user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Device not found")
     
     # Check permissions
-    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    user = db.query(DBUser).filter(DBUser.id == actual_user_id).first()
     if not admin.is_sudo and (not user or user.admin_id != admin.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -289,7 +314,7 @@ def admin_get_device_traffic(
     
     return DeviceTrafficResponse(
         device_id=device_id,
-        user_id=user_id,
+        user_id=actual_user_id,
         traffic=[DeviceTraffic.model_validate(t) for t in traffic],
         total_upload=total_upload,
         total_download=total_download,
@@ -301,13 +326,15 @@ def admin_get_device_traffic(
 def admin_get_user_device_statistics(
     db: DBDep,
     admin: AdminDep,
-    user_id: int = Path(...),
+    user_id: str = Path(...),
 ):
     """
     Get aggregated statistics for all user devices (admin only).
     """
+    actual_user_id = get_user_id_from_identifier(db, user_id)
+    
     # Check if user exists
-    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    user = db.query(DBUser).filter(DBUser.id == actual_user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -315,7 +342,7 @@ def admin_get_user_device_statistics(
     if not admin.is_sudo and user.admin_id != admin.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    stats = device_crud.get_user_device_statistics(db, user_id)
+    stats = device_crud.get_user_device_statistics(db, actual_user_id)
     
     return UserDevicesStatistics(**stats)
 

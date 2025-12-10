@@ -10,7 +10,6 @@ import {
 export type SortDeviceBy = "last_seen_at" | "first_seen_at" | "client_name"
 
 export async function fetchUserDevices({ queryKey }: EntityQueryKeyType): FetchEntityReturn<DeviceType> {
-    const pagination = queryKey[1];
     const userId = queryKey[2];
     const filters = queryKey[4].filters;
     
@@ -29,11 +28,11 @@ export async function fetchUserDevices({ queryKey }: EntityQueryKeyType): FetchE
 
 export const UserDevicesQueryFetchKey = "user-devices";
 
-export const useUserDevicesQuery = (userId: number, {
+export const useUserDevicesQuery = (userId: number | string, {
     page, size, sortBy = "last_seen_at", desc = false, filters = {}
 }: UseEntityQueryProps) => {
     return useQuery({
-        queryKey: [UserDevicesQueryFetchKey, { page, size }, userId, { sortBy, desc }, { filters }],
+        queryKey: [UserDevicesQueryFetchKey, { page, size }, String(userId), { sortBy, desc }, { filters }],
         queryFn: fetchUserDevices,
         initialData: { entities: [], pageCount: 0 },
         enabled: !!userId,

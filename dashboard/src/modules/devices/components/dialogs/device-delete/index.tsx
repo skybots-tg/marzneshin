@@ -14,7 +14,7 @@ import { AlertTriangle } from "lucide-react";
 interface DeviceDeleteDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    userId: number;
+    userId: number | string;
     device: DeviceType;
 }
 
