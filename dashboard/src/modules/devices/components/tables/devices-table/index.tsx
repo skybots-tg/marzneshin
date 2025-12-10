@@ -60,9 +60,9 @@ export const DevicesTable: FC<DevicesTableProps> = ({ userId }) => {
 
     return (
         <>
-            <div className="w-full overflow-x-auto">
-                <div className="rounded-md border min-w-full">
-                    <Table>
+            <div className="w-full overflow-x-auto max-w-full">
+                <div className="rounded-md border">
+                    <Table className="min-w-full">
                         <TableHeader>
                             {table.getHeaderGroups().map((headerGroup) => (
                                 <TableRow key={headerGroup.id}>
