@@ -531,7 +531,7 @@ class UserDevice(Base):
     )
 
     id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Device identification
     fingerprint = Column(String(128), nullable=False)
@@ -608,7 +608,7 @@ class UserDeviceTraffic(Base):
 
     id = Column(BigInteger, primary_key=True)
     device_id = Column(BigInteger, ForeignKey("user_devices.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Time bucket

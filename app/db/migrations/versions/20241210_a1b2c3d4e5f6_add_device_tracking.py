@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.create_table(
         "user_devices",
         sa.Column("id", sa.BigInteger(), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("fingerprint", sa.String(length=128), nullable=False),
         sa.Column("fingerprint_version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("display_name", sa.String(length=64), nullable=True),
@@ -96,7 +96,7 @@ def upgrade() -> None:
         "user_device_traffic",
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("device_id", sa.BigInteger(), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("node_id", sa.Integer(), nullable=False),
         sa.Column("bucket_start", sa.DateTime(), nullable=False),
         sa.Column("bucket_seconds", sa.Integer(), nullable=False, server_default="300"),
