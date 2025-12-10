@@ -17,6 +17,17 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Drop tables if they exist (cleanup from previous failed migration)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    
+    if 'user_device_traffic' in inspector.get_table_names():
+        op.drop_table('user_device_traffic')
+    if 'user_device_ips' in inspector.get_table_names():
+        op.drop_table('user_device_ips')
+    if 'user_devices' in inspector.get_table_names():
+        op.drop_table('user_devices')
+    
     # ### Create user_devices table ###
     op.create_table(
         "user_devices",
