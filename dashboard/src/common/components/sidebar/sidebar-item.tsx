@@ -5,11 +5,11 @@ import { cn } from "@marzneshin/common/utils";
 import { type VariantProps, cva } from "class-variance-authority";
 import { useSidebarContext } from "./sidebar-provider";
 
-const sidebarItemVariants = cva("w-full rounded-lg border-2 p-2 transition-all duration-300 relative overflow-hidden group", {
+const sidebarItemVariants = cva("w-full rounded-lg p-2 transition-smooth relative group", {
     variants: {
         variant: {
-            default: "bg-background/40 backdrop-blur-sm text-foreground hover:bg-accent/15 border-primary/15 hover:border-primary/35 hover:shadow-[0_0_10px_rgba(0,200,200,0.12)] dark:hover:shadow-[0_0_15px_rgba(0,255,255,0.2)]",
-            active: "bg-gradient-to-r from-primary/15 to-secondary/15 text-primary border-primary/40 shadow-[0_0_15px_rgba(0,200,200,0.2)] dark:shadow-[0_0_20px_rgba(0,255,255,0.3)] font-bold",
+            default: "glass-sm text-foreground hover:bg-accent/50 hover:scale-[1.02]",
+            active: "glass text-primary font-semibold shadow-md",
         },
         size: {
             default: "",
@@ -38,14 +38,14 @@ export const SidebarItem: FC<SidebarItemProps> = ({
             <Link
                 to={item.to}
                 onClick={() => setOpen?.(false)}
-                className={cn("flex flex-row items-center justify-center font-header uppercase tracking-wider text-sm", {
+                className={cn("flex flex-row items-center justify-center font-medium text-sm", {
                     "-justify-center gap-2": !collapsed,
                 })}
             >
-                <span className={cn("transition-transform duration-300", {
+                <span className={cn("transition-smooth", {
                     "group-hover:scale-110": true
                 })}>{item.icon}</span>
-                {!collapsed && <span className="transition-all duration-300">{item.title}</span>}
+                {!collapsed && <span className="transition-smooth">{item.title}</span>}
             </Link>
         </li>
     );

@@ -9,15 +9,14 @@ interface HeaderProps {
 
 export const Header: FC<HeaderProps> = ({ start, center, end }) => (
     <header className="h-[3.5rem] relative">
-        <div className="flex flex-row justify-between justify-items-stretch items-center lg:grid grid-cols-3 p-1 px-4 w-full h-full bg-gradient-to-r from-primary/80 via-primary/90 to-primary/80 text-primary-foreground border-b-2 border-primary/30 shadow-[0_4px_15px_rgba(0,200,200,0.2)] dark:shadow-[0_4px_20px_rgba(0,255,255,0.3)] backdrop-blur-md relative z-10 transition-all duration-300">
-            <div className="absolute inset-0 bg-cyber-grid bg-grid opacity-5 pointer-events-none" />
-            <div className="flex flex-row gap-2 justify-center-start justify-start items-center relative z-10">
+        <div className="glass flex flex-row justify-between justify-items-stretch items-center lg:grid grid-cols-3 p-1 px-4 w-full h-full text-foreground border-b relative z-10 transition-smooth">
+            <div className="flex flex-row gap-2 justify-center-start justify-start items-center">
                 {start}
             </div>
-            <div className="justify-center justify-self-center relative z-10">
+            <div className="justify-center justify-self-center">
                 {center}
             </div>
-            <div className="flex flex-row gap-2 h-10 justify-end justify-self-end items-center relative z-10">
+            <div className="flex flex-row gap-2 h-10 justify-end justify-self-end items-center">
                 {end}
             </div>
         </div>

@@ -4,25 +4,25 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@marzneshin/common/utils"
 
 const badgeVariants = cva(
-    "inline-flex items-center rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold font-header uppercase tracking-wider transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+    "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-smooth focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
     {
         variants: {
             variant: {
                 default:
-                    "border-primary/35 bg-primary/15 text-primary hover:bg-primary/25 shadow-[0_0_8px_rgba(0,200,200,0.15)] dark:shadow-[0_0_10px_rgba(0,255,255,0.2)]",
+                    "border-primary/20 bg-primary/10 text-primary hover:bg-primary/15 dark:border-primary/30 dark:bg-primary/15 dark:text-primary",
                 secondary:
-                    "border-secondary/35 bg-secondary/15 text-secondary hover:bg-secondary/25 shadow-[0_0_8px_rgba(255,0,255,0.15)] dark:shadow-[0_0_10px_rgba(255,0,255,0.2)]",
+                    "border-secondary/20 bg-secondary/10 text-secondary-foreground hover:bg-secondary/15 dark:border-secondary/30 dark:bg-secondary/15",
                 destructive:
-                    "border-destructive/35 bg-destructive/15 text-destructive hover:bg-destructive/25 shadow-[0_0_8px_rgba(255,0,100,0.15)] dark:shadow-[0_0_10px_rgba(255,0,100,0.2)]",
+                    "border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15 dark:border-destructive/30 dark:bg-destructive/15 dark:text-destructive",
                 royal:
-                    "border-indigo-400/35 bg-indigo-900/15 text-indigo-400 hover:bg-indigo-900/25 shadow-[0_0_8px_rgba(99,102,241,0.15)] dark:text-indigo-300 dark:shadow-[0_0_10px_rgba(99,102,241,0.2)]",
+                    "border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:border-blue-400/30 dark:bg-blue-400/15 dark:text-blue-400",
                 positive:
-                    "border-emerald-400/35 bg-emerald-900/15 text-emerald-500 hover:bg-emerald-900/25 shadow-[0_0_8px_rgba(16,185,129,0.15)] dark:text-emerald-300 dark:shadow-[0_0_10px_rgba(16,185,129,0.2)]",
+                    "border-success/20 bg-success/10 text-success hover:bg-success/15 dark:border-success/30 dark:bg-success/15 dark:text-success",
                 disabled:
-                    "border-gray-400/35 bg-gray-900/15 text-gray-500 hover:bg-gray-900/25 dark:text-gray-400",
+                    "border-muted/20 bg-muted/10 text-muted-foreground opacity-50",
                 warning:
-                    "border-amber-400/35 bg-amber-900/15 text-amber-500 hover:bg-amber-900/25 shadow-[0_0_8px_rgba(245,158,11,0.15)] dark:text-amber-300 dark:shadow-[0_0_10px_rgba(245,158,11,0.2)]",
-                outline: "text-foreground border-primary/25 hover:bg-primary/10",
+                    "border-warning/20 bg-warning/10 text-warning hover:bg-warning/15 dark:border-warning/30 dark:bg-warning/15 dark:text-warning",
+                outline: "border-border bg-transparent text-foreground hover:bg-accent",
             },
         },
         defaultVariants: {

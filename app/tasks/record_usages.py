@@ -9,6 +9,7 @@ from app.db import GetDB
 from app.db.models import NodeUsage, NodeUserUsage, User
 from app.marznode import MarzNodeBase
 from app.tasks.data_usage_percent_reached import data_usage_percent_reached
+from app.utils.device_tracker import track_user_connection
 
 
 def record_user_usage_logs(
@@ -120,7 +121,14 @@ async def get_users_stats(
         params = list()
         for stat in await asyncio.wait_for(node.fetch_users_stats(), 10):
             if stat.usage:
-                params.append({"uid": stat.uid, "value": stat.usage})
+                # Store additional connection metadata for device tracking
+                params.append({
+                    "uid": stat.uid,
+                    "value": stat.usage,
+                    "remote_ip": getattr(stat, "remote_ip", None),
+                    "client_name": getattr(stat, "client_name", None),
+                    "user_agent": getattr(stat, "user_agent", None),
+                })
         return node_id, params
     except:
         return node_id, []
@@ -138,19 +146,42 @@ async def record_user_usages():
     api_params = {node_id: params for node_id, params in list(results)}
 
     users_usage = defaultdict(int)
-    for node_id, params in api_params.items():
-        coefficient = (
-            node.usage_coefficient
-            if (node := marznode.nodes.get(node_id))
-            else 1
-        )
-        node_usage = 0
-        for param in params:
-            users_usage[param["uid"]] += int(
-                param["value"] * coefficient
-            )  # apply the usage coefficient
-            node_usage += param["value"]
-        record_node_stats(node_id, node_usage)
+    bucket_start = datetime.utcnow()
+    
+    # Track device connections
+    with GetDB() as db:
+        for node_id, params in api_params.items():
+            coefficient = (
+                node.usage_coefficient
+                if (node := marznode.nodes.get(node_id))
+                else 1
+            )
+            node_usage = 0
+            for param in params:
+                users_usage[param["uid"]] += int(
+                    param["value"] * coefficient
+                )  # apply the usage coefficient
+                node_usage += param["value"]
+                
+                # Track device connection if we have remote_ip
+                if param.get("remote_ip"):
+                    try:
+                        track_user_connection(
+                            db=db,
+                            user_id=param["uid"],
+                            node_id=node_id,
+                            remote_ip=param["remote_ip"],
+                            client_name=param.get("client_name"),
+                            user_agent=param.get("user_agent"),
+                            upload_bytes=0,  # Will be aggregated separately
+                            download_bytes=param["value"],
+                            bucket_start=bucket_start,
+                        )
+                    except Exception as e:
+                        # Don't fail the entire task if device tracking fails
+                        pass
+                        
+            record_node_stats(node_id, node_usage)
 
     users_usage = list(
         {"id": uid, "value": value} for uid, value in users_usage.items()

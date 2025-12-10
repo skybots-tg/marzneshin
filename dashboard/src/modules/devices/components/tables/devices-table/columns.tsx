@@ -26,19 +26,19 @@ const getDeviceIcon = (clientType: string) => {
 };
 
 const getClientTypeBadge = (clientType: string) => {
-    const colors: Record<string, string> = {
-        android: "bg-green-500/20 text-green-700 dark:text-green-300",
-        ios: "bg-blue-500/20 text-blue-700 dark:text-blue-300",
-        windows: "bg-purple-500/20 text-purple-700 dark:text-purple-300",
-        macos: "bg-gray-500/20 text-gray-700 dark:text-gray-300",
-        linux: "bg-orange-500/20 text-orange-700 dark:text-orange-300",
-        other: "bg-gray-500/20 text-gray-700 dark:text-gray-300",
+    const variants: Record<string, "positive" | "royal" | "secondary" | "outline"> = {
+        android: "positive",
+        ios: "royal",
+        windows: "secondary",
+        macos: "secondary",
+        linux: "secondary",
+        other: "outline",
     };
 
     return (
-        <Badge className={colors[clientType] || colors.other}>
+        <Badge variant={variants[clientType] || "outline"}>
             {getDeviceIcon(clientType)}
-            <span className="ml-1">{clientType}</span>
+            <span>{clientType}</span>
         </Badge>
     );
 };
@@ -122,9 +122,7 @@ export const columns = ({ onEdit, onDelete, onOpen }: ColumnsProps): ColumnDef<D
             return device.is_blocked ? (
                 <Badge variant="destructive">Blocked</Badge>
             ) : (
-                <Badge variant="default" className="bg-green-500/20 text-green-700 dark:text-green-300">
-                    Active
-                </Badge>
+                <Badge variant="positive">Active</Badge>
             );
         },
     },
@@ -135,14 +133,14 @@ export const columns = ({ onEdit, onDelete, onOpen }: ColumnsProps): ColumnDef<D
         ),
         cell: ({ row }) => {
             const level = row.original.trust_level;
-            const color = level > 0 
-                ? "bg-green-500/20 text-green-700 dark:text-green-300"
+            const variant = level > 0 
+                ? "positive"
                 : level < 0 
-                ? "bg-red-500/20 text-red-700 dark:text-red-300"
-                : "bg-gray-500/20 text-gray-700 dark:text-gray-300";
+                ? "destructive"
+                : "outline";
             
             return (
-                <Badge className={color}>
+                <Badge variant={variant}>
                     {level > 0 ? "+" : ""}{level}
                 </Badge>
             );
