@@ -23,20 +23,16 @@ export const Page: FC<PageProps & PropsWithChildren & HTMLAttributes<HTMLDivElem
     className
 }) => {
     return (
-        <ScrollArea className="w-full h-full overflow-auto">
-            <div className="flex flex-col justify-center items-center h-full w-full">
-                <Card className="shadow-none sm:w-screen md:w-full border-none p-0 w-full h-full">
-                    <CardHeader className="border-none sm:flex-row">
-                        <CardTitle className="flex flex-row justify-start items-center text-2xl text-sans">
-                            {title}
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className={cn("flex w-full max-w-full", className)}>
-                        {content || children}
-                    </CardContent>
-                    {footer && <CardFooter> {footer} </CardFooter>}
-                </Card>
+        <div className="flex flex-col h-full w-full">
+            <div className="mb-4">
+                <h1 className="text-2xl font-semibold text-foreground">
+                    {title}
+                </h1>
             </div>
-        </ScrollArea>
+            <div className={cn("flex flex-col w-full flex-grow", className)}>
+                {content || children}
+            </div>
+            {footer && <div className="mt-4">{footer}</div>}
+        </div>
     );
 }

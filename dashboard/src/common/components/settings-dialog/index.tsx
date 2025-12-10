@@ -28,7 +28,7 @@ export const SettingsDialog: FC<SettingsDialogProps & PropsWithChildren> = ({
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="sm:min-w-full md:min-w-[700px] space-y-5">
+            <SheetContent className="sm:min-w-full md:min-w-[60vw] lg:min-w-[50vw] space-y-5 max-w-[90vw]">
                 <SheetHeader>
                     <SheetTitle>{t("settings")}</SheetTitle>
                 </SheetHeader>

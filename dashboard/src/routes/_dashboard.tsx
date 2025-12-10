@@ -69,7 +69,7 @@ export const DashboardLayout = () => {
                             onCollapse={() => setCollapsed(true)}
                             onExpand={() => setCollapsed(false)}
                             minSize={15}
-                            className={cn("w-[120px] min-w-[70px] border-r-2 border-primary/20 bg-background/90 backdrop-blur-lg")}
+                            className={cn("glass-sm w-[120px] min-w-[70px] border-r")}
                             defaultSize={20}
                             ref={panelRef}
                             maxSize={30}
@@ -79,9 +79,9 @@ export const DashboardLayout = () => {
                                 setCollapsed={setCollapsed}
                             />
                         </ResizablePanel>
-                        <ResizableHandle withHandle className="w-[2px] bg-gradient-to-b from-primary/40 via-secondary/40 to-primary/40 hover:shadow-[0_0_8px_rgba(0,200,200,0.4)] dark:hover:shadow-[0_0_10px_rgba(0,255,255,0.5)] transition-all duration-300" />
-                        <ResizablePanel className="flex flex-col h-full bg-background/60 backdrop-blur-sm">
-                            <main className="flex-grow flex flex-col overflow-y-auto p-4">
+                        <ResizableHandle withHandle className="w-[2px] bg-border transition-smooth" />
+                        <ResizablePanel className="flex flex-col h-full">
+                            <main className="glass-card flex-grow flex flex-col overflow-y-auto p-4">
                                 <Suspense fallback={<Loading />}>
                                     <Outlet />
                                 </Suspense>
@@ -89,15 +89,15 @@ export const DashboardLayout = () => {
                         </ResizablePanel>
                     </ResizablePanelGroup>
                 ) : (
-                    <div className="flex flex-col h-full w-full bg-background/50 backdrop-blur-sm">
-                        <main className="flex flex-col h-full overflow-y-auto">
+                    <div className="flex flex-col h-full w-full">
+                        <main className="glass-card flex-grow flex flex-col overflow-y-auto p-4">
                             <Suspense fallback={<Loading />}>
                                 <Outlet />
                             </Suspense>
-                            <footer className="h-30 border-t-3 border-primary/30 shrink-0 py-2 px-5 bg-background/80 backdrop-blur-md">
-                                <DashboardBottomMenu variant={isSudo() ? "sudo-admin" : "admin"} />
-                            </footer>
                         </main>
+                        <footer className="glass-sm shrink-0 py-2 px-5 border-t">
+                            <DashboardBottomMenu variant={isSudo() ? "sudo-admin" : "admin"} />
+                        </footer>
                     </div>
                 )}
             </div>
