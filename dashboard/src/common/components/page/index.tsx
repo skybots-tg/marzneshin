@@ -1,12 +1,4 @@
 import { FC, PropsWithChildren, HTMLAttributes } from 'react'
-import {
-    Card,
-    CardContent,
-    ScrollArea,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from '@marzneshin/common/components';
 import { cn } from '@marzneshin/common/utils';
 
 interface PageProps {
