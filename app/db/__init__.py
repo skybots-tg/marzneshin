@@ -24,7 +24,8 @@ from .crud import (
     update_user_status,
     update_user_sub,
 )
-from .models import JWT, System, User  # noqa
+from .models import JWT, System, User, UserDevice, UserDeviceIP, UserDeviceTraffic  # noqa
+from . import device_crud  # noqa
 
 
 class GetDB:  # Context Manager
@@ -65,6 +66,10 @@ __all__ = [
     "User",
     "System",
     "JWT",
+    "UserDevice",
+    "UserDeviceIP",
+    "UserDeviceTraffic",
+    "device_crud",
     "Base",
     "Session",
 ]

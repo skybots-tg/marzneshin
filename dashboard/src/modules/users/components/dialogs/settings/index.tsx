@@ -14,6 +14,7 @@ import {
     UserNodesUsageWidget,
     type UserType,
 } from "@marzneshin/modules/users";
+import { DevicesTable } from "@marzneshin/modules/devices";
 import { type FC } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -57,6 +58,9 @@ export const UsersSettingsDialog: FC<UsersSettingsDialogProps> = ({
                                     <TabsTrigger className="w-full" value="nodes-usage">
                                         {t("page.users.nodes-usage")}
                                     </TabsTrigger>
+                                    <TabsTrigger className="w-full" value="devices">
+                                        {t("Devices")}
+                                    </TabsTrigger>
                                 </TabsList>
                                 <TabsContent
                                     value="info"
@@ -73,6 +77,9 @@ export const UsersSettingsDialog: FC<UsersSettingsDialogProps> = ({
                                 </TabsContent>
                                 <TabsContent value="nodes-usage">
                                     <UserNodesUsageWidget user={entity} />
+                                </TabsContent>
+                                <TabsContent value="devices">
+                                    <DevicesTable userId={entity.id || 0} />
                                 </TabsContent>
                             </Tabs>
                         </ScrollArea>
