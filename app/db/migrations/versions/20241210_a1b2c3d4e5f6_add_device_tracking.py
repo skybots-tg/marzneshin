@@ -92,15 +92,8 @@ def upgrade() -> None:
     op.create_index("ix_user_device_ips_ip", "user_device_ips", ["ip"])
     op.create_index("ix_user_device_ips_last_seen_at", "user_device_ips", ["last_seen_at"])
     op.create_index("ix_user_device_ips_country_code", "user_device_ips", ["country_code"])
-    # Partial index for is_datacenter (only index True values)
-    if op.get_bind().dialect.name != "sqlite":
-        op.execute(
-            """
-            CREATE INDEX ix_user_device_ips_is_datacenter
-            ON user_device_ips (is_datacenter)
-            WHERE is_datacenter IS TRUE
-            """
-        )
+    # Index for is_datacenter (partial indexes not supported in MariaDB)
+    op.create_index("ix_user_device_ips_is_datacenter", "user_device_ips", ["is_datacenter"])
     
     # ### Create user_device_traffic table ###
     op.create_table(
@@ -160,8 +153,7 @@ def downgrade() -> None:
     op.drop_index("ix_user_device_traffic_device_id", table_name="user_device_traffic")
     op.drop_table("user_device_traffic")
     
-    if op.get_bind().dialect.name != "sqlite":
-        op.execute("DROP INDEX IF EXISTS ix_user_device_ips_is_datacenter")
+    op.drop_index("ix_user_device_ips_is_datacenter", table_name="user_device_ips")
     op.drop_index("ix_user_device_ips_country_code", table_name="user_device_ips")
     op.drop_index("ix_user_device_ips_last_seen_at", table_name="user_device_ips")
     op.drop_index("ix_user_device_ips_ip", table_name="user_device_ips")
