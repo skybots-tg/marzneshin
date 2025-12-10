@@ -79,7 +79,7 @@ export const UsersSettingsDialog: FC<UsersSettingsDialogProps> = ({
                                     <UserNodesUsageWidget user={entity} />
                                 </TabsContent>
                                 <TabsContent value="devices">
-                                    <DevicesTable userId={entity.id || 0} />
+                                    <DevicesTable userId={entity.username} />
                                 </TabsContent>
                             </Tabs>
                         </ScrollArea>

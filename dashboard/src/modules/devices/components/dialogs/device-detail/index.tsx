@@ -17,7 +17,7 @@ import { Smartphone, MapPin, Activity, HardDrive } from "lucide-react";
 interface DeviceDetailDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    userId: number;
+    userId: number | string;
     deviceId: number;
 }
 

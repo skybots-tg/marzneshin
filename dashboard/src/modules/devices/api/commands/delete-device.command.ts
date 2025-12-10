@@ -5,7 +5,7 @@ import i18n from "@marzneshin/features/i18n";
 import { UserDevicesQueryFetchKey } from "@marzneshin/modules/devices";
 
 interface DeleteDeviceParams {
-    userId: number;
+    userId: number | string;
     deviceId: number;
 }
 
