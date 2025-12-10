@@ -29,11 +29,11 @@ export function ThemeToggle() {
     return (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger arrowDir="left" className="w-full flex">
-                <div className="hstack gap-2  items-center justify-end w-full">
-                    <span className="font-header uppercase tracking-wider">{t('theme')}</span>
+                <div className="hstack gap-2 items-center justify-end w-full">
+                    <span className="font-medium">{t('theme')}</span>
                     <div className="flex items-center">
-                        <FontAwesomeIcon icon={faSun} className="w-4 h-4 m-0 transition-all transform scale-100 rotate-0 dark:scale-0 dark:-rotate-90 text-neon-yellow" />
-                        <FontAwesomeIcon icon={faMoon} className="w-4 h-4 m-0 transition-all transform scale-0 rotate-90 dark:scale-100 dark:rotate-0 text-primary absolute" />
+                        <FontAwesomeIcon icon={faSun} className="w-4 h-4 m-0 transition-smooth transform scale-100 rotate-0 dark:scale-0 dark:-rotate-90 text-warning" />
+                        <FontAwesomeIcon icon={faMoon} className="w-4 h-4 m-0 transition-smooth transform scale-0 rotate-90 dark:scale-100 dark:rotate-0 text-primary absolute" />
                     </div>
                 </div>
             </DropdownMenuSubTrigger>

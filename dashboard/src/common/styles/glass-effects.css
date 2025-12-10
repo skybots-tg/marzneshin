@@ -1,0 +1,174 @@
+/**
+ * iOS Liquid Glass Design System - Glass Effects
+ * Glassmorphism and backdrop effects
+ */
+
+@layer components {
+  /* === Base Glass Effect === */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-md);
+  }
+
+  .glass-sm {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .glass-lg {
+    background: var(--glass-bg);
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* === Glass Card === */
+  .glass-card {
+    @apply glass rounded-xl;
+    transition: all var(--duration-normal) var(--ease-smooth);
+  }
+
+  .glass-card:hover {
+    box-shadow: var(--shadow-xl);
+    transform: translateY(-2px);
+  }
+
+  /* === Glass Panel === */
+  .glass-panel {
+    @apply glass-lg rounded-2xl p-6;
+  }
+
+  /* === Glass Button === */
+  .glass-button {
+    @apply glass-sm rounded-lg px-4 py-2;
+    transition: all var(--duration-fast) var(--ease-smooth);
+  }
+
+  .glass-button:hover {
+    background: hsl(var(--primary) / 0.1);
+    transform: scale(1.02);
+  }
+
+  .glass-button:active {
+    transform: scale(0.98);
+  }
+
+  /* === Frosted Glass Overlay === */
+  .frosted-overlay {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .dark .frosted-overlay {
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  /* === Subtle Background Grid === */
+  .grid-background {
+    background-image: 
+      linear-gradient(hsl(var(--border) / 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .grid-background-sm {
+    background-image: 
+      linear-gradient(hsl(var(--border) / 0.2) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.2) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  /* === Soft Glow Effects === */
+  .glow-primary {
+    box-shadow: 
+      0 0 20px hsl(var(--primary) / 0.2),
+      0 0 40px hsl(var(--primary) / 0.1);
+  }
+
+  .glow-success {
+    box-shadow: 
+      0 0 20px hsl(var(--success) / 0.2),
+      0 0 40px hsl(var(--success) / 0.1);
+  }
+
+  .glow-warning {
+    box-shadow: 
+      0 0 20px hsl(var(--warning) / 0.2),
+      0 0 40px hsl(var(--warning) / 0.1);
+  }
+
+  .glow-danger {
+    box-shadow: 
+      0 0 20px hsl(var(--danger) / 0.2),
+      0 0 40px hsl(var(--danger) / 0.1);
+  }
+
+  /* === Liquid Animations === */
+  @keyframes liquid-morph {
+    0%, 100% {
+      border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+    }
+    25% {
+      border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+    }
+    50% {
+      border-radius: 50% 60% 30% 60% / 30% 60% 70% 40%;
+    }
+    75% {
+      border-radius: 60% 40% 60% 50% / 70% 30% 50% 60%;
+    }
+  }
+
+  .liquid-blob {
+    animation: liquid-morph 10s ease-in-out infinite;
+    filter: blur(40px);
+    opacity: 0.1;
+  }
+
+  .dark .liquid-blob {
+    opacity: 0.05;
+  }
+
+  /* === Shimmer Effect === */
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      hsl(var(--primary) / 0.1) 50%,
+      transparent 100%
+    );
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  /* === Smooth Transitions === */
+  .transition-smooth {
+    transition: all var(--duration-normal) var(--ease-smooth);
+  }
+
+  .transition-fast {
+    transition: all var(--duration-fast) var(--ease-smooth);
+  }
+
+  .transition-slow {
+    transition: all var(--duration-slow) var(--ease-smooth);
+  }
+}
+

@@ -2,133 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    /* iOS Liquid Glass Light Theme - По умолчанию */
-    --background: 240 25% 97%;
-    --foreground: 220 30% 20%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 220 30% 20%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 30% 20%;
-
-    --primary: 200 90% 50%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 270 80% 60%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 220 15% 92%;
-    --muted-foreground: 220 15% 45%;
-
-    --accent: 320 80% 60%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 70% 55%;
-    --destructive-accent: 0 75% 70%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 140 65% 50%;
-    --success-accent: 140 65% 65%;
-    --success-foreground: 0 0% 100%;
-
-    --border: 220 20% 88%;
-    --input: 220 15% 94%;
-    --ring: 200 90% 50%;
-
-    --radius: 1rem;
-
-    --chart-1: 200 90% 50%;
-    --chart-2: 270 80% 60%;
-    --chart-3: 320 80% 60%;
-    --chart-4: 50 90% 55%;
-    --chart-5: 0 70% 55%;
-
-    /* Мягкие цвета для светлой темы */
-    --neon-cyan: 200 90% 50%;
-    --neon-magenta: 320 80% 60%;
-    --neon-purple: 270 80% 60%;
-    --neon-yellow: 50 90% 55%;
-  }
-
-  .dark {
-    /* iOS Liquid Glass Dark Theme - Более темная и контрастная */
-    --background: 220 30% 8%;
-    --foreground: 210 20% 92%;
-
-    --card: 220 25% 10%;
-    --card-foreground: 210 20% 92%;
-
-    --popover: 220 25% 10%;
-    --popover-foreground: 210 20% 92%;
-
-    --primary: 190 95% 55%;
-    --primary-foreground: 220 30% 10%;
-
-    --secondary: 280 85% 65%;
-    --secondary-foreground: 220 30% 10%;
-
-    --muted: 220 20% 18%;
-    --muted-foreground: 220 15% 60%;
-
-    --accent: 320 85% 65%;
-    --accent-foreground: 220 30% 10%;
-
-    --success: 145 80% 50%;
-    --success-accent: 145 80% 35%;
-    --success-foreground: 220 30% 10%;
-
-    --destructive: 0 75% 60%;
-    --destructive-accent: 0 80% 45%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 20% 22%;
-    --input: 220 20% 15%;
-    --ring: 190 95% 55%;
-
-    --chart-1: 190 95% 55%;
-    --chart-2: 280 85% 65%;
-    --chart-3: 320 85% 65%;
-    --chart-4: 50 85% 60%;
-    --chart-5: 0 75% 60%;
-
-    /* Более яркие цвета для темной темы */
-    --neon-cyan: 190 95% 55%;
-    --neon-magenta: 320 85% 65%;
-    --neon-purple: 280 85% 65%;
-    --neon-yellow: 50 85% 60%;
-  }
-}
+/* Import modular design system */
+@import './common/styles/design-tokens.css';
+@import './common/styles/glass-effects.css';
+@import './common/styles/utilities.css';
 
 @layer base {
-  .font-body {
-    font-family: "Rajdhani", sans-serif;
-  }
-
-  .font-header {
-    font-family: "Orbitron", sans-serif;
-  }
-
-  .vstack {
-    @apply flex flex-col;
-  }
-
-  .hstack {
-    @apply flex flex-row;
-  }
-
   * {
-    @apply border-border font-body;
+    @apply border-border;
+    font-family: var(--font-sans);
   }
 
   body {
-    @apply bg-background text-foreground relative overflow-hidden;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    @apply bg-background text-foreground relative;
+    transition: background-color var(--duration-normal) var(--ease-smooth), 
+                color var(--duration-normal) var(--ease-smooth);
   }
 
-  /* Liquid Glass Grid Background - Light Theme */
+  /* Subtle grid background */
   body::before {
     content: '';
     position: fixed;
@@ -137,191 +28,38 @@
     width: 100%;
     height: 100%;
     background-image: 
-      linear-gradient(rgba(100, 150, 200, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(100, 150, 200, 0.03) 1px, transparent 1px);
-    background-size: 60px 60px;
+      linear-gradient(hsl(var(--border) / 0.15) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.15) 1px, transparent 1px);
+    background-size: 40px 40px;
     pointer-events: none;
     z-index: 0;
-    opacity: 1;
-    transition: opacity 0.3s ease;
+    opacity: 0.5;
+    transition: opacity var(--duration-normal) var(--ease-smooth);
   }
 
   .dark body::before {
-    background-image: 
-      linear-gradient(rgba(100, 200, 255, 0.015) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(100, 200, 255, 0.015) 1px, transparent 1px);
-    opacity: 0.4;
+    opacity: 0.2;
   }
 
-  /* Subtle scan lines */
-  body::after {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: repeating-linear-gradient(
-      0deg,
-      rgba(100, 150, 200, 0.015) 0px,
-      rgba(100, 150, 200, 0.015) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-    pointer-events: none;
-    z-index: 0;
-    animation: scan 10s linear infinite;
-    opacity: 0.6;
-    transition: opacity 0.3s ease;
-  }
-
-  .dark body::after {
-    background: repeating-linear-gradient(
-      0deg,
-      rgba(100, 200, 255, 0.01) 0px,
-      rgba(100, 200, 255, 0.01) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-    opacity: 0.4;
-  }
-
-  @keyframes scan {
-    0% {
-      transform: translateY(0);
-    }
-    100% {
-      transform: translateY(60px);
-    }
-  }
-
-  /* Neon glow effects - адаптивные для светлой и темной темы */
-  .neon-glow-cyan {
-    box-shadow: 
-      0 0 5px hsl(var(--neon-cyan)),
-      0 0 10px hsl(var(--neon-cyan) / 0.4),
-      0 0 20px hsl(var(--neon-cyan) / 0.2);
-    transition: box-shadow 0.3s ease;
-  }
-
-  .dark .neon-glow-cyan {
-    box-shadow: 
-      0 0 5px hsl(var(--neon-cyan)),
-      0 0 10px hsl(var(--neon-cyan) / 0.5),
-      0 0 20px hsl(var(--neon-cyan) / 0.3);
-  }
-
-  .neon-glow-magenta {
-    box-shadow: 
-      0 0 5px hsl(var(--neon-magenta)),
-      0 0 10px hsl(var(--neon-magenta) / 0.4),
-      0 0 20px hsl(var(--neon-magenta) / 0.2);
-    transition: box-shadow 0.3s ease;
-  }
-
-  .dark .neon-glow-magenta {
-    box-shadow: 
-      0 0 5px hsl(var(--neon-magenta)),
-      0 0 10px hsl(var(--neon-magenta) / 0.5),
-      0 0 20px hsl(var(--neon-magenta) / 0.3);
-  }
-
-  .neon-glow-purple {
-    box-shadow: 
-      0 0 5px hsl(var(--neon-purple)),
-      0 0 10px hsl(var(--neon-purple) / 0.4),
-      0 0 20px hsl(var(--neon-purple) / 0.2);
-    transition: box-shadow 0.3s ease;
-  }
-
-  .dark .neon-glow-purple {
-    box-shadow: 
-      0 0 5px hsl(var(--neon-purple)),
-      0 0 10px hsl(var(--neon-purple) / 0.5),
-      0 0 20px hsl(var(--neon-purple) / 0.3);
-  }
-
-  .neon-text-cyan {
-    text-shadow: 
-      0 0 5px hsl(var(--neon-cyan)),
-      0 0 10px hsl(var(--neon-cyan) / 0.4),
-      0 0 20px hsl(var(--neon-cyan) / 0.2);
-    transition: text-shadow 0.3s ease;
-  }
-
-  .dark .neon-text-cyan {
-    text-shadow: 
-      0 0 5px hsl(var(--neon-cyan)),
-      0 0 10px hsl(var(--neon-cyan) / 0.5),
-      0 0 20px hsl(var(--neon-cyan) / 0.3);
-  }
-
-  .neon-text-magenta {
-    text-shadow: 
-      0 0 5px hsl(var(--neon-magenta)),
-      0 0 10px hsl(var(--neon-magenta) / 0.4),
-      0 0 20px hsl(var(--neon-magenta) / 0.2);
-    transition: text-shadow 0.3s ease;
-  }
-
-  .dark .neon-text-magenta {
-    text-shadow: 
-      0 0 5px hsl(var(--neon-magenta)),
-      0 0 10px hsl(var(--neon-magenta) / 0.5),
-      0 0 20px hsl(var(--neon-magenta) / 0.3);
-  }
-
-  /* Glitch effect */
-  .glitch {
+  /* Content wrapper */
+  #root {
     position: relative;
-  }
-
-  .glitch::before,
-  .glitch::after {
-    content: attr(data-text);
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-  }
-
-  .glitch::before {
-    left: 2px;
-    text-shadow: -2px 0 hsl(var(--neon-cyan));
-    clip: rect(24px, 550px, 90px, 0);
-    animation: glitch-anim 3s infinite linear alternate-reverse;
-  }
-
-  .glitch::after {
-    left: -2px;
-    text-shadow: -2px 0 hsl(var(--neon-magenta));
-    clip: rect(85px, 550px, 140px, 0);
-    animation: glitch-anim 2.5s infinite linear alternate-reverse;
-  }
-
-  @keyframes glitch-anim {
-    0% {
-      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
-    }
-    20% {
-      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
-    }
-    40% {
-      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
-    }
-    60% {
-      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
-    }
-    80% {
-      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
-    }
-    100% {
-      clip: rect(random(100) * 1px, 9999px, random(100) * 1px, 0);
-    }
+    z-index: 1;
   }
 }
 
+/* === Chart Overrides === */
 .recharts-responsive-container {
   height: initial !important;
+}
+
+/* === Prevent unwanted animations on page load === */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

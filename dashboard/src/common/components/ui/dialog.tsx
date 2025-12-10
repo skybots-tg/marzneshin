@@ -20,7 +20,7 @@ const DialogOverlay = React.forwardRef<
     <DialogPrimitive.Overlay
         ref={ref}
         className={cn(
-            "fixed inset-0 z-50 bg-black/90 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+            "frosted-overlay fixed inset-0 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             className
         )}
         {...props}
@@ -42,15 +42,12 @@ const DialogContent = React.forwardRef<
             )}
             {...props}
         >
-            <div className="relative grid w-full max-w-lg gap-4 border border-primary/20 bg-background/85 backdrop-blur-2xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.32)] rounded-3xl max-h-[calc(100vh-3rem)] overflow-y-auto transition duration-200 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-secondary/8 pointer-events-none" />
-                <div className="relative z-10">
-                    {children}
-                    <DialogPrimitive.Close className="absolute right-6 top-6 rounded-2xl opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground border border-primary/10 hover:border-primary/20">
-                        <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
-                        <span className="sr-only">Close</span>
-                    </DialogPrimitive.Close>
-                </div>
+            <div className="glass relative grid w-full max-w-lg gap-4 p-6 rounded-2xl max-h-[calc(100vh-3rem)] overflow-y-auto transition-smooth data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95">
+                {children}
+                <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-2 opacity-70 ring-offset-background transition-smooth hover:opacity-100 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:pointer-events-none">
+                    <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
+                    <span className="sr-only">Close</span>
+                </DialogPrimitive.Close>
             </div>
         </DialogPrimitive.Content>
     </DialogPortal>
@@ -92,7 +89,7 @@ const DialogTitle = React.forwardRef<
     <DialogPrimitive.Title
         ref={ref}
         className={cn(
-            "text-2xl font-semibold leading-none tracking-tight font-header text-foreground",
+            "text-xl font-semibold leading-none tracking-tight text-foreground",
             className
         )}
         {...props}
