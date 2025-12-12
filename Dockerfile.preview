@@ -1,31 +1,71 @@
-FROM node:20-slim AS frontend-build
+# syntax=docker/dockerfile:1
 
+########################
+# 1) Frontend build
+########################
+FROM node:20-slim AS frontend-build
 WORKDIR /app
 
+# Нужны для твоих make-таргетов (и если есть зависимости из git)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends make git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# pnpm без глобальной установки
+RUN corepack enable
+
+# В идеале: отдельно копировать только dashboard + lock, но чтобы не сломать твои make-таргеты — оставляю как было
 COPY . .
-
-RUN apt-get update && apt-get install make git -y
-
-RUN npm install -g pnpm
 
 RUN make dashboard-deps && make dashboard-build
 
+
+########################
+# 2) Backend deps builder (wheels)
+########################
+FROM python:3.12-slim AS backend-build
+WORKDIR /build
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Тут компиляторы и dev-заголовки — только для сборки wheels
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc g++ python3-dev git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /build/requirements.txt
+
+RUN python -m pip install --upgrade pip setuptools wheel \
+ && pip wheel --wheel-dir=/wheels -r /build/requirements.txt
+
+
+########################
+# 3) Runtime
+########################
 FROM python:3.12-slim AS run-backend
-
-ENV PYTHONUNBUFFERED 1
-
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# make нужен, потому что у тебя CMD ["make","start"]
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends make ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Ставим зависимости ТОЛЬКО из wheels, без скачиваний/сборок в runtime
+COPY --from=backend-build /wheels /wheels
+COPY requirements.txt /app/requirements.txt
+
+RUN pip install --no-index --find-links=/wheels -r /app/requirements.txt \
+ && rm -rf /wheels
+
+# Фронт
 COPY --from=frontend-build /app/dashboard/dist /app/dashboard/dist
 
+# Бек и остальное
 COPY . /app
-
-RUN apt-get update -y \
-    && apt-get install make git gcc g++ python3-dev -y --no-install-recommends \
-    && apt-get clean \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* \
-    && pip install --no-cache-dir -r /app/requirements.txt \
-    && apt-get remove g++ gcc python3-dev -y \
-    && apt-get autoremove -y 
 
 CMD ["make", "start"]
