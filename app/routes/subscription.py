@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi import Header, HTTPException, Path, Request, Response
 from starlette.responses import HTMLResponse
 
@@ -16,6 +16,7 @@ from app.utils.share import (
     generate_subscription,
     generate_subscription_template,
 )
+from app.utils.crypto import encrypt_content
 
 router = APIRouter(prefix="/sub", tags=["Subscription"])
 
@@ -158,9 +159,11 @@ def user_subscription_with_client_type(
     client_type: str = Path(
         regex="^(sing-box|clash-meta|clash|xray|yarx|v2ray|links|wireguard)$"
     ),
+    encrypt: str | None = Query(default=None, description="Encryption key for content"),
 ):
     """
     Subscription by client type; v2ray, xray, yarx, sing-box, clash and clash-meta formats supported
+    Add ?encrypt=your_key to encrypt the response
     """
 
     user: UserResponse = UserResponse.model_validate(db_user)
@@ -197,9 +200,19 @@ def user_subscription_with_client_type(
         placeholder_remark=subscription_settings.placeholder_remark,
         shuffle=subscription_settings.shuffle_configs,
     )
+    
+    # Encrypt content if encryption key is provided
+    if encrypt:
+        conf = encrypt_content(conf, encrypt)
+        response_headers["X-Content-Encrypted"] = "true"
+        # Change media type to text/plain for encrypted content
+        media_type = "text/plain"
+    else:
+        media_type = client_type_mime_type[client_type]
+    
     return Response(
         content=conf,
-        media_type=client_type_mime_type[client_type],
+        media_type=media_type,
         headers=response_headers,
     )
 
@@ -250,8 +263,10 @@ def bus_user_subscription_with_client_type(
     client_type: str = Path(
         regex="^(sing-box|clash-meta|clash|xray|yarx|v2ray|links|wireguard)$"
     ),
+    encrypt: str | None = Query(default=None, description="Encryption key for content"),
 ):
     """
     Subscription by client type (alias for /sub); v2ray, xray, yarx, sing-box, clash and clash-meta formats supported
+    Add ?encrypt=your_key to encrypt the response
     """
-    return user_subscription_with_client_type(db, db_user, request, client_type)
+    return user_subscription_with_client_type(db, db_user, request, client_type, encrypt)
