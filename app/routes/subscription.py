@@ -202,3 +202,56 @@ def user_subscription_with_client_type(
         media_type=client_type_mime_type[client_type],
         headers=response_headers,
     )
+
+
+# Alias router with /bus prefix
+bus_router = APIRouter(prefix="/bus", tags=["Subscription"])
+
+
+@bus_router.get("/{username}/{key}")
+def bus_user_subscription(
+    db_user: SubUserDep,
+    request: Request,
+    db: DBDep,
+    user_agent: str = Header(default=""),
+):
+    """
+    Subscription link (alias for /sub), result format depends on subscription settings
+    """
+    return user_subscription(db_user, request, db, user_agent)
+
+
+@bus_router.get("/{username}/{key}/info", response_model=UserResponse)
+def bus_user_subscription_info(db_user: SubUserDep):
+    """
+    User subscription info (alias for /sub)
+    """
+    return user_subscription_info(db_user)
+
+
+@bus_router.get("/{username}/{key}/usage", response_model=TrafficUsageSeries)
+def bus_user_get_usage(
+    db_user: SubUserDep,
+    db: DBDep,
+    start_date: StartDateDep,
+    end_date: EndDateDep,
+):
+    """
+    User usage statistics (alias for /sub)
+    """
+    return user_get_usage(db_user, db, start_date, end_date)
+
+
+@bus_router.get("/{username}/{key}/{client_type}")
+def bus_user_subscription_with_client_type(
+    db: DBDep,
+    db_user: SubUserDep,
+    request: Request,
+    client_type: str = Path(
+        regex="^(sing-box|clash-meta|clash|xray|yarx|v2ray|links|wireguard)$"
+    ),
+):
+    """
+    Subscription by client type (alias for /sub); v2ray, xray, yarx, sing-box, clash and clash-meta formats supported
+    """
+    return user_subscription_with_client_type(db, db_user, request, client_type)
