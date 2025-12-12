@@ -144,6 +144,7 @@ client_type_mime_type = {
     "clash-meta": "text/yaml",
     "clash": "text/yaml",
     "xray": "application/json",
+    "yarx": "application/json",
     "v2ray": "text/plain",
     "links": "text/plain",
 }
@@ -155,11 +156,11 @@ def user_subscription_with_client_type(
     db_user: SubUserDep,
     request: Request,
     client_type: str = Path(
-        regex="^(sing-box|clash-meta|clash|xray|v2ray|links|wireguard)$"
+        regex="^(sing-box|clash-meta|clash|xray|yarx|v2ray|links|wireguard)$"
     ),
 ):
     """
-    Subscription by client type; v2ray, xray, sing-box, clash and clash-meta formats supported
+    Subscription by client type; v2ray, xray, yarx, sing-box, clash and clash-meta formats supported
     """
 
     user: UserResponse = UserResponse.model_validate(db_user)
@@ -180,9 +181,16 @@ def user_subscription_with_client_type(
         ),
     }
 
+    # Map yarx alias to xray format
+    format_mapping = {
+        "v2ray": "links",
+        "yarx": "xray",
+    }
+    actual_format = format_mapping.get(client_type, client_type)
+    
     conf = generate_subscription(
         user=db_user,
-        config_format="links" if client_type == "v2ray" else client_type,
+        config_format=actual_format,
         as_base64=client_type == "v2ray",
         use_placeholder=not user.is_active
         and subscription_settings.placeholder_if_disabled,
