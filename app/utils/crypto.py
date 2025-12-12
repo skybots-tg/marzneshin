@@ -1,10 +1,13 @@
 import ssl
+import base64
+import os
 from datetime import datetime, timedelta
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
 
@@ -88,3 +91,64 @@ def create_secure_context(
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+
+def encrypt_content(content: str | bytes, key: str) -> str:
+    """
+    Encrypt content using AES-256-GCM
+    
+    Args:
+        content: Content to encrypt (string or bytes)
+        key: Encryption key (will be hashed to 32 bytes)
+    
+    Returns:
+        Base64-encoded encrypted content with format: nonce(12bytes)||ciphertext||tag(16bytes)
+    """
+    if isinstance(content, str):
+        content = content.encode('utf-8')
+    
+    # Derive a 32-byte key from the provided key using SHA256
+    key_hash = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    key_hash.update(key.encode('utf-8'))
+    derived_key = key_hash.finalize()
+    
+    # Generate random nonce (12 bytes for GCM)
+    nonce = os.urandom(12)
+    
+    # Encrypt
+    aesgcm = AESGCM(derived_key)
+    ciphertext = aesgcm.encrypt(nonce, content, None)
+    
+    # Return base64-encoded: nonce + ciphertext (which includes tag)
+    encrypted_data = nonce + ciphertext
+    return base64.b64encode(encrypted_data).decode('utf-8')
+
+
+def decrypt_content(encrypted_content: str, key: str) -> bytes:
+    """
+    Decrypt content encrypted with encrypt_content
+    
+    Args:
+        encrypted_content: Base64-encoded encrypted content
+        key: Encryption key (same as used for encryption)
+    
+    Returns:
+        Decrypted content as bytes
+    """
+    # Decode from base64
+    encrypted_data = base64.b64decode(encrypted_content)
+    
+    # Extract nonce and ciphertext
+    nonce = encrypted_data[:12]
+    ciphertext = encrypted_data[12:]
+    
+    # Derive the same key
+    key_hash = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    key_hash.update(key.encode('utf-8'))
+    derived_key = key_hash.finalize()
+    
+    # Decrypt
+    aesgcm = AESGCM(derived_key)
+    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+    
+    return plaintext
