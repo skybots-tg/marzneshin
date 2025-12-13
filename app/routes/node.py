@@ -281,14 +281,23 @@ async def migrate_node(
         ssh_user = websocket.query_params.get("ssh_user", "root")
         ssh_port = websocket.query_params.get("ssh_port", "22")
         ssh_key = websocket.query_params.get("ssh_key", "")
+        ssh_password = websocket.query_params.get("ssh_password", "")
         
         # Build SSH command
-        ssh_cmd = [
+        ssh_cmd = []
+        scp_cmd_prefix = []
+        
+        if ssh_password:
+            # Use sshpass for password authentication
+            ssh_cmd = ["sshpass", "-p", ssh_password]
+            scp_cmd_prefix = ["sshpass", "-p", ssh_password]
+        
+        ssh_cmd.extend([
             "ssh",
             "-p", ssh_port,
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null"
-        ]
+        ])
         
         if ssh_key:
             ssh_cmd.extend(["-i", ssh_key])
@@ -313,9 +322,16 @@ async def migrate_node(
             })
             
             script_path = "/app/../migrate_skybots.sh"
-            scp_cmd = ["scp", "-P", ssh_port]
+            scp_cmd = []
+            
+            if scp_cmd_prefix:
+                scp_cmd.extend(scp_cmd_prefix)
+                
+            scp_cmd.extend(["scp", "-P", ssh_port])
+            
             if ssh_key:
                 scp_cmd.extend(["-i", ssh_key])
+                
             scp_cmd.extend([
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
