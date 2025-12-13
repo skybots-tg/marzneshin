@@ -236,7 +236,7 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
                                         name="authMethod"
                                         value="password"
                                         checked={sshConfig.authMethod === "password"}
-                                        onChange={(e) =>
+                                        onChange={() =>
                                             setSshConfig({ ...sshConfig, authMethod: "password" })
                                         }
                                     />
@@ -248,7 +248,7 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
                                         name="authMethod"
                                         value="key"
                                         checked={sshConfig.authMethod === "key"}
-                                        onChange={(e) =>
+                                        onChange={() =>
                                             setSshConfig({ ...sshConfig, authMethod: "key" })
                                         }
                                     />
