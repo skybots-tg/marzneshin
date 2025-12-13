@@ -46,6 +46,8 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
         user: "root",
         port: "22",
         key: "",
+        password: "",
+        authMethod: "password" as "password" | "key",
     });
     const wsRef = useRef<WebSocket | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
@@ -66,7 +68,14 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
 
         const token = localStorage.getItem("token") || "";
         const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${wsProtocol}//${window.location.host}/api/nodes/${node.id}/migrate?token=${token}&ssh_user=${sshConfig.user}&ssh_port=${sshConfig.port}&ssh_key=${encodeURIComponent(sshConfig.key)}`;
+        
+        let wsUrl = `${wsProtocol}//${window.location.host}/api/nodes/${node.id}/migrate?token=${token}&ssh_user=${sshConfig.user}&ssh_port=${sshConfig.port}`;
+        
+        if (sshConfig.authMethod === "key" && sshConfig.key) {
+            wsUrl += `&ssh_key=${encodeURIComponent(sshConfig.key)}`;
+        } else if (sshConfig.authMethod === "password" && sshConfig.password) {
+            wsUrl += `&ssh_password=${encodeURIComponent(sshConfig.password)}`;
+        }
 
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
@@ -175,7 +184,10 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
-            <DialogContent className="max-w-3xl max-h-[90vh]">
+            <DialogContent 
+                className="max-w-3xl max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <DialogHeader>
                     <DialogTitle>{t("page.nodes.migration.title")}</DialogTitle>
                     <DialogDescription>
@@ -191,7 +203,7 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
                             </label>
                             <input
                                 type="text"
-                                className="w-full px-3 py-2 border rounded-md"
+                                className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
                                 value={sshConfig.user}
                                 onChange={(e) =>
                                     setSshConfig({ ...sshConfig, user: e.target.value })
@@ -205,7 +217,7 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
                             </label>
                             <input
                                 type="text"
-                                className="w-full px-3 py-2 border rounded-md"
+                                className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
                                 value={sshConfig.port}
                                 onChange={(e) =>
                                     setSshConfig({ ...sshConfig, port: e.target.value })
@@ -215,18 +227,66 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
 
                         <div className="space-y-2">
                             <label className="text-sm font-medium">
-                                {t("page.nodes.migration.ssh_key")}
+                                {t("page.nodes.migration.auth_method")}
                             </label>
-                            <input
-                                type="text"
-                                placeholder="/path/to/ssh/key (optional)"
-                                className="w-full px-3 py-2 border rounded-md"
-                                value={sshConfig.key}
-                                onChange={(e) =>
-                                    setSshConfig({ ...sshConfig, key: e.target.value })
-                                }
-                            />
+                            <div className="flex gap-4">
+                                <label className="flex items-center gap-2">
+                                    <input
+                                        type="radio"
+                                        name="authMethod"
+                                        value="password"
+                                        checked={sshConfig.authMethod === "password"}
+                                        onChange={(e) =>
+                                            setSshConfig({ ...sshConfig, authMethod: "password" })
+                                        }
+                                    />
+                                    <span className="text-sm">{t("page.nodes.migration.password")}</span>
+                                </label>
+                                <label className="flex items-center gap-2">
+                                    <input
+                                        type="radio"
+                                        name="authMethod"
+                                        value="key"
+                                        checked={sshConfig.authMethod === "key"}
+                                        onChange={(e) =>
+                                            setSshConfig({ ...sshConfig, authMethod: "key" })
+                                        }
+                                    />
+                                    <span className="text-sm">{t("page.nodes.migration.ssh_key_auth")}</span>
+                                </label>
+                            </div>
                         </div>
+
+                        {sshConfig.authMethod === "password" ? (
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                    {t("page.nodes.migration.ssh_password")}
+                                </label>
+                                <input
+                                    type="password"
+                                    className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
+                                    value={sshConfig.password}
+                                    onChange={(e) =>
+                                        setSshConfig({ ...sshConfig, password: e.target.value })
+                                    }
+                                />
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                    {t("page.nodes.migration.ssh_key")}
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="/path/to/ssh/key"
+                                    className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
+                                    value={sshConfig.key}
+                                    onChange={(e) =>
+                                        setSshConfig({ ...sshConfig, key: e.target.value })
+                                    }
+                                />
+                            </div>
+                        )}
 
                         <Button
                             onClick={startMigration}

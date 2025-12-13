@@ -172,7 +172,11 @@
         "failed": "Migration failed. Please check the logs.",
         "ssh_user": "SSH User",
         "ssh_port": "SSH Port",
-        "ssh_key": "SSH Key Path (optional)"
+        "ssh_key": "SSH Key Path",
+        "ssh_password": "SSH Password",
+        "auth_method": "Authentication Method",
+        "password": "Password",
+        "ssh_key_auth": "SSH Key"
       },
       "usage_coefficient": "Usage Coefficient",
       "connection_backend": "Connection Backend",

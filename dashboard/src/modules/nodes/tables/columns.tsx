@@ -42,7 +42,7 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
         cell: ({ row }) => {
             const [open, setOpen] = useState(false);
             return (
-                <>
+                <div onClick={(e) => e.stopPropagation()}>
                     <Button
                         variant="outline"
                         size="sm"
@@ -55,12 +55,14 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
                         <FontAwesomeIcon icon={faArrowsRotate} className="mr-2" />
                         {i18n.t('page.nodes.migration.migrate')}
                     </Button>
-                    <MigrationDialog
-                        open={open}
-                        onOpenChange={setOpen}
-                        node={row.original}
-                    />
-                </>
+                    {open && (
+                        <MigrationDialog
+                            open={open}
+                            onOpenChange={setOpen}
+                            node={row.original}
+                        />
+                    )}
+                </div>
             );
         },
     },

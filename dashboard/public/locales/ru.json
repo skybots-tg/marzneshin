@@ -172,7 +172,11 @@
 	"failed": "Миграция не удалась. Пожалуйста, проверьте логи.",
 	"ssh_user": "SSH пользователь",
 	"ssh_port": "SSH порт",
-	"ssh_key": "Путь к SSH ключу (опционально)"
+	"ssh_key": "Путь к SSH ключу",
+	"ssh_password": "SSH пароль",
+	"auth_method": "Метод аутентификации",
+	"password": "Пароль",
+	"ssh_key_auth": "SSH ключ"
       },
       "usage_coefficient": "Коэффициент использования",
       "connection_backend": "Бэкэнд подключения",
