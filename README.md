@@ -51,7 +51,7 @@
 
 Marzneshin is a censorship circumvention tool utilizing other censorship circumvention tools.
 
-Marzneshin controls the [Marznodes](https://github.com/marzneshin/marznode)
+Marzneshin controls the [Marznodes](https://github.com/skybots-tg/marznode)
 connected to it; monitoring/disabling/enabling users on marznode instances while
 marznode manages and interacts with vpn backends (such as xray).
 
@@ -93,7 +93,7 @@ Marzneshin documentation may be found [here](https://docs.marzneshin.org).
 
 # marznode
 
-[marznode](https://github.com/marzneshin/marznode) is the backend needed to run proxy servers.
+[marznode](https://github.com/skybots-tg/marznode) is the backend needed to run proxy servers.
 
 # Donation
 

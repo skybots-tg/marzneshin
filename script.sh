@@ -8,7 +8,7 @@ DATA_DIR="/var/lib/$APP_NAME"
 NODE_DATA_DIR="/var/lib/$NODE_NAME"
 COMPOSE_FILE="$CONFIG_DIR/docker-compose.yml"
 
-FETCH_REPO="marzneshin/marzneshin"
+FETCH_REPO="skybots-tg/marzneshin"
 SCRIPT_URL="https://github.com/$FETCH_REPO/raw/master/script.sh"
 
 colorized_echo() {
@@ -126,8 +126,8 @@ install_marzneshin_script() {
 
 install_marzneshin() {
     # Fetch releases
-    FILES_URL_PREFIX="https://raw.githubusercontent.com/skybot-tg/marzneshin/master"
-	COMPOSE_FILES_URL="https://raw.githubusercontent.com/skybot-tg/marzneshin-deploy/master"
+    FILES_URL_PREFIX="https://raw.githubusercontent.com/skybots-tg/marzneshin/master"
+	COMPOSE_FILES_URL="https://raw.githubusercontent.com/skybots-tg/marzneshin-deploy/master"
  	database=$1
   	nightly=$2
   
@@ -151,7 +151,7 @@ install_marzneshin() {
 
 install_marznode_xray_config() {
     mkdir -p "$NODE_DATA_DIR"
-    curl -sL "https://raw.githubusercontent.com/marzneshin/marznode/master/xray_config.json" -o "$NODE_DATA_DIR/xray_config.json"
+    curl -sL "https://raw.githubusercontent.com/skybots-tg/marznode/master/xray_config.json" -o "$NODE_DATA_DIR/xray_config.json"
     colorized_echo green "Sample xray config downloaded for marznode"
 }
 
