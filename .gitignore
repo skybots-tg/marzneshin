@@ -111,6 +111,7 @@ celerybeat.pid
 
 # Environments
 .venv
+.venv-grpc
 venv/
 venv.bak/
 .vscode/
