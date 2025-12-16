@@ -43,9 +43,10 @@ async def main():
             # Пробуем grpcio
             print("\n📡 Пробуем подключиться через grpcio...")
             marznode = MarzNodeGRPCIO(
+                node_id=node.id,
                 address=node.address,
-                port=node.port if hasattr(node, 'port') else 62050,
-                api_port=node.api_port if hasattr(node, 'api_port') else 62051,
+                port=node.port,
+                usage_coefficient=node.usage_coefficient if hasattr(node, 'usage_coefficient') else 1,
             )
             
             print("⏳ Получаем статистику...")
