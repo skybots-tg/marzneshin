@@ -10,10 +10,8 @@ os.environ.setdefault('SQLALCHEMY_SILENCE_UBER_WARNING', '1')
 
 async def main():
     # Инициализируем приложение чтобы ноды подключились
-    from app.config.env import DATABASE_URL
     from app.db import GetDB
     from app.db.models import Node
-    from app import marznode as marznode_module
     
     print("\n" + "="*60)
     print("🔍 ТЕСТ: Что приходит от marznode")
