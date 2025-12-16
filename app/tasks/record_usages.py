@@ -162,6 +162,9 @@ async def record_user_usages():
     bucket_start = datetime.utcnow()
     
     # Track device connections
+    total_connections = 0
+    tracked_devices = 0
+    
     with GetDB() as db:
         for node_id, params in api_params.items():
             coefficient = (
@@ -171,15 +174,21 @@ async def record_user_usages():
             )
             node_usage = 0
             for param in params:
+                total_connections += 1
+                
                 users_usage[param["uid"]] += int(
                     param["value"] * coefficient
                 )  # apply the usage coefficient
                 node_usage += param["value"]
                 
+                # Debug logging for device tracking
+                logger.debug(f"[Node {node_id}] uid={param['uid']}, remote_ip={param.get('remote_ip')}, "
+                           f"client={param.get('client_name')}, traffic={param['value']}")
+                
                 # Track device connection if we have remote_ip
                 if param.get("remote_ip"):
                     try:
-                        track_user_connection(
+                        device_id, ip_id = track_user_connection(
                             db=db,
                             user_id=param["uid"],
                             node_id=node_id,
@@ -190,11 +199,27 @@ async def record_user_usages():
                             download_bytes=param.get("downlink", param["value"]),
                             bucket_start=bucket_start,
                         )
+                        if device_id:
+                            tracked_devices += 1
+                            logger.debug(f"[Node {node_id}] Tracked device {device_id} for user {param['uid']}")
                     except Exception as e:
                         # Don't fail the entire task if device tracking fails
-                        logger.debug(f"Failed to track device connection: {e}")
+                        logger.warning(f"[Node {node_id}] Failed to track device for user {param['uid']}: {e}")
                         
             record_node_stats(node_id, node_usage)
+    
+    # Log device tracking statistics
+    if total_connections > 0:
+        tracking_rate = (tracked_devices / total_connections) * 100
+        if tracked_devices == 0:
+            logger.warning(
+                f"Device tracking: 0/{total_connections} connections tracked (0%). "
+                f"Marznode nodes are NOT sending remote_ip data. Update marznode to enable device tracking."
+            )
+        else:
+            logger.info(
+                f"Device tracking: {tracked_devices}/{total_connections} connections tracked ({tracking_rate:.1f}%)"
+            )
 
     users_usage = list(
         {"id": uid, "value": value} for uid, value in users_usage.items()
