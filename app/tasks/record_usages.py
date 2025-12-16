@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections import defaultdict
 from datetime import datetime
 
@@ -10,6 +11,8 @@ from app.db.models import NodeUsage, NodeUserUsage, User
 from app.marznode import MarzNodeBase
 from app.tasks.data_usage_percent_reached import data_usage_percent_reached
 from app.utils.device_tracker import track_user_connection
+
+logger = logging.getLogger(__name__)
 
 
 def record_user_usage_logs(
@@ -122,12 +125,22 @@ async def get_users_stats(
         for stat in await asyncio.wait_for(node.fetch_users_stats(), 10):
             if stat.usage:
                 # Store additional connection metadata for device tracking
+                # uplink/downlink are preferred if available, otherwise fall back to usage
+                uplink = getattr(stat, "uplink", 0)
+                downlink = getattr(stat, "downlink", 0)
+                
+                # If uplink/downlink not provided, use usage as downlink for backwards compatibility
+                if uplink == 0 and downlink == 0 and stat.usage > 0:
+                    downlink = stat.usage
+                
                 params.append({
                     "uid": stat.uid,
                     "value": stat.usage,
-                    "remote_ip": getattr(stat, "remote_ip", None),
-                    "client_name": getattr(stat, "client_name", None),
-                    "user_agent": getattr(stat, "user_agent", None),
+                    "uplink": uplink,
+                    "downlink": downlink,
+                    "remote_ip": getattr(stat, "remote_ip", None) or None,
+                    "client_name": getattr(stat, "client_name", None) or None,
+                    "user_agent": getattr(stat, "user_agent", None) or None,
                 })
         return node_id, params
     except:
@@ -173,13 +186,13 @@ async def record_user_usages():
                             remote_ip=param["remote_ip"],
                             client_name=param.get("client_name"),
                             user_agent=param.get("user_agent"),
-                            upload_bytes=0,  # Will be aggregated separately
-                            download_bytes=param["value"],
+                            upload_bytes=param.get("uplink", 0),
+                            download_bytes=param.get("downlink", param["value"]),
                             bucket_start=bucket_start,
                         )
                     except Exception as e:
                         # Don't fail the entire task if device tracking fails
-                        pass
+                        logger.debug(f"Failed to track device connection: {e}")
                         
             record_node_stats(node_id, node_usage)
 

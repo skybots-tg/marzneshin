@@ -45,6 +45,11 @@ message UsersStats {
   message UserStats {
     uint32 uid = 1;
     uint64 usage = 2;
+    optional string remote_ip = 3;
+    optional uint64 uplink = 4;
+    optional uint64 downlink = 5;
+    optional string client_name = 6;
+    optional string user_agent = 7;
   }
   repeated UserStats users_stats = 1;
 }
