@@ -19,6 +19,9 @@ from .marznode_pb2 import (
     BackendConfig,
     Backend,
     BackendStats,
+    UserDevicesRequest,
+    UserDevicesHistory,
+    AllUsersDevices,
 )
 from .marznode_pb2_grpc import MarzServiceStub
 from ..models.node import NodeStatus
@@ -179,4 +182,16 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         response: BackendStats = await self._stub.GetBackendStats(
             Backend(name=name)
         )
+        return response
+
+    async def fetch_user_devices(self, uid: int, active_only: bool = False):
+        """Fetch device history for a specific user"""
+        response: UserDevicesHistory = await self._stub.FetchUserDevices(
+            UserDevicesRequest(uid=uid, active_only=active_only)
+        )
+        return response
+
+    async def fetch_all_devices(self):
+        """Fetch device history for all users"""
+        response: AllUsersDevices = await self._stub.FetchAllDevices(Empty())
         return response

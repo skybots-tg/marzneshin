@@ -54,6 +54,16 @@ class MarzServiceStub(object):
                 request_serializer=app_dot_marznode_dot_marznode__pb2.Backend.SerializeToString,
                 response_deserializer=app_dot_marznode_dot_marznode__pb2.BackendStats.FromString,
                 )
+        self.FetchUserDevices = channel.unary_unary(
+                '/marznode.MarzService/FetchUserDevices',
+                request_serializer=app_dot_marznode_dot_marznode__pb2.UserDevicesRequest.SerializeToString,
+                response_deserializer=app_dot_marznode_dot_marznode__pb2.UserDevicesHistory.FromString,
+                )
+        self.FetchAllDevices = channel.unary_unary(
+                '/marznode.MarzService/FetchAllDevices',
+                request_serializer=app_dot_marznode_dot_marznode__pb2.Empty.SerializeToString,
+                response_deserializer=app_dot_marznode_dot_marznode__pb2.AllUsersDevices.FromString,
+                )
 
 
 class MarzServiceServicer(object):
@@ -107,6 +117,18 @@ class MarzServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def FetchUserDevices(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FetchAllDevices(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MarzServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -149,6 +171,16 @@ def add_MarzServiceServicer_to_server(servicer, server):
                     servicer.GetBackendStats,
                     request_deserializer=app_dot_marznode_dot_marznode__pb2.Backend.FromString,
                     response_serializer=app_dot_marznode_dot_marznode__pb2.BackendStats.SerializeToString,
+            ),
+            'FetchUserDevices': grpc.unary_unary_rpc_method_handler(
+                    servicer.FetchUserDevices,
+                    request_deserializer=app_dot_marznode_dot_marznode__pb2.UserDevicesRequest.FromString,
+                    response_serializer=app_dot_marznode_dot_marznode__pb2.UserDevicesHistory.SerializeToString,
+            ),
+            'FetchAllDevices': grpc.unary_unary_rpc_method_handler(
+                    servicer.FetchAllDevices,
+                    request_deserializer=app_dot_marznode_dot_marznode__pb2.Empty.FromString,
+                    response_serializer=app_dot_marznode_dot_marznode__pb2.AllUsersDevices.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -293,5 +325,39 @@ class MarzService(object):
         return grpc.experimental.unary_unary(request, target, '/marznode.MarzService/GetBackendStats',
             app_dot_marznode_dot_marznode__pb2.Backend.SerializeToString,
             app_dot_marznode_dot_marznode__pb2.BackendStats.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def FetchUserDevices(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/marznode.MarzService/FetchUserDevices',
+            app_dot_marznode_dot_marznode__pb2.UserDevicesRequest.SerializeToString,
+            app_dot_marznode_dot_marznode__pb2.UserDevicesHistory.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def FetchAllDevices(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/marznode.MarzService/FetchAllDevices',
+            app_dot_marznode_dot_marznode__pb2.Empty.SerializeToString,
+            app_dot_marznode_dot_marznode__pb2.AllUsersDevices.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
