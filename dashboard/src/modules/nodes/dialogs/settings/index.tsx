@@ -16,6 +16,7 @@ import {
     NodesUsageWidget
 } from "@marzneshin/modules/nodes";
 import { NodeBackendSetting } from "./node-backend-setting";
+import { AllDevicesList } from "../../devices";
 
 interface NodesSettingsDialogProps extends SettingsDialogProps {
     entity: NodeType;
@@ -36,6 +37,7 @@ export const NodesSettingsDialog: FC<NodesSettingsDialogProps> = ({
                 <TabsList className="w-full">
                     <TabsTrigger className="w-full" value="config">{t("config")}</TabsTrigger>
                     <TabsTrigger className="w-full" value="info">{t("info")}</TabsTrigger>
+                    <TabsTrigger className="w-full" value="devices">{t("devices")}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="config">
                     {entity.backends.length === 0 ? (
@@ -80,6 +82,14 @@ export const NodesSettingsDialog: FC<NodesSettingsDialogProps> = ({
                         <NodesDetailTable node={entity} />
                     </div>
                     <NodesUsageWidget node={entity} />
+                </TabsContent>
+                <TabsContent value="devices">
+                    <div className="my-4">
+                        <h1 className="font-medium font-header mb-4">
+                            {t("page.nodes.devices.title")}
+                        </h1>
+                        <AllDevicesList nodeId={entity.id} />
+                    </div>
                 </TabsContent>
             </Tabs>
         </SettingsDialog>
