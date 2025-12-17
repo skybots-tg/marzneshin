@@ -356,6 +356,7 @@ async def migrate_node(
 ):
     import subprocess
     import json
+    import shutil
     
     token = websocket.query_params.get("token", "") or websocket.headers.get(
         "Authorization", ""
@@ -369,7 +370,18 @@ async def migrate_node(
     if not db_node:
         return await websocket.close(reason="Node not found", code=4404)
 
-    await websocket.accept()
+    try:
+        await websocket.accept()
+        
+        # Send initial connection message
+        await websocket.send_json({
+            "type": "log",
+            "message": "WebSocket connection established"
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to accept WebSocket: {e}")
+        return
     
     migration_steps = [
         {"id": "step1", "name": "Step 1/8: Stopping and removing old containers with volumes", "status": "pending"},
@@ -383,6 +395,25 @@ async def migrate_node(
     ]
     
     try:
+        # Check if required tools are available
+        ssh_password = websocket.query_params.get("ssh_password", "")
+        
+        if ssh_password and not shutil.which("sshpass"):
+            await websocket.send_json({
+                "type": "error",
+                "message": "sshpass is not installed on the server. Please install it: apt-get install sshpass"
+            })
+            await websocket.close()
+            return
+            
+        if not shutil.which("ssh"):
+            await websocket.send_json({
+                "type": "error",
+                "message": "ssh is not installed on the server"
+            })
+            await websocket.close()
+            return
+        
         # Send initial steps
         await websocket.send_json({
             "type": "steps",
@@ -393,7 +424,6 @@ async def migrate_node(
         ssh_user = websocket.query_params.get("ssh_user", "root")
         ssh_port = websocket.query_params.get("ssh_port", "22")
         ssh_key = websocket.query_params.get("ssh_key", "")
-        ssh_password = websocket.query_params.get("ssh_password", "")
         
         # Build SSH command
         ssh_cmd = []
@@ -642,14 +672,20 @@ async def migrate_node(
     except WebSocketDisconnect:
         logger.debug("websocket disconnected during migration")
     except Exception as e:
-        logger.error(f"Migration error: {str(e)}")
+        logger.error(f"Migration error: {str(e)}", exc_info=True)
         try:
-            await websocket.send_json({
-                "type": "error",
-                "message": str(e)
-            })
-        except:
-            pass
+            if websocket.state == WebSocketState.CONNECTED:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Migration error: {str(e)}"
+                })
+                await websocket.send_json({
+                    "type": "complete",
+                    "success": False,
+                    "message": f"Migration failed: {str(e)}"
+                })
+        except Exception as send_err:
+            logger.error(f"Failed to send error message: {send_err}")
     finally:
         if websocket.state == WebSocketState.CONNECTED:
             await websocket.close()
