@@ -560,6 +560,121 @@ update_command() {
     colorized_echo blue "Marzneshin updated successfully"
 }
 
+migrate_command() {
+    check_running_as_root
+    
+    local MARZNODE_DIR="/opt/marznode"
+    local TS="$(date +%F_%H%M%S)"
+    
+    colorized_echo magenta "=========================================="
+    colorized_echo magenta "  MARZNODE MIGRATION TO SKYBOTS-TG FORK"
+    colorized_echo magenta "=========================================="
+    echo ""
+    
+    # Проверка наличия директории
+    if [ ! -d "$MARZNODE_DIR" ]; then
+        colorized_echo red "Directory $MARZNODE_DIR not found!"
+        colorized_echo yellow "Please make sure marznode is installed in $MARZNODE_DIR"
+        exit 1
+    fi
+    
+    detect_compose
+    
+    # Step 1: Stop and remove old containers with volumes
+    colorized_echo cyan "[Step 1/8] Stopping and removing old marznode containers with volumes..."
+    cd "$MARZNODE_DIR"
+    if [ -f "compose.yml" ] || [ -f "docker-compose.yml" ]; then
+        $COMPOSE -f compose.yml down -v --remove-orphans 2>/dev/null || \
+        $COMPOSE -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+        colorized_echo green "✓ Old containers stopped and removed"
+    else
+        colorized_echo yellow "! No compose file found, skipping container removal"
+    fi
+    echo ""
+    
+    # Step 2: Remove old docker image
+    colorized_echo cyan "[Step 2/8] Removing old marznode docker image..."
+    if docker image rm -f dawsh/marznode:latest 2>/dev/null; then
+        colorized_echo green "✓ Old image removed"
+    else
+        colorized_echo yellow "! Old image not found or already removed"
+    fi
+    echo ""
+    
+    # Step 3: Backup old code
+    colorized_echo cyan "[Step 3/8] Creating backup of old installation..."
+    cd /opt
+    if [ -d "$MARZNODE_DIR" ]; then
+        mv "$MARZNODE_DIR" "/opt/marznode_old_$TS"
+        colorized_echo green "✓ Backup created: /opt/marznode_old_$TS"
+    fi
+    echo ""
+    
+    # Step 4: Clone new repository
+    colorized_echo cyan "[Step 4/8] Cloning skybots-tg/marznode fork..."
+    if git clone https://github.com/skybots-tg/marznode "$MARZNODE_DIR"; then
+        colorized_echo green "✓ Repository cloned successfully"
+    else
+        colorized_echo red "✗ Failed to clone repository"
+        colorized_echo yellow "Restoring backup..."
+        mv "/opt/marznode_old_$TS" "$MARZNODE_DIR"
+        exit 1
+    fi
+    echo ""
+    
+    # Step 5: Build local docker image
+    colorized_echo cyan "[Step 5/8] Building docker image from source..."
+    cd "$MARZNODE_DIR"
+    if docker build -t skybots-tg/marznode:fork . ; then
+        colorized_echo green "✓ Docker image built successfully"
+    else
+        colorized_echo red "✗ Failed to build docker image"
+        exit 1
+    fi
+    echo ""
+    
+    # Step 6: Update compose file
+    colorized_echo cyan "[Step 6/8] Updating compose.yml with new image..."
+    if [ -f "compose.yml" ]; then
+        cp -a compose.yml "compose.yml.bak_$TS"
+        sed -i.tmp 's#dawsh/marznode:latest#skybots-tg/marznode:fork#g' compose.yml
+        rm -f compose.yml.tmp
+        colorized_echo green "✓ compose.yml updated (backup: compose.yml.bak_$TS)"
+    else
+        colorized_echo red "✗ compose.yml not found!"
+        exit 1
+    fi
+    echo ""
+    
+    # Step 7: Start services
+    colorized_echo cyan "[Step 7/8] Starting marznode with new configuration..."
+    if $COMPOSE -f compose.yml up -d --force-recreate; then
+        colorized_echo green "✓ Services started successfully"
+    else
+        colorized_echo red "✗ Failed to start services"
+        exit 1
+    fi
+    echo ""
+    
+    # Step 8: Verification
+    colorized_echo cyan "[Step 8/8] Verifying deployment..."
+    echo ""
+    colorized_echo blue "Running containers:"
+    docker ps --filter name=marznode --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+    echo ""
+    colorized_echo blue "Recent logs (last 20 lines):"
+    $COMPOSE -f compose.yml logs --tail=20 --no-color
+    echo ""
+    
+    colorized_echo green "=========================================="
+    colorized_echo green "  MIGRATION COMPLETED SUCCESSFULLY!"
+    colorized_echo green "=========================================="
+    echo ""
+    colorized_echo yellow "Note: Old installation backup is available at:"
+    colorized_echo yellow "  /opt/marznode_old_$TS"
+    echo ""
+}
+
 
 usage() {
     colorized_echo red "Usage: $0 [command]"
@@ -574,6 +689,7 @@ usage() {
     echo "  install         Install Marzneshin"
     echo "  update          Update latest version"
     echo "  uninstall       Uninstall Marzneshin"
+    echo "  migrate         Migrate marznode to skybots-tg fork"
     echo "  install-script  Install Marzneshin script"
     echo
 }
@@ -597,6 +713,8 @@ case "$1" in
     shift; update_command "$@";;
     uninstall)
     shift; uninstall_command "$@";;
+    migrate)
+    shift; migrate_command "$@";;
     install-script)
     shift; install_marzneshin_script "$@";;
     *)
