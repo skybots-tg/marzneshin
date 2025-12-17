@@ -25,7 +25,7 @@ i18n
             escapeValue: false,
         },
         react: {
-            useSuspense: false,
+            useSuspense: true,
         },
         load: 'languageOnly',
         detection: {
