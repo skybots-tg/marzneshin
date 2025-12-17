@@ -38,9 +38,30 @@ def update_user(
         if marznode.nodes.get(node_id):
             asyncio.ensure_future(
                 marznode.nodes[node_id].update_user(
-                    user=User.model_validate(user), inbounds=tags
+                    user=User.model_validate(user), 
+                    inbounds=tags,
+                    device_limit=user.device_limit,
+                    allowed_fingerprints=_get_allowed_fingerprints(user.id)
                 )
             )
+
+
+def _get_allowed_fingerprints(user_id: int) -> list[str]:
+    """Get list of allowed device fingerprints for user"""
+    from app.db import device_crud
+    from app.dependencies import get_db
+    
+    try:
+        db = next(get_db())
+        devices = device_crud.get_user_devices(
+            db, 
+            user_id, 
+            is_blocked=False,  # Only non-blocked devices
+            limit=1000
+        )
+        return [device.fingerprint for device in devices]
+    except Exception:
+        return []
 
 
 async def remove_user(user: "DBUser"):

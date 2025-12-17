@@ -30,6 +30,9 @@ message User {
   uint32 id = 1;
   string username = 2;
   string key = 3;
+  optional uint32 device_limit = 4;
+  repeated string allowed_fingerprints = 5;
+  bool enforce_device_limit = 6;
 }
 
 message UserData {
