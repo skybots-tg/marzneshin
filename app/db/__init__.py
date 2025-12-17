@@ -36,10 +36,13 @@ class GetDB:  # Context Manager
         return self.db
 
     def __exit__(self, _, exc_value, traceback):
-        if isinstance(exc_value, SQLAlchemyError):
-            self.db.rollback()  # rollback on exception
-
-        self.db.close()
+        try:
+            if isinstance(exc_value, SQLAlchemyError):
+                self.db.rollback()  # rollback on exception
+            elif exc_value is not None:
+                self.db.rollback()  # rollback on any exception
+        finally:
+            self.db.close()  # Always close, even if rollback fails
 
 
 __all__ = [
