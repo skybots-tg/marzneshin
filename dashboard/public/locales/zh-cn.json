@@ -132,6 +132,17 @@
         "title": "配置节点证书",
         "desc": "如果您希望配置节点证书，请查看设置页面。",
         "click": "点击此处"
+      },
+      "devices": {
+        "title": "Device History",
+        "active_only": "Show active only",
+        "total_devices": "Devices: {{count}}",
+        "active_devices": "Active: {{count}}",
+        "total_users": "Users: {{count}}",
+        "user_id": "User #{{id}}",
+        "no_devices": "No devices found",
+        "no_active_devices": "No active devices",
+        "error_loading": "Failed to load device history from node"
       }
     },
     "services": {
@@ -299,5 +310,12 @@
     "selected": "已选择",
     "toggle-column": "切换列",
     "filter-placeholder": "过滤{{name}}"
-  }
+  },
+  "devices": "Devices",
+  "upload": "Upload",
+  "download": "Download",
+  "total": "Total",
+  "first_seen": "First seen",
+  "last_seen": "Last seen",
+  "error": "Error"
 }

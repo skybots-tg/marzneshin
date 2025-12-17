@@ -164,6 +164,17 @@
         "title": "تكوين شهادة العقد",
         "desc": "إذا كنت تهدف إلى تكوين شهادة العقد، تحقق من صفحة الإعدادات.",
         "click": "انقر هنا"
+      },
+      "devices": {
+        "title": "Device History",
+        "active_only": "Show active only",
+        "total_devices": "Devices: {{count}}",
+        "active_devices": "Active: {{count}}",
+        "total_users": "Users: {{count}}",
+        "user_id": "User #{{id}}",
+        "no_devices": "No devices found",
+        "no_active_devices": "No active devices",
+        "error_loading": "Failed to load device history from node"
       }
     },
     "services": {
@@ -432,5 +443,12 @@
     "unhealthy": "غير سليم",
     "limited": "محدود",
     "error": "خطأ"
-  }
+  },
+  "devices": "Devices",
+  "upload": "Upload",
+  "download": "Download",
+  "total": "Total",
+  "first_seen": "First seen",
+  "last_seen": "Last seen",
+  "error": "Error"
 }

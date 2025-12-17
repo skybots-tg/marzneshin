@@ -145,6 +145,17 @@
         "title": "کانفیگ سرتیفیکت نود",
         "desc": "اگر قصد برداشت سرتیفیکت نود را دارید، صفحه تنظیمات را بررسی کنید",
         "click": "اینجا کلیک کنید"
+      },
+      "devices": {
+        "title": "Device History",
+        "active_only": "Show active only",
+        "total_devices": "Devices: {{count}}",
+        "active_devices": "Active: {{count}}",
+        "total_users": "Users: {{count}}",
+        "user_id": "User #{{id}}",
+        "no_devices": "No devices found",
+        "no_active_devices": "No active devices",
+        "error_loading": "Failed to load device history from node"
       }
     },
     "services": {
@@ -323,5 +334,12 @@
     "unhealthy": "ناسالم",
     "limited": "محدود شده",
     "error": "خطا"
-  }
+  },
+  "devices": "Devices",
+  "upload": "Upload",
+  "download": "Download",
+  "total": "Total",
+  "first_seen": "First seen",
+  "last_seen": "Last seen",
+  "error": "Error"
 }

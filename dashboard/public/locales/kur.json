@@ -135,6 +135,17 @@
         "title": "rêkixstnî birrwanamey girêkan",
         "desc": "eger amanict eweye birrwanamey girêkant rêkbxeyt, laperrey rêkixstnekanî pişkinîn bike.",
         "click": "destirrageyiştin be certificate"
+      },
+      "devices": {
+        "title": "Device History",
+        "active_only": "Show active only",
+        "total_devices": "Devices: {{count}}",
+        "active_devices": "Active: {{count}}",
+        "total_users": "Users: {{count}}",
+        "user_id": "User #{{id}}",
+        "no_devices": "No devices found",
+        "no_active_devices": "No active devices",
+        "error_loading": "Failed to load device history from node"
       }
     },
     "services": {
@@ -344,5 +355,12 @@
     "unhealthy": "Unhealthy",
     "limited": "Limited",
     "error": "Error"
-  }
+  },
+  "devices": "Devices",
+  "upload": "Upload",
+  "download": "Download",
+  "total": "Total",
+  "first_seen": "First seen",
+  "last_seen": "Last seen",
+  "error": "Error"
 }
