@@ -77,6 +77,34 @@ message BackendStats {
   bool running = 1;
 }
 
+message DeviceInfo {
+  string remote_ip = 1;
+  string client_name = 2;
+  optional string user_agent = 3;
+  optional string protocol = 4;
+  optional string tls_fingerprint = 5;
+  int64 first_seen = 6;
+  int64 last_seen = 7;
+  uint64 total_usage = 8;
+  uint64 uplink = 9;
+  uint64 downlink = 10;
+  bool is_active = 11;
+}
+
+message UserDevicesRequest {
+  uint32 uid = 1;
+  optional bool active_only = 2;
+}
+
+message UserDevicesHistory {
+  uint32 uid = 1;
+  repeated DeviceInfo devices = 2;
+}
+
+message AllUsersDevices {
+  repeated UserDevicesHistory users = 1;
+}
+
 service MarzService {
   rpc SyncUsers(stream UserData) returns (Empty);
   rpc RepopulateUsers(UsersData) returns (Empty);
@@ -86,4 +114,6 @@ service MarzService {
   rpc RestartBackend(RestartBackendRequest) returns (Empty);
   rpc StreamBackendLogs(BackendLogsRequest) returns (stream LogLine);
   rpc GetBackendStats(Backend) returns (BackendStats);
+  rpc FetchUserDevices(UserDevicesRequest) returns (UserDevicesHistory);
+  rpc FetchAllDevices(Empty) returns (AllUsersDevices);
 }

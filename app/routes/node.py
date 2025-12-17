@@ -28,6 +28,9 @@ from app.models.node import (
     NodeStatus,
     BackendConfig,
     BackendStats,
+    DeviceInfo,
+    UserDevicesResponse,
+    AllUsersDevicesResponse,
 )
 from app.models.system import TrafficUsageSeries
 
@@ -233,6 +236,116 @@ async def alter_node_xray_config(
             status_code=502, detail="No response from the node."
         )
     return {}
+
+
+@router.get("/{node_id}/devices/{user_id}", response_model=UserDevicesResponse)
+async def get_user_devices(
+    node_id: int,
+    user_id: int,
+    active_only: bool = Query(False, description="Return only active devices"),
+    admin: SudoAdminDep = None,
+):
+    """
+    Get device history for a specific user on a node.
+    
+    This endpoint fetches the device connection history from the node's internal storage.
+    Each device is identified by a unique combination of IP address and client name.
+    
+    - **node_id**: ID of the node to query
+    - **user_id**: ID of the user whose devices to fetch
+    - **active_only**: If True, return only devices active in the last 5 minutes
+    
+    Returns device information including:
+    - Connection times (first_seen, last_seen)
+    - Traffic statistics (upload, download, total)
+    - Device metadata (IP, client name, user agent, protocol, TLS fingerprint)
+    - Activity status
+    """
+    if not (node := marznode.nodes.get(node_id)):
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    try:
+        response = await node.fetch_user_devices(uid=user_id, active_only=active_only)
+    except Exception as e:
+        logger.error(f"Failed to fetch user devices from node {node_id}: {e}")
+        raise HTTPException(
+            status_code=502, 
+            detail="Failed to fetch device history from node"
+        )
+
+    # Convert protobuf response to Pydantic model
+    devices = [
+        DeviceInfo(
+            remote_ip=device.remote_ip,
+            client_name=device.client_name,
+            user_agent=device.user_agent if device.user_agent else None,
+            protocol=device.protocol if device.protocol else None,
+            tls_fingerprint=device.tls_fingerprint if device.tls_fingerprint else None,
+            first_seen=device.first_seen,
+            last_seen=device.last_seen,
+            total_usage=device.total_usage,
+            uplink=device.uplink,
+            downlink=device.downlink,
+            is_active=device.is_active,
+        )
+        for device in response.devices
+    ]
+
+    return UserDevicesResponse(uid=response.uid, devices=devices)
+
+
+@router.get("/{node_id}/devices", response_model=AllUsersDevicesResponse)
+async def get_all_devices(
+    node_id: int,
+    admin: SudoAdminDep = None,
+):
+    """
+    Get device history for all users on a node.
+    
+    This endpoint fetches the complete device connection history from the node's 
+    internal storage for all users.
+    
+    - **node_id**: ID of the node to query
+    
+    Returns a list of users with their device information.
+    
+    **Note**: This endpoint can return a large amount of data. Consider using
+    pagination or filtering by user_id for production use.
+    """
+    if not (node := marznode.nodes.get(node_id)):
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    try:
+        response = await node.fetch_all_devices()
+    except Exception as e:
+        logger.error(f"Failed to fetch all devices from node {node_id}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch device history from node"
+        )
+
+    # Convert protobuf response to Pydantic model
+    users = []
+    for user_devices in response.users:
+        devices = [
+            DeviceInfo(
+                remote_ip=device.remote_ip,
+                client_name=device.client_name,
+                user_agent=device.user_agent if device.user_agent else None,
+                protocol=device.protocol if device.protocol else None,
+                tls_fingerprint=device.tls_fingerprint if device.tls_fingerprint else None,
+                first_seen=device.first_seen,
+                last_seen=device.last_seen,
+                total_usage=device.total_usage,
+                uplink=device.uplink,
+                downlink=device.downlink,
+                is_active=device.is_active,
+            )
+            for device in user_devices.devices
+        ]
+        users.append(UserDevicesResponse(uid=user_devices.uid, devices=devices))
+
+    return AllUsersDevicesResponse(users=users)
 
 
 @router.websocket("/{node_id}/migrate")

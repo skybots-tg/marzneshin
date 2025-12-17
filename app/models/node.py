@@ -104,3 +104,29 @@ class NodeUsageResponse(BaseModel):
 
 class NodesUsageResponse(BaseModel):
     usages: list[NodeUsageResponse]
+
+
+class DeviceInfo(BaseModel):
+    """Device information from node"""
+    remote_ip: str
+    client_name: str
+    user_agent: str | None = None
+    protocol: str | None = None
+    tls_fingerprint: str | None = None
+    first_seen: int  # Unix timestamp
+    last_seen: int  # Unix timestamp
+    total_usage: int  # Bytes
+    uplink: int  # Bytes
+    downlink: int  # Bytes
+    is_active: bool
+
+
+class UserDevicesResponse(BaseModel):
+    """Response with user's device history"""
+    uid: int
+    devices: list[DeviceInfo]
+
+
+class AllUsersDevicesResponse(BaseModel):
+    """Response with all users' device history"""
+    users: list[UserDevicesResponse]

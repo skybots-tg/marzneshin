@@ -26,3 +26,11 @@ class MarzNodeBase(ABC):
 
     async def get_backend_stats(self, name: str):
         pass
+
+    async def fetch_user_devices(self, uid: int, active_only: bool = False):
+        """Fetch device history for a specific user"""
+        pass
+
+    async def fetch_all_devices(self):
+        """Fetch device history for all users"""
+        pass
