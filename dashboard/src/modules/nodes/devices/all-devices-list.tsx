@@ -20,10 +20,13 @@ interface AllDevicesListProps {
     nodeId: number;
 }
 
+type FilterMode = 'all' | 'active';
+
 export const AllDevicesList: FC<AllDevicesListProps> = ({ nodeId }) => {
     const { t } = useTranslation();
     const { data, isLoading, error } = useAllDevicesQuery({ nodeId });
     const [expandedUsers, setExpandedUsers] = useState<Set<number>>(new Set());
+    const [filterMode, setFilterMode] = useState<FilterMode>('all');
 
     const toggleUser = (userId: number) => {
         setExpandedUsers((prev) => {
@@ -64,31 +67,53 @@ export const AllDevicesList: FC<AllDevicesListProps> = ({ nodeId }) => {
         0
     );
 
+    // Filter users based on filter mode
+    const filteredUsers = users.map(user => ({
+        ...user,
+        devices: filterMode === 'active' 
+            ? user.devices.filter(d => d.is_active)
+            : user.devices
+    })).filter(user => user.devices.length > 0);
+
     return (
         <div className="space-y-4">
             {/* Summary */}
             <div className="flex items-center gap-4 text-sm">
-                <Badge variant="outline">
+                <Badge 
+                    variant="outline"
+                    className="cursor-pointer hover:bg-accent"
+                    onClick={() => setFilterMode('all')}
+                >
                     {t("page.nodes.devices.total_users", { count: users.length })}
                 </Badge>
-                <Badge variant="outline">
+                <Badge 
+                    variant={filterMode === 'all' ? 'default' : 'outline'}
+                    className="cursor-pointer hover:bg-accent"
+                    onClick={() => setFilterMode('all')}
+                >
                     {t("page.nodes.devices.total_devices", { count: totalDevices })}
                 </Badge>
-                <Badge variant="default">
+                <Badge 
+                    variant={filterMode === 'active' ? 'default' : 'outline'}
+                    className="cursor-pointer hover:bg-accent"
+                    onClick={() => setFilterMode('active')}
+                >
                     {t("page.nodes.devices.active_devices", { count: activeDevices })}
                 </Badge>
             </div>
 
             {/* Users List */}
-            {users.length === 0 ? (
+            {filteredUsers.length === 0 ? (
                 <Alert>
                     <AlertDescription>
-                        {t("page.nodes.devices.no_devices")}
+                        {filterMode === 'active' 
+                            ? t("page.nodes.devices.no_active_devices")
+                            : t("page.nodes.devices.no_devices")}
                     </AlertDescription>
                 </Alert>
             ) : (
                 <div className="space-y-2">
-                    {users.map((userDevices) => {
+                    {filteredUsers.map((userDevices) => {
                         const activeCount = userDevices.devices.filter((d) => d.is_active).length;
                         const isExpanded = expandedUsers.has(userDevices.uid);
 
