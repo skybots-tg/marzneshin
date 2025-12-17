@@ -372,15 +372,14 @@ async def migrate_node(
     await websocket.accept()
     
     migration_steps = [
-        {"id": "check_root", "name": "Checking root privileges", "status": "pending"},
-        {"id": "detect_compose", "name": "Detecting Docker Compose", "status": "pending"},
-        {"id": "lock", "name": "Acquiring lock", "status": "pending"},
-        {"id": "workdir", "name": "Checking working directory", "status": "pending"},
-        {"id": "backup", "name": "Backing up files", "status": "pending"},
-        {"id": "compose_check", "name": "Checking compose configuration", "status": "pending"},
-        {"id": "git_update", "name": "Updating git repository", "status": "pending"},
-        {"id": "compose_restart", "name": "Restarting services", "status": "pending"},
-        {"id": "health_check", "name": "Running health check", "status": "pending"},
+        {"id": "step1", "name": "Step 1/8: Stopping and removing old containers with volumes", "status": "pending"},
+        {"id": "step2", "name": "Step 2/8: Removing old docker image", "status": "pending"},
+        {"id": "step3", "name": "Step 3/8: Creating backup of old installation", "status": "pending"},
+        {"id": "step4", "name": "Step 4/8: Cloning skybots-tg/marznode fork", "status": "pending"},
+        {"id": "step5", "name": "Step 5/8: Building docker image from source", "status": "pending"},
+        {"id": "step6", "name": "Step 6/8: Updating compose.yml with new image", "status": "pending"},
+        {"id": "step7", "name": "Step 7/8: Starting marznode with new configuration", "status": "pending"},
+        {"id": "step8", "name": "Step 8/8: Verifying deployment", "status": "pending"},
     ]
     
     try:
@@ -470,7 +469,7 @@ async def migrate_node(
             text=True
         )
         
-        step_index = 0
+        step_index = -1
         
         # Read output line by line
         while True:
@@ -489,117 +488,140 @@ async def migrate_node(
             })
             
             # Update step status based on log patterns
-            if "need_root" in line or "Run as root" in line:
-                if step_index < len(migration_steps):
-                    migration_steps[0]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[0]
-                    })
-                    if "ERROR" in line:
-                        step_index = 0
-                    else:
-                        step_index = 1
+            # Step 1: Stopping and removing containers
+            if "[Step 1/8]" in line:
+                step_index = 0
+                migration_steps[0]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[0]
+                })
+            elif step_index == 0 and ("✓ Old containers stopped" in line or "! No compose file found" in line):
+                migration_steps[0]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[0]
+                })
                         
-            elif "detect_compose" in line or "docker compose" in line.lower():
-                if step_index >= 1 and step_index < len(migration_steps):
-                    migration_steps[1]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[1]
-                    })
-                    if "ERROR" not in line:
-                        step_index = 2
+            # Step 2: Removing old image
+            elif "[Step 2/8]" in line:
+                step_index = 1
+                migration_steps[1]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[1]
+                })
+            elif step_index == 1 and ("✓ Old image removed" in line or "! Old image not found" in line):
+                migration_steps[1]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[1]
+                })
                         
-            elif "lock" in line.lower() or "Another update" in line:
-                if step_index >= 2 and step_index < len(migration_steps):
-                    migration_steps[2]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[2]
-                    })
-                    if "ERROR" not in line:
-                        step_index = 3
+            # Step 3: Backup
+            elif "[Step 3/8]" in line:
+                step_index = 2
+                migration_steps[2]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[2]
+                })
+            elif step_index == 2 and "✓ Backup created" in line:
+                migration_steps[2]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[2]
+                })
                         
-            elif "WORKDIR" in line or "ensure_workdir" in line:
-                if step_index >= 3 and step_index < len(migration_steps):
-                    migration_steps[3]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[3]
-                    })
-                    if "ERROR" not in line:
-                        step_index = 4
+            # Step 4: Cloning repository
+            elif "[Step 4/8]" in line:
+                step_index = 3
+                migration_steps[3]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[3]
+                })
+            elif step_index == 3 and "✓ Repository cloned successfully" in line:
+                migration_steps[3]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[3]
+                })
+            elif step_index == 3 and "✗ Failed to clone" in line:
+                migration_steps[3]["status"] = "error"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[3]
+                })
                         
-            elif "Backup" in line or "backup" in line:
-                if step_index >= 4 and step_index < len(migration_steps):
-                    migration_steps[4]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[4]
-                    })
-                    if "ERROR" not in line:
-                        step_index = 5
+            # Step 5: Building image
+            elif "[Step 5/8]" in line:
+                step_index = 4
+                migration_steps[4]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[4]
+                })
+            elif step_index == 4 and "✓ Docker image built successfully" in line:
+                migration_steps[4]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[4]
+                })
                         
-            elif "Compose:" in line and ("detected" in line or "validating" in line):
-                if step_index >= 5 and step_index < len(migration_steps):
-                    migration_steps[5]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[5]
-                    })
-                    if "ERROR" not in line:
-                        step_index = 6
+            # Step 6: Updating compose
+            elif "[Step 6/8]" in line:
+                step_index = 5
+                migration_steps[5]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[5]
+                })
+            elif step_index == 5 and "✓ compose.yml updated" in line:
+                migration_steps[5]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[5]
+                })
                         
-            elif "Git:" in line:
-                if step_index >= 6 and step_index < len(migration_steps):
-                    migration_steps[6]["status"] = "in_progress"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[6]
-                    })
-                if "hard reset" in line.lower() or "cleaning" in line.lower():
-                    migration_steps[6]["status"] = "success" if "ERROR" not in line else "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[6]
-                    })
-                    if "ERROR" not in line:
-                        step_index = 7
-                        
-            elif "Compose:" in line and ("up" in line or "applying" in line or "recreate" in line):
-                if step_index >= 7 and step_index < len(migration_steps):
-                    migration_steps[7]["status"] = "in_progress"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[7]
-                    })
-            elif "Compose: status" in line:
-                if step_index >= 7 and step_index < len(migration_steps):
-                    migration_steps[7]["status"] = "success"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[7]
-                    })
-                    step_index = 8
+            # Step 7: Starting services
+            elif "[Step 7/8]" in line:
+                step_index = 6
+                migration_steps[6]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[6]
+                })
+            elif step_index == 6 and "✓ Services started successfully" in line:
+                migration_steps[6]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[6]
+                })
                     
-            elif "Docker:" in line or "health" in line.lower():
-                if step_index >= 8 and step_index < len(migration_steps):
-                    migration_steps[8]["status"] = "success" if "ERROR" not in line else "error"
+            # Step 8: Verification
+            elif "[Step 8/8]" in line:
+                step_index = 7
+                migration_steps[7]["status"] = "in_progress"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[7]
+                })
+            elif step_index == 7 and "MIGRATION COMPLETED SUCCESSFULLY" in line:
+                migration_steps[7]["status"] = "success"
+                await websocket.send_json({
+                    "type": "step_update",
+                    "step": migration_steps[7]
+                })
+                    
+            # Check for errors
+            if "ERROR:" in line or "✗" in line:
+                if 0 <= step_index < len(migration_steps):
+                    migration_steps[step_index]["status"] = "error"
                     await websocket.send_json({
                         "type": "step_update",
-                        "step": migration_steps[8]
+                        "step": migration_steps[step_index]
                     })
-                    
-            elif "update done" in line.lower():
-                # Mark all remaining steps as success
-                for i in range(step_index, len(migration_steps)):
-                    if migration_steps[i]["status"] == "pending":
-                        migration_steps[i]["status"] = "success"
-                        await websocket.send_json({
-                            "type": "step_update",
-                            "step": migration_steps[i]
-                        })
         
         await process.wait()
         
