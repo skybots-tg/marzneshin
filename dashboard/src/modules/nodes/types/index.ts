@@ -53,3 +53,26 @@ export type NodeType = z.infer<typeof NodeSchema> & {
     id: number;
     backends: NodeBackendType[];
 };
+
+export type DeviceInfo = {
+    remote_ip: string;
+    client_name: string;
+    user_agent?: string | null;
+    protocol?: string | null;
+    tls_fingerprint?: string | null;
+    first_seen: number;
+    last_seen: number;
+    total_usage: number;
+    uplink: number;
+    downlink: number;
+    is_active: boolean;
+};
+
+export type UserDevicesResponse = {
+    uid: number;
+    devices: DeviceInfo[];
+};
+
+export type AllUsersDevicesResponse = {
+    users: UserDevicesResponse[];
+};
