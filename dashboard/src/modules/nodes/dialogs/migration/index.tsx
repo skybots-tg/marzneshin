@@ -49,7 +49,7 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
         password: "",
         authMethod: "password" as "password" | "key",
     });
-    const wsRef = useRef<WebSocket | null>(null);
+    const eventSourceRef = useRef<EventSource | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -67,80 +67,91 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
         setSteps([]);
 
         const token = localStorage.getItem("token") || "";
-        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         
-        let wsUrl = `${wsProtocol}//${window.location.host}/api/nodes/${node.id}/migrate?token=${token}&ssh_user=${sshConfig.user}&ssh_port=${sshConfig.port}`;
+        // Build HTTP URL for Server-Sent Events (not WebSocket)
+        let url = `/api/nodes/${node.id}/migrate?token=${token}&ssh_user=${encodeURIComponent(sshConfig.user)}&ssh_port=${encodeURIComponent(sshConfig.port)}`;
         
         if (sshConfig.authMethod === "key" && sshConfig.key) {
-            wsUrl += `&ssh_key=${encodeURIComponent(sshConfig.key)}`;
+            url += `&ssh_key=${encodeURIComponent(sshConfig.key)}`;
         } else if (sshConfig.authMethod === "password" && sshConfig.password) {
-            wsUrl += `&ssh_password=${encodeURIComponent(sshConfig.password)}`;
+            url += `&ssh_password=${encodeURIComponent(sshConfig.password)}`;
         }
 
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
+        // Use EventSource for Server-Sent Events  
+        const eventSource = new EventSource(url);
+        eventSourceRef.current = eventSource;
 
-        ws.onopen = () => {
-            addLog(t("page.nodes.migration.connected"));
-        };
+        addLog(t("page.nodes.migration.connected"));
 
-        ws.onmessage = (event) => {
+        // Handle different event types
+        eventSource.addEventListener("steps", (event) => {
             try {
                 const data = JSON.parse(event.data);
-
-                switch (data.type) {
-                    case "steps":
-                        setSteps(data.steps);
-                        break;
-
-                    case "step_update":
-                        setSteps((prevSteps) =>
-                            prevSteps.map((step) =>
-                                step.id === data.step.id ? data.step : step
-                            )
-                        );
-                        break;
-
-                    case "log":
-                        addLog(data.message);
-                        break;
-
-                    case "complete":
-                        setIsComplete(true);
-                        setIsRunning(false);
-                        setSuccess(data.success);
-                        addLog(
-                            data.success
-                                ? t("page.nodes.migration.success")
-                                : t("page.nodes.migration.failed")
-                        );
-                        break;
-
-                    case "error":
-                        addLog(`ERROR: ${data.message}`);
-                        setIsRunning(false);
-                        setIsComplete(true);
-                        setSuccess(false);
-                        break;
-                }
+                setSteps(data.steps);
             } catch (error) {
-                console.error("Failed to parse WebSocket message:", error);
+                console.error("Failed to parse steps event:", error);
             }
-        };
+        });
 
-        ws.onerror = (error) => {
-            addLog(`WebSocket error: ${error}`);
-            setIsRunning(false);
-            setIsComplete(true);
-            setSuccess(false);
-        };
+        eventSource.addEventListener("step_update", (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                setSteps((prevSteps) =>
+                    prevSteps.map((step) =>
+                        step.id === data.step.id ? data.step : step
+                    )
+                );
+            } catch (error) {
+                console.error("Failed to parse step_update event:", error);
+            }
+        });
 
-        ws.onclose = () => {
+        eventSource.addEventListener("log", (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addLog(data.message);
+            } catch (error) {
+                console.error("Failed to parse log event:", error);
+            }
+        });
+
+        eventSource.addEventListener("complete", (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                setIsComplete(true);
+                setIsRunning(false);
+                setSuccess(data.success);
+                addLog(
+                    data.success
+                        ? t("page.nodes.migration.success")
+                        : t("page.nodes.migration.failed")
+                );
+                eventSource.close();
+            } catch (error) {
+                console.error("Failed to parse complete event:", error);
+            }
+        });
+
+        eventSource.addEventListener("error", (event) => {
+            try {
+                const data = JSON.parse((event as MessageEvent).data);
+                addLog(`ERROR: ${data.message}`);
+            } catch (error) {
+                // If parsing fails, it's a connection error
+                console.error("EventSource connection error:", error);
+            }
+        });
+
+        // Handle connection errors
+        eventSource.onerror = (error) => {
+            console.error("EventSource error:", error);
             addLog(t("page.nodes.migration.disconnected"));
             if (isRunning) {
                 setIsRunning(false);
                 setIsComplete(true);
+                setSuccess(false);
             }
+            eventSource.close();
         };
     };
 
@@ -149,9 +160,9 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
     };
 
     const stopMigration = () => {
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
+        if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+            eventSourceRef.current = null;
         }
         setIsRunning(false);
     };

@@ -8,6 +8,7 @@ from fastapi import HTTPException, WebSocket
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
 from starlette.websockets import WebSocketDisconnect, WebSocketState
+from starlette.responses import StreamingResponse
 from grpclib.exceptions import StreamTerminatedError, GRPCError
 
 from app import marznode
@@ -348,344 +349,322 @@ async def get_all_devices(
     return AllUsersDevicesResponse(users=users)
 
 
-@router.websocket("/{node_id}/migrate")
+@router.get("/{node_id}/migrate")
 async def migrate_node(
     node_id: int,
-    websocket: WebSocket,
     db: DBDep,
+    ssh_user: str = Query("root"),
+    ssh_port: str = Query("22"),
+    ssh_password: str = Query(None),
+    ssh_key: str = Query(None),
+    token: str = Query(None),
 ):
+    """
+    Migrate a node to the skybots-tg/marznode fork using Server-Sent Events (SSE).
+    
+    This endpoint streams migration progress in real-time using SSE format.
+    Each event contains JSON data with the migration status and logs.
+    """
     import subprocess
     import json
     import shutil
     
-    token = websocket.query_params.get("token", "") or websocket.headers.get(
-        "Authorization", ""
-    ).removeprefix("Bearer ")
-    admin = get_admin(db, token)
-
-    if not admin or not admin.is_sudo:
-        return await websocket.close(reason="You're not allowed", code=4403)
-
+    # Authenticate using token from query parameter (EventSource doesn't support custom headers)
+    if token:
+        admin = get_admin(db, token)
+        if not admin or not admin.is_sudo:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     db_node = crud.get_node_by_id(db, node_id)
     if not db_node:
-        return await websocket.close(reason="Node not found", code=4404)
+        raise HTTPException(status_code=404, detail="Node not found")
+    
+    async def event_generator():
+        """Generate SSE events for migration progress"""
+        
+        def send_event(event_type: str, data: dict):
+            """Format and return SSE event"""
+            json_data = json.dumps(data, ensure_ascii=False)
+            return f"event: {event_type}\ndata: {json_data}\n\n"
 
-    try:
-        await websocket.accept()
-        
         # Send initial connection message
-        await websocket.send_json({
-            "type": "log",
-            "message": "WebSocket connection established"
+        yield send_event("log", {
+            "message": "Connection established, starting migration..."
         })
         
-    except Exception as e:
-        logger.error(f"Failed to accept WebSocket: {e}")
-        return
-    
-    migration_steps = [
-        {"id": "step1", "name": "Step 1/8: Stopping and removing old containers with volumes", "status": "pending"},
-        {"id": "step2", "name": "Step 2/8: Removing old docker image", "status": "pending"},
-        {"id": "step3", "name": "Step 3/8: Creating backup of old installation", "status": "pending"},
-        {"id": "step4", "name": "Step 4/8: Cloning skybots-tg/marznode fork", "status": "pending"},
-        {"id": "step5", "name": "Step 5/8: Building docker image from source", "status": "pending"},
-        {"id": "step6", "name": "Step 6/8: Updating compose.yml with new image", "status": "pending"},
-        {"id": "step7", "name": "Step 7/8: Starting marznode with new configuration", "status": "pending"},
-        {"id": "step8", "name": "Step 8/8: Verifying deployment", "status": "pending"},
-    ]
-    
-    try:
-        # Check if required tools are available
-        ssh_password = websocket.query_params.get("ssh_password", "")
+        migration_steps = [
+            {"id": "step1", "name": "Step 1/8: Stopping and removing old containers with volumes", "status": "pending"},
+            {"id": "step2", "name": "Step 2/8: Removing old docker image", "status": "pending"},
+            {"id": "step3", "name": "Step 3/8: Creating backup of old installation", "status": "pending"},
+            {"id": "step4", "name": "Step 4/8: Cloning skybots-tg/marznode fork", "status": "pending"},
+            {"id": "step5", "name": "Step 5/8: Building docker image from source", "status": "pending"},
+            {"id": "step6", "name": "Step 6/8: Updating compose.yml with new image", "status": "pending"},
+            {"id": "step7", "name": "Step 7/8: Starting marznode with new configuration", "status": "pending"},
+            {"id": "step8", "name": "Step 8/8: Verifying deployment", "status": "pending"},
+        ]
         
-        if ssh_password and not shutil.which("sshpass"):
-            await websocket.send_json({
-                "type": "error",
-                "message": "sshpass is not installed on the server. Please install it: apt-get install sshpass"
-            })
-            await websocket.close()
-            return
-            
-        if not shutil.which("ssh"):
-            await websocket.send_json({
-                "type": "error",
-                "message": "ssh is not installed on the server"
-            })
-            await websocket.close()
-            return
-        
-        # Send initial steps
-        await websocket.send_json({
-            "type": "steps",
-            "steps": migration_steps
-        })
-        
-        # Prepare SSH command to run migration script
-        ssh_user = websocket.query_params.get("ssh_user", "root")
-        ssh_port = websocket.query_params.get("ssh_port", "22")
-        ssh_key = websocket.query_params.get("ssh_key", "")
-        
-        # Build SSH command
-        ssh_cmd = []
-        scp_cmd_prefix = []
-        
-        if ssh_password:
-            # Use sshpass for password authentication
-            ssh_cmd = ["sshpass", "-p", ssh_password]
-            scp_cmd_prefix = ["sshpass", "-p", ssh_password]
-        
-        ssh_cmd.extend([
-            "ssh",
-            "-p", ssh_port,
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null"
-        ])
-        
-        if ssh_key:
-            ssh_cmd.extend(["-i", ssh_key])
-            
-        ssh_cmd.append(f"{ssh_user}@{db_node.address}")
-        
-        # Check if script exists on remote, if not upload it
-        check_script = "test -f /tmp/migrate_skybots.sh && echo 'exists' || echo 'missing'"
-        check_proc = subprocess.Popen(
-            ssh_cmd + [check_script],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        check_output, _ = check_proc.communicate()
-        
-        if "missing" in check_output:
-            # Upload script
-            await websocket.send_json({
-                "type": "log",
-                "message": "Uploading migration script to node..."
-            })
-            
-            script_path = "/app/../migrate_skybots.sh"
-            scp_cmd = []
-            
-            if scp_cmd_prefix:
-                scp_cmd.extend(scp_cmd_prefix)
+        try:
+            # Check if required tools are available
+            if ssh_password and not shutil.which("sshpass"):
+                yield send_event("error", {
+                    "message": "sshpass is not installed on the server. Please install it: apt-get install sshpass"
+                })
+                return
                 
-            scp_cmd.extend(["scp", "-P", ssh_port])
+            if not shutil.which("ssh"):
+                yield send_event("error", {
+                    "message": "ssh is not installed on the server"
+                })
+                return
             
-            if ssh_key:
-                scp_cmd.extend(["-i", ssh_key])
-                
-            scp_cmd.extend([
+            # Send initial steps
+            yield send_event("steps", {
+                "steps": migration_steps
+            })
+            
+            # Build SSH command
+            ssh_cmd = []
+            scp_cmd_prefix = []
+            
+            if ssh_password:
+                # Use sshpass for password authentication
+                ssh_cmd = ["sshpass", "-p", ssh_password]
+                scp_cmd_prefix = ["sshpass", "-p", ssh_password]
+            
+            ssh_cmd.extend([
+                "ssh",
+                "-p", ssh_port,
                 "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                script_path,
-                f"{ssh_user}@{db_node.address}:/tmp/migrate_skybots.sh"
+                "-o", "UserKnownHostsFile=/dev/null"
             ])
             
-            scp_proc = subprocess.Popen(scp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            await scp_proc.wait()
-        
-        # Execute migration script
-        migration_cmd = ssh_cmd + ["bash /tmp/migrate_skybots.sh"]
-        
-        await websocket.send_json({
-            "type": "log",
-            "message": "Starting migration process..."
-        })
-        
-        process = await asyncio.create_subprocess_exec(
-            *migration_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            text=True
-        )
-        
-        step_index = -1
-        
-        # Read output line by line
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
+            if ssh_key:
+                ssh_cmd.extend(["-i", ssh_key])
                 
-            line = line.strip()
-            if not line:
-                continue
+            ssh_cmd.append(f"{ssh_user}@{db_node.address}")
             
-            # Send log message
-            await websocket.send_json({
-                "type": "log",
-                "message": line
+            # Check if script exists on remote, if not upload it
+            check_script = "test -f /tmp/migrate_skybots.sh && echo 'exists' || echo 'missing'"
+            check_proc = subprocess.Popen(
+                ssh_cmd + [check_script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            check_output, _ = check_proc.communicate()
+            
+            if "missing" in check_output:
+                # Upload script
+                yield send_event("log", {
+                    "message": "Uploading migration script to node..."
+                })
+                
+                script_path = "/app/../migrate_skybots.sh"
+                scp_cmd = []
+                
+                if scp_cmd_prefix:
+                    scp_cmd.extend(scp_cmd_prefix)
+                    
+                scp_cmd.extend(["scp", "-P", ssh_port])
+                
+                if ssh_key:
+                    scp_cmd.extend(["-i", ssh_key])
+                    
+                scp_cmd.extend([
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    script_path,
+                    f"{ssh_user}@{db_node.address}:/tmp/migrate_skybots.sh"
+                ])
+                
+                scp_proc = await asyncio.create_subprocess_exec(
+                    *scp_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await scp_proc.wait()
+            
+            # Execute migration script
+            migration_cmd = ssh_cmd + ["bash /tmp/migrate_skybots.sh"]
+            
+            yield send_event("log", {
+                "message": "Starting migration process..."
             })
             
-            # Update step status based on log patterns
-            # Step 1: Stopping and removing containers
-            if "[Step 1/8]" in line:
-                step_index = 0
-                migration_steps[0]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[0]
-                })
-            elif step_index == 0 and ("✓ Old containers stopped" in line or "! No compose file found" in line):
-                migration_steps[0]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[0]
-                })
-                        
-            # Step 2: Removing old image
-            elif "[Step 2/8]" in line:
-                step_index = 1
-                migration_steps[1]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[1]
-                })
-            elif step_index == 1 and ("✓ Old image removed" in line or "! Old image not found" in line):
-                migration_steps[1]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[1]
-                })
-                        
-            # Step 3: Backup
-            elif "[Step 3/8]" in line:
-                step_index = 2
-                migration_steps[2]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[2]
-                })
-            elif step_index == 2 and "✓ Backup created" in line:
-                migration_steps[2]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[2]
-                })
-                        
-            # Step 4: Cloning repository
-            elif "[Step 4/8]" in line:
-                step_index = 3
-                migration_steps[3]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[3]
-                })
-            elif step_index == 3 and "✓ Repository cloned successfully" in line:
-                migration_steps[3]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[3]
-                })
-            elif step_index == 3 and "✗ Failed to clone" in line:
-                migration_steps[3]["status"] = "error"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[3]
-                })
-                        
-            # Step 5: Building image
-            elif "[Step 5/8]" in line:
-                step_index = 4
-                migration_steps[4]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[4]
-                })
-            elif step_index == 4 and "✓ Docker image built successfully" in line:
-                migration_steps[4]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[4]
-                })
-                        
-            # Step 6: Updating compose
-            elif "[Step 6/8]" in line:
-                step_index = 5
-                migration_steps[5]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[5]
-                })
-            elif step_index == 5 and "✓ compose.yml updated" in line:
-                migration_steps[5]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[5]
-                })
-                        
-            # Step 7: Starting services
-            elif "[Step 7/8]" in line:
-                step_index = 6
-                migration_steps[6]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[6]
-                })
-            elif step_index == 6 and "✓ Services started successfully" in line:
-                migration_steps[6]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[6]
-                })
+            process = await asyncio.create_subprocess_exec(
+                *migration_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                text=True
+            )
+            
+            step_index = -1
+            
+            # Read output line by line
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
                     
-            # Step 8: Verification
-            elif "[Step 8/8]" in line:
-                step_index = 7
-                migration_steps[7]["status"] = "in_progress"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[7]
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Send log message
+                yield send_event("log", {
+                    "message": line
                 })
-            elif step_index == 7 and "MIGRATION COMPLETED SUCCESSFULLY" in line:
-                migration_steps[7]["status"] = "success"
-                await websocket.send_json({
-                    "type": "step_update",
-                    "step": migration_steps[7]
-                })
-                    
-            # Check for errors
-            if "ERROR:" in line or "✗" in line:
-                if 0 <= step_index < len(migration_steps):
-                    migration_steps[step_index]["status"] = "error"
-                    await websocket.send_json({
-                        "type": "step_update",
-                        "step": migration_steps[step_index]
+                
+                # Update step status based on log patterns
+                # Step 1: Stopping and removing containers
+                if "[Step 1/8]" in line:
+                    step_index = 0
+                    migration_steps[0]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[0]
                     })
-        
-        await process.wait()
-        
-        # Send completion message
-        if process.returncode == 0:
-            await websocket.send_json({
-                "type": "complete",
-                "success": True,
-                "message": "Migration completed successfully"
-            })
-        else:
-            await websocket.send_json({
-                "type": "complete",
-                "success": False,
-                "message": f"Migration failed with exit code {process.returncode}"
-            })
+                elif step_index == 0 and ("✓ Old containers stopped" in line or "! No compose file found" in line):
+                    migration_steps[0]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[0]
+                    })
+                            
+                # Step 2: Removing old image
+                elif "[Step 2/8]" in line:
+                    step_index = 1
+                    migration_steps[1]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[1]
+                    })
+                elif step_index == 1 and ("✓ Old image removed" in line or "! Old image not found" in line):
+                    migration_steps[1]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[1]
+                    })
+                            
+                # Step 3: Backup
+                elif "[Step 3/8]" in line:
+                    step_index = 2
+                    migration_steps[2]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[2]
+                    })
+                elif step_index == 2 and "✓ Backup created" in line:
+                    migration_steps[2]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[2]
+                    })
+                            
+                # Step 4: Cloning repository
+                elif "[Step 4/8]" in line:
+                    step_index = 3
+                    migration_steps[3]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[3]
+                    })
+                elif step_index == 3 and "✓ Repository cloned successfully" in line:
+                    migration_steps[3]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[3]
+                    })
+                elif step_index == 3 and "✗ Failed to clone" in line:
+                    migration_steps[3]["status"] = "error"
+                    yield send_event("step_update", {
+                        "step": migration_steps[3]
+                    })
+                            
+                # Step 5: Building image
+                elif "[Step 5/8]" in line:
+                    step_index = 4
+                    migration_steps[4]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[4]
+                    })
+                elif step_index == 4 and "✓ Docker image built successfully" in line:
+                    migration_steps[4]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[4]
+                    })
+                            
+                # Step 6: Updating compose
+                elif "[Step 6/8]" in line:
+                    step_index = 5
+                    migration_steps[5]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[5]
+                    })
+                elif step_index == 5 and "✓ compose.yml updated" in line:
+                    migration_steps[5]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[5]
+                    })
+                            
+                # Step 7: Starting services
+                elif "[Step 7/8]" in line:
+                    step_index = 6
+                    migration_steps[6]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[6]
+                    })
+                elif step_index == 6 and "✓ Services started successfully" in line:
+                    migration_steps[6]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[6]
+                    })
+                        
+                # Step 8: Verification
+                elif "[Step 8/8]" in line:
+                    step_index = 7
+                    migration_steps[7]["status"] = "in_progress"
+                    yield send_event("step_update", {
+                        "step": migration_steps[7]
+                    })
+                elif step_index == 7 and "MIGRATION COMPLETED SUCCESSFULLY" in line:
+                    migration_steps[7]["status"] = "success"
+                    yield send_event("step_update", {
+                        "step": migration_steps[7]
+                    })
+                        
+                # Check for errors
+                if "ERROR:" in line or "✗" in line:
+                    if 0 <= step_index < len(migration_steps):
+                        migration_steps[step_index]["status"] = "error"
+                        yield send_event("step_update", {
+                            "step": migration_steps[step_index]
+                        })
             
-    except WebSocketDisconnect:
-        logger.debug("websocket disconnected during migration")
-    except Exception as e:
-        logger.error(f"Migration error: {str(e)}", exc_info=True)
-        try:
-            if websocket.state == WebSocketState.CONNECTED:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"Migration error: {str(e)}"
+            await process.wait()
+            
+            # Send completion message
+            if process.returncode == 0:
+                yield send_event("complete", {
+                    "success": True,
+                    "message": "Migration completed successfully"
                 })
-                await websocket.send_json({
-                    "type": "complete",
+            else:
+                yield send_event("complete", {
                     "success": False,
-                    "message": f"Migration failed: {str(e)}"
+                    "message": f"Migration failed with exit code {process.returncode}"
                 })
-        except Exception as send_err:
-            logger.error(f"Failed to send error message: {send_err}")
-    finally:
-        if websocket.state == WebSocketState.CONNECTED:
-            await websocket.close()
+                
+        except Exception as e:
+            logger.error(f"Migration error: {str(e)}", exc_info=True)
+            yield send_event("error", {
+                "message": f"Migration error: {str(e)}"
+            })
+            yield send_event("complete", {
+                "success": False,
+                "message": f"Migration failed: {str(e)}"
+            })
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )

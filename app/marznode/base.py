@@ -6,7 +6,11 @@ class MarzNodeBase(ABC):
         """stops all operations"""
 
     async def update_user(
-        self, user, inbounds: list[str] | None = None
+        self, 
+        user, 
+        inbounds: list[str] | None = None,
+        device_limit: int | None = None,
+        allowed_fingerprints: list[str] | None = None
     ) -> None:
         """updates a user on the node"""
 

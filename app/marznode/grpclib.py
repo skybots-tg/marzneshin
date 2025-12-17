@@ -107,13 +107,29 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     user_update = await self._updates_queue.get()
                     logger.debug("got something from queue")
                     user = user_update["user"]
+                    
+                    from app.config.env import ENFORCE_DEVICE_LIMITS_ON_PROXY
+                    
+                    user_proto = User(
+                        id=user.id,
+                        username=user.username,
+                        key=user.key,
+                        enforce_device_limit=ENFORCE_DEVICE_LIMITS_ON_PROXY
+                    )
+                    
+                    # Add device_limit if set
+                    if user_update.get("device_limit") is not None:
+                        user_proto.device_limit = user_update["device_limit"]
+                    
+                    # Add allowed fingerprints
+                    if user_update.get("allowed_fingerprints"):
+                        user_proto.allowed_fingerprints.extend(
+                            user_update["allowed_fingerprints"]
+                        )
+                    
                     await stream.send_message(
                         UserData(
-                            user=User(
-                                id=user.id,
-                                username=user.username,
-                                key=user.key,
-                            ),
+                            user=user_proto,
                             inbounds=[
                                 Inbound(tag=t) for t in user_update["inbounds"]
                             ],
@@ -123,20 +139,52 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             logger.info("node %i detached", self.id)
             self.synced = False
 
-    async def update_user(self, user, inbounds: set[str] | None = None):
+    async def update_user(
+        self, 
+        user, 
+        inbounds: set[str] | None = None,
+        device_limit: int | None = None,
+        allowed_fingerprints: list[str] | None = None
+    ):
         if inbounds is None:
             inbounds = set()
+        if allowed_fingerprints is None:
+            allowed_fingerprints = []
 
-        await self._updates_queue.put({"user": user, "inbounds": inbounds})
+        await self._updates_queue.put({
+            "user": user, 
+            "inbounds": inbounds,
+            "device_limit": device_limit,
+            "allowed_fingerprints": allowed_fingerprints
+        })
 
     async def _repopulate_users(self, users_data: list[dict]) -> None:
-        updates = [
-            UserData(
-                user=User(id=u["id"], username=u["username"], key=u["key"]),
-                inbounds=[Inbound(tag=t) for t in u["inbounds"]],
+        from app.config.env import ENFORCE_DEVICE_LIMITS_ON_PROXY
+        
+        updates = []
+        for u in users_data:
+            user_proto = User(
+                id=u["id"], 
+                username=u["username"], 
+                key=u["key"],
+                enforce_device_limit=ENFORCE_DEVICE_LIMITS_ON_PROXY
             )
-            for u in users_data
-        ]
+            
+            # Add device_limit if present
+            if u.get("device_limit") is not None:
+                user_proto.device_limit = u["device_limit"]
+            
+            # Add allowed fingerprints if present
+            if u.get("allowed_fingerprints"):
+                user_proto.allowed_fingerprints.extend(u["allowed_fingerprints"])
+            
+            updates.append(
+                UserData(
+                    user=user_proto,
+                    inbounds=[Inbound(tag=t) for t in u["inbounds"]],
+                )
+            )
+        
         await self._stub.RepopulateUsers(UsersData(users_data=updates))
 
     async def fetch_users_stats(self):

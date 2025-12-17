@@ -58,6 +58,9 @@ class User(BaseModel):
     data_limit_reset_strategy: UserDataUsageResetStrategy = (
         UserDataUsageResetStrategy.no_reset
     )
+    device_limit: int | None = Field(
+        default=None, description="Maximum number of devices. NULL = no limit, 0 = no devices"
+    )
     note: Annotated[str, Field(max_length=500)] | None = None
     sub_updated_at: datetime | None = Field(None)
     sub_last_user_agent: str | None = Field(None)

@@ -88,6 +88,23 @@ def track_user_connection(
         )
         
         if not device:
+            # Check device limit before creating new device
+            from app.db.models import User as DBUser
+            user = db.query(DBUser).filter(DBUser.id == user_id).first()
+            
+            if user and user.device_limit is not None:
+                # Count active (non-blocked) devices for this user
+                current_device_count = device_crud.get_devices_count(db, user_id, is_blocked=False)
+                
+                if current_device_count >= user.device_limit:
+                    logger.warning(
+                        f"Device limit reached for user {user_id}: "
+                        f"{current_device_count}/{user.device_limit} devices. "
+                        f"Cannot create new device."
+                    )
+                    # Return None to indicate device limit exceeded
+                    return None, None
+            
             # Create new device
             device = device_crud.create_device(
                 db=db,
