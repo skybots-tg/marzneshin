@@ -46,6 +46,9 @@ TELEGRAM_ADMIN_ID = config(
     ],
 )
 TELEGRAM_PROXY_URL = config("TELEGRAM_PROXY_URL", default="")
+
+# Device limits enforcement on proxy level
+ENFORCE_DEVICE_LIMITS_ON_PROXY = config("ENFORCE_DEVICE_LIMITS_ON_PROXY", default=True, cast=bool)
 TELEGRAM_LOGGER_CHANNEL_ID = config(
     "TELEGRAM_LOGGER_CHANNEL_ID", cast=int, default=0
 )
