@@ -2,7 +2,6 @@ import {
     HostType,
     fetchHosts,
     HostsOrderDialog,
-    useHostsQuery,
 } from '@marzneshin/modules/hosts';
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from 'react';
@@ -31,13 +30,6 @@ export const InboundHostsTable = () => {
     const [inboundSelectionAlert, setInboundSelectionAlert] = useDialog();
     const [orderDialogOpen, setOrderDialogOpen] = useState(false);
 
-    // Fetch hosts for the selected inbound for the order dialog
-    const { data: hostsData } = useHostsQuery({
-        page: 1,
-        size: 100,
-        inboundId: selectedInbound ? Number(selectedInbound) : undefined,
-    });
-
     const onEdit = (entity: HostType) => navigate({ to: "/hosts/$hostId/edit", params: { hostId: String(entity.id) } });
     const onDelete = (entity: HostType) => navigate({ to: "/hosts/$hostId/delete", params: { hostId: String(entity.id) } });
     const onOpen = (entity: HostType) => navigate({ to: "/hosts/$hostId", params: { hostId: String(entity.id) } });
@@ -55,14 +47,6 @@ export const InboundHostsTable = () => {
         }
     };
 
-    const handleOpenOrderDialog = () => {
-        if (selectedInbound) {
-            setOrderDialogOpen(true);
-        } else {
-            setInboundSelectionAlert(true);
-        }
-    };
-
     return (
         <div className="w-full">
             <InboundNotSelectedAlertDialog
@@ -72,7 +56,6 @@ export const InboundHostsTable = () => {
             <HostsOrderDialog
                 open={orderDialogOpen}
                 onOpenChange={setOrderDialogOpen}
-                hosts={hostsData.entities}
             />
             <SidebarEntityTable
                 fetchEntity={fetchHosts}
@@ -94,12 +77,12 @@ export const InboundHostsTable = () => {
                 extraActions={
                     <Button
                         variant="outline"
-                        onClick={handleOpenOrderDialog}
+                        onClick={() => setOrderDialogOpen(true)}
                         className="gap-2"
-                        title={t("page.hosts.order.title")}
+                        title={t("page.hosts.order.title", "Manage Servers Order")}
                     >
                         <ArrowUpDown className="h-4 w-4" />
-                        <span className="hidden sm:inline">{t("page.hosts.order.button")}</span>
+                        <span className="hidden sm:inline">{t("page.hosts.order.button", "Order")}</span>
                     </Button>
                 }
             />

@@ -26,14 +26,15 @@ export async function fetchUpdateHostsWeights(
 }
 
 const handleError = (error: Error) => {
-    toast.error(i18n.t("page.hosts.order.update-error"), {
+    toast.error(i18n.t("page.hosts.order.update-error", "Failed to update hosts order"), {
         description: error.message,
     });
 };
 
 const handleSuccess = () => {
-    toast.success(i18n.t("page.hosts.order.update-success"));
+    toast.success(i18n.t("page.hosts.order.update-success", "Hosts order has been updated"));
     queryClient.invalidateQueries({ queryKey: ["inbounds"] });
+    queryClient.invalidateQueries({ queryKey: ["all-hosts"] });
 };
 
 export const useUpdateHostsWeightsMutation = () => {
