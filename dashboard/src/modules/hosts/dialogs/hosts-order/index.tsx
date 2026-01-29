@@ -21,7 +21,6 @@ import { cn } from "@marzneshin/common/utils";
 import {
     useUpdateHostsWeightsMutation,
     useAllHostsQuery,
-    type HostWithInbound,
 } from "@marzneshin/modules/hosts";
 import { useInboundsQuery } from "@marzneshin/modules/inbounds";
 import { useNavigate } from "@tanstack/react-router";
