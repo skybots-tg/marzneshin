@@ -386,6 +386,15 @@
         "title": "Host Settings"
       },
       "allowinsecure": "Allow Insecure",
+      "order": {
+        "title": "Manage Hosts Order",
+        "button": "Order",
+        "description": "Drag and drop to reorder hosts. Hosts at the top will appear first in client configs.",
+        "no-hosts": "No hosts found for this inbound",
+        "saving": "Saving...",
+        "update-success": "Hosts order has been updated",
+        "update-error": "Failed to update hosts order"
+      },
       "dialogs": {
         "edition": {
           "title": "Edit Host"

@@ -36,6 +36,7 @@ interface SidebarEntityTableProps<T, S> {
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;
     onDelete: (entity: T) => void;
+    extraActions?: React.ReactNode;
 }
 
 function MainTable<T, S>({ table, columns, props }: { table: Table<T>, columns: any, props: SidebarEntityTableProps<T, S> }) {
@@ -72,6 +73,7 @@ export function SidebarEntityTable<T, S>(props: SidebarEntityTableProps<T, S>) {
                                 />
                             )}
                             <DataTableViewOptions table={table} />
+                            {props.extraActions}
                             {onCreate && (
                                 <Button aria-label={`create-${props.entityKey}`} onClick={onCreate}>
                                     {t("create")}
