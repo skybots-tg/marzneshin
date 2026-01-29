@@ -1,4 +1,5 @@
-from sqlalchemy.exc import SQLAlchemyError
+import logging
+from sqlalchemy.exc import SQLAlchemyError, TimeoutError as SATimeoutError
 from sqlalchemy.orm import Session
 
 from .base import Base, SessionLocal, engine  # noqa
@@ -27,22 +28,51 @@ from .crud import (
 from .models import JWT, System, User, UserDevice, UserDeviceIP, UserDeviceTraffic  # noqa
 from . import device_crud  # noqa
 
+logger = logging.getLogger(__name__)
+
 
 class GetDB:  # Context Manager
+    """
+    Context manager for database sessions with improved error handling.
+    
+    Features:
+    - Automatic rollback on exceptions
+    - Connection pool timeout handling
+    - Proper session cleanup
+    """
+    
     def __init__(self):
-        self.db = SessionLocal()
+        self.db = None
 
     def __enter__(self):
-        return self.db
-
-    def __exit__(self, _, exc_value, traceback):
         try:
-            if isinstance(exc_value, SQLAlchemyError):
-                self.db.rollback()  # rollback on exception
-            elif exc_value is not None:
-                self.db.rollback()  # rollback on any exception
+            self.db = SessionLocal()
+            return self.db
+        except SATimeoutError:
+            logger.error("Database connection pool timeout - all connections are busy")
+            raise
+        except SQLAlchemyError as e:
+            logger.error(f"Database connection error: {e}")
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.db is None:
+            return
+            
+        try:
+            if exc_value is not None:
+                self.db.rollback()
+                if isinstance(exc_value, SATimeoutError):
+                    logger.warning("Rolling back due to database timeout")
+                elif isinstance(exc_value, SQLAlchemyError):
+                    logger.warning(f"Rolling back due to database error: {exc_value}")
+        except Exception as rollback_error:
+            logger.error(f"Error during rollback: {rollback_error}")
         finally:
-            self.db.close()  # Always close, even if rollback fails
+            try:
+                self.db.close()
+            except Exception as close_error:
+                logger.error(f"Error closing database session: {close_error}")
 
 
 __all__ = [

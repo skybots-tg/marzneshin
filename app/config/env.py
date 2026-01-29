@@ -16,12 +16,31 @@ SQLALCHEMY_CONNECTION_POOL_SIZE = config(
 SQLALCHEMY_CONNECTION_MAX_OVERFLOW = config(
     "SQLALCHEMY_CONNECTION_MAX_OVERFLOW", default=10, cast=int
 )
+# Pool timeout - how long to wait for a connection from the pool
+SQLALCHEMY_POOL_TIMEOUT = config(
+    "SQLALCHEMY_POOL_TIMEOUT", default=30, cast=int
+)
+# Connection recycle time - reconnect after this many seconds
+SQLALCHEMY_POOL_RECYCLE = config(
+    "SQLALCHEMY_POOL_RECYCLE", default=1800, cast=int
+)
+# Database query timeout (for supported databases)
+SQLALCHEMY_STATEMENT_TIMEOUT = config(
+    "SQLALCHEMY_STATEMENT_TIMEOUT", default=25, cast=int
+)
+# Database connection timeout
+SQLALCHEMY_CONNECT_TIMEOUT = config(
+    "SQLALCHEMY_CONNECT_TIMEOUT", default=10, cast=int
+)
 
 UVICORN_HOST = config("UVICORN_HOST", default="0.0.0.0")
 UVICORN_PORT = config("UVICORN_PORT", cast=int, default=8000)
 UVICORN_UDS = config("UVICORN_UDS", default=None)
 UVICORN_SSL_CERTFILE = config("UVICORN_SSL_CERTFILE", default=None)
 UVICORN_SSL_KEYFILE = config("UVICORN_SSL_KEYFILE", default=None)
+UVICORN_TIMEOUT_KEEP_ALIVE = config("UVICORN_TIMEOUT_KEEP_ALIVE", cast=int, default=5)
+# Request timeout for API endpoints (seconds)
+REQUEST_TIMEOUT = config("REQUEST_TIMEOUT", cast=int, default=30)
 
 
 DEBUG = config("DEBUG", default=False, cast=bool)

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -9,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi_pagination import add_pagination
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.staticfiles import StaticFiles
 from uvicorn import Config, Server
 
@@ -21,6 +23,8 @@ from app.config.env import (
     UVICORN_SSL_CERTFILE,
     UVICORN_SSL_KEYFILE,
     UVICORN_UDS,
+    UVICORN_TIMEOUT_KEEP_ALIVE,
+    REQUEST_TIMEOUT,
     DASHBOARD_PATH,
     TASKS_RECORD_USER_USAGES_INTERVAL,
     TASKS_REVIEW_USERS_INTERVAL,
@@ -40,6 +44,29 @@ from .tasks import (
 from .webhooks import webhooks_router
 
 logger = logging.getLogger(__name__)
+
+
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    """Middleware to add request timeout to prevent hanging requests"""
+
+    def __init__(self, app, timeout: int = 30):
+        super().__init__(app)
+        self.timeout = timeout
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await asyncio.wait_for(
+                call_next(request),
+                timeout=self.timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Request timeout ({self.timeout}s): {request.method} {request.url.path}"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                content={"detail": "Request timeout"}
+            )
 
 
 @asynccontextmanager
@@ -76,6 +103,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request timeout middleware to prevent hanging requests
+# This helps prevent 504 errors by timing out slow requests gracefully
+app.add_middleware(TimeoutMiddleware, timeout=REQUEST_TIMEOUT)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 scheduler.add_job(
@@ -147,6 +178,7 @@ async def main():
         workers=1,
         reload=DEBUG,
         log_level=logging.DEBUG if DEBUG else logging.INFO,
+        timeout_keep_alive=UVICORN_TIMEOUT_KEEP_ALIVE,
     )
     server = Server(cfg)
     await server.serve()
