@@ -48,18 +48,17 @@ def update_user(
 
 def _get_allowed_fingerprints(user_id: int) -> list[str]:
     """Get list of allowed device fingerprints for user"""
-    from app.db import device_crud
-    from app.dependencies import get_db
+    from app.db import device_crud, GetDB
     
     try:
-        db = next(get_db())
-        devices = device_crud.get_user_devices(
-            db, 
-            user_id, 
-            is_blocked=False,  # Only non-blocked devices
-            limit=1000
-        )
-        return [device.fingerprint for device in devices]
+        with GetDB() as db:
+            devices = device_crud.get_user_devices(
+                db, 
+                user_id, 
+                is_blocked=False,  # Only non-blocked devices
+                limit=1000
+            )
+            return [device.fingerprint for device in devices]
     except Exception:
         return []
 
