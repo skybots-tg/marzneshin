@@ -73,7 +73,6 @@ export const InboundHostsTable = () => {
                 open={orderDialogOpen}
                 onOpenChange={setOrderDialogOpen}
                 hosts={hostsData.entities}
-                inboundId={selectedInbound}
             />
             <SidebarEntityTable
                 fetchEntity={fetchHosts}

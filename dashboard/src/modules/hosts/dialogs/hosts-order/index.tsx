@@ -34,14 +34,12 @@ interface HostsOrderDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     hosts: HostType[];
-    inboundId?: string;
 }
 
 export const HostsOrderDialog: FC<HostsOrderDialogProps> = ({
     open,
     onOpenChange,
     hosts,
-    inboundId,
 }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
