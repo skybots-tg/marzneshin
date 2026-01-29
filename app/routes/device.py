@@ -216,6 +216,12 @@ def admin_update_device(
     if not admin.is_sudo and (not user or user.admin_id != admin.id):
         raise HTTPException(status_code=403, detail="Access denied")
     
+    # Track if is_blocked changed
+    is_blocked_changed = (
+        modifications.is_blocked is not None 
+        and modifications.is_blocked != device.is_blocked
+    )
+    
     # Update device
     updated_device = device_crud.update_device(
         db=db,
@@ -227,6 +233,11 @@ def admin_update_device(
     
     if not updated_device:
         raise HTTPException(status_code=500, detail="Failed to update device")
+    
+    # If blocking status changed, resync user with nodes
+    if is_blocked_changed:
+        from app.marznode import operations
+        operations.update_user(user)
     
     # Get full response
     stats = device_crud.get_device_total_traffic(db, device.id)
@@ -272,6 +283,10 @@ def admin_delete_device(
     success = device_crud.delete_device(db, device_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete device")
+    
+    # Resync user with nodes to update allowed device list
+    from app.marznode import operations
+    operations.update_user(user)
     
     return None
 

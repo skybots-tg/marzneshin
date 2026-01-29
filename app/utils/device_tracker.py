@@ -119,6 +119,11 @@ def track_user_connection(
                 f"Created new device {device.id} for user {user_id} "
                 f"(client: {client_name or 'unknown'})"
             )
+            
+            # Resync user with nodes to add new device to allowed list
+            if user:
+                from app.marznode import operations
+                operations.update_user(user)
         else:
             # Update last seen
             device = device_crud.update_device(

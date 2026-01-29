@@ -2,11 +2,21 @@ from fastapi import APIRouter, Depends, Query
 from fastapi import HTTPException
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
+from pydantic import BaseModel
 
 from app.db import crud
 from app.db.models import InboundHost as DBInboundHost, Inbound as DBInbound
 from app.dependencies import DBDep, sudo_admin
 from app.models.proxy import Inbound, InboundHost, InboundHostResponse
+
+
+class HostWeightUpdate(BaseModel):
+    id: int
+    weight: int
+
+
+class HostsWeightsUpdateRequest(BaseModel):
+    hosts: list[HostWeightUpdate]
 
 HOST_NOT_FOUND_ERROR_MSG = "Host not found"
 
@@ -38,6 +48,23 @@ def create_unbound_host(host: InboundHost, db: DBDep):
     Add a host without an inbound
     """
     return crud.add_host(db, None, host)
+
+
+@router.put("/hosts/weights")
+def update_hosts_weights(request: HostsWeightsUpdateRequest, db: DBDep):
+    """
+    Update weights for multiple hosts at once.
+    Used for reordering hosts in the list.
+    """
+    updated_hosts = []
+    for host_update in request.hosts:
+        db_host = crud.get_host(db, host_update.id)
+        if db_host:
+            db_host.weight = host_update.weight
+            updated_hosts.append({"id": host_update.id, "weight": host_update.weight})
+
+    db.commit()
+    return {"updated": updated_hosts}
 
 
 @router.get("/hosts/{id}", response_model=InboundHostResponse)

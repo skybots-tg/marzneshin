@@ -34,3 +34,8 @@ def downgrade() -> None:
     # Remove device_limit column from users table
     op.drop_column("users", "device_limit")
 
+
+
+
+
+
