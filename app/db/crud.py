@@ -1,13 +1,41 @@
 import json
 import secrets
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from functools import lru_cache
 from types import NoneType
 from typing import List, Optional, Tuple, Union
 
 from sqlalchemy import and_, update, select, func, cast, Date, or_
 from sqlalchemy.orm import Session, joinedload
+
+
+# Simple cache for subscription settings (TTL: 60 seconds)
+_subscription_settings_cache = {"data": None, "expires": 0}
+
+
+def get_subscription_settings_cached(db: Session):
+    """Get subscription settings with caching (60s TTL)."""
+    from app.db.models import Settings
+    
+    now = time.time()
+    if _subscription_settings_cache["data"] is not None and now < _subscription_settings_cache["expires"]:
+        return _subscription_settings_cache["data"]
+    
+    result = db.query(Settings.subscription).first()
+    if result:
+        _subscription_settings_cache["data"] = result[0]
+        _subscription_settings_cache["expires"] = now + 60  # 60 second TTL
+        return result[0]
+    return None
+
+
+def invalidate_subscription_settings_cache():
+    """Call this when settings are updated."""
+    _subscription_settings_cache["data"] = None
+    _subscription_settings_cache["expires"] = 0
 
 from app.db.models import (
     JWT,
@@ -22,6 +50,9 @@ from app.db.models import (
     User,
     Backend,
     HostChain,
+    users_services,
+    inbounds_services,
+    hosts_services,
 )
 from app.models.admin import AdminCreate, AdminPartialModify
 from app.models.node import (
@@ -172,41 +203,83 @@ def get_inbounds_hosts(
     )
 
 
-def get_hosts_for_user(session, user_id):
-    # Fetch the user object (assumes relationships are properly set up in the model)
-    user = session.query(User).filter(User.id == user_id).one()
-
-    # Query for hosts linked through user's services and inbounds
-    result_query = session.query(InboundHost).filter(
-        and_(
-            # Exclude disabled hosts
-            InboundHost.is_disabled.is_(False),
-            or_(
-                # Case 1: Host has an inbound linked to a service of the user
-                InboundHost.inbound.has(
-                    Inbound.services.any(
-                        Service.id.in_([s.id for s in user.services])
-                    )
-                ),
-                # Case 2: Host has no inbound
-                and_(
-                    InboundHost.inbound_id.is_(
-                        None
-                    ),  # Host does not have an inbound
-                    or_(
-                        # Host is directly related to a service of the user
-                        InboundHost.services.any(
-                            Service.id.in_([s.id for s in user.services])
-                        ),
-                        # Host is available to all
-                        InboundHost.universal.is_(True),
-                    ),
-                ),
-            ),
+def get_hosts_for_user(session, user_id, service_ids: list[int] | None = None):
+    """
+    Get hosts for a user. Optimized version using JOINs instead of subqueries.
+    
+    Args:
+        session: Database session
+        user_id: User ID
+        service_ids: Optional pre-loaded list of service IDs (avoids extra query)
+    """
+    # If service_ids not provided, fetch them efficiently
+    if service_ids is None:
+        service_ids = [
+            row[0] for row in session.execute(
+                select(users_services.c.service_id).where(
+                    users_services.c.user_id == user_id
+                )
+            ).fetchall()
+        ]
+    
+    if not service_ids:
+        return []
+    
+    # Use UNION for better performance instead of OR with subqueries
+    # Query 1: Hosts with inbound linked to user's services
+    hosts_with_inbound = (
+        session.query(InboundHost)
+        .join(Inbound, InboundHost.inbound_id == Inbound.id)
+        .join(inbounds_services, Inbound.id == inbounds_services.c.inbound_id)
+        .filter(
+            InboundHost.is_disabled == False,
+            inbounds_services.c.service_id.in_(service_ids)
+        )
+        .options(
+            joinedload(InboundHost.inbound),
+            joinedload(InboundHost.chain).joinedload(HostChain.chained_host)
         )
     )
-
-    return result_query.all()
+    
+    # Query 2: Universal hosts (no inbound, available to all)
+    universal_hosts = (
+        session.query(InboundHost)
+        .filter(
+            InboundHost.is_disabled == False,
+            InboundHost.inbound_id.is_(None),
+            InboundHost.universal == True
+        )
+        .options(
+            joinedload(InboundHost.chain).joinedload(HostChain.chained_host)
+        )
+    )
+    
+    # Query 3: Hosts without inbound but linked to user's services
+    hosts_direct_service = (
+        session.query(InboundHost)
+        .join(hosts_services, InboundHost.id == hosts_services.c.host_id)
+        .filter(
+            InboundHost.is_disabled == False,
+            InboundHost.inbound_id.is_(None),
+            hosts_services.c.service_id.in_(service_ids)
+        )
+        .options(
+            joinedload(InboundHost.chain).joinedload(HostChain.chained_host)
+        )
+    )
+    
+    # Combine results and deduplicate
+    all_hosts = hosts_with_inbound.union(universal_hosts).union(hosts_direct_service).all()
+    
+    # Deduplicate by host ID (UNION should handle this, but be safe)
+    seen_ids = set()
+    unique_hosts = []
+    for host in all_hosts:
+        if host.id not in seen_ids:
+            seen_ids.add(host.id)
+            unique_hosts.append(host)
+    
+    return unique_hosts
 
 
 def get_all_inbounds(db: Session):

@@ -6,7 +6,7 @@ from fastapi import Header, HTTPException, Path, Request, Response
 from starlette.responses import HTMLResponse
 
 from app.db import crud
-from app.db.models import Settings
+from app.db.crud import get_hosts_for_user, get_subscription_settings_cached
 from app.dependencies import DBDep, SubUserDep, StartDateDep, EndDateDep
 from app.models.settings import SubscriptionSettings
 from app.models.system import TrafficUsageSeries
@@ -62,18 +62,24 @@ def user_subscription(
 
     user: UserResponse = UserResponse.model_validate(db_user)
 
+    # Update subscription info (non-blocking, uses separate connection)
     crud.update_user_sub(db, db_user, user_agent)
 
+    # Load settings from cache (60s TTL) and hosts in optimized query
     subscription_settings = SubscriptionSettings.model_validate(
-        db.query(Settings.subscription).first()[0]
+        get_subscription_settings_cached(db)
     )
+    
+    # Pre-load hosts ONCE for the entire request (major optimization!)
+    service_ids = [s.id for s in db_user.services]
+    hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
 
     if (
         subscription_settings.template_on_acceptance
         and "text/html" in request.headers.get("Accept", [])
     ):
         return HTMLResponse(
-            generate_subscription_template(db_user, subscription_settings)
+            generate_subscription_template(db_user, subscription_settings, hosts=hosts)
         )
 
     response_headers = {
@@ -93,7 +99,7 @@ def user_subscription(
             if rule.result.value == "template":
                 return HTMLResponse(
                     generate_subscription_template(
-                        db_user, subscription_settings
+                        db_user, subscription_settings, hosts=hosts
                     )
                 )
             elif rule.result.value == "block":
@@ -113,6 +119,7 @@ def user_subscription(
                 and subscription_settings.placeholder_if_disabled,
                 placeholder_remark=subscription_settings.placeholder_remark,
                 shuffle=subscription_settings.shuffle_configs,
+                hosts=hosts,
             )
             return Response(
                 content=conf,
@@ -168,9 +175,14 @@ def user_subscription_with_client_type(
 
     user: UserResponse = UserResponse.model_validate(db_user)
 
+    # Load settings from cache (60s TTL)
     subscription_settings = SubscriptionSettings.model_validate(
-        db.query(Settings.subscription).first()[0]
+        get_subscription_settings_cached(db)
     )
+    
+    # Pre-load hosts ONCE (major optimization!)
+    service_ids = [s.id for s in db_user.services]
+    hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
 
     response_headers = {
         "content-disposition": f'attachment; filename="{user.username}"',
@@ -199,6 +211,7 @@ def user_subscription_with_client_type(
         and subscription_settings.placeholder_if_disabled,
         placeholder_remark=subscription_settings.placeholder_remark,
         shuffle=subscription_settings.shuffle_configs,
+        hosts=hosts,
     )
     
     # Encrypt content if encryption key is provided
