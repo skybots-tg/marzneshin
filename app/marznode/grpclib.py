@@ -256,3 +256,9 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         """Fetch device history for all users"""
         response: AllUsersDevices = await self._stub.FetchAllDevices(Empty())
         return response
+
+    async def resync_users(self) -> None:
+        """Force resync all users with the node"""
+        users = self.list_users()
+        await self._repopulate_users(users)
+        logger.info("Resynced %d users with node %d", len(users), self.id)
