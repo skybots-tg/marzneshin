@@ -203,6 +203,7 @@
       },
       "usage_coefficient": "Usage Coefficient",
       "connection_backend": "Connection Backend",
+      "error_reason": "Error Reason",
       "connection_backend_desc": "Used for the remote connection",
       "certificate-alert": {
         "title": "Nodes Certificate Configuration",

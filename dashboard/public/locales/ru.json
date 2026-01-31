@@ -204,6 +204,7 @@
       },
       "usage_coefficient": "Коэффициент использования",
       "connection_backend": "Бэкэнд подключения",
+      "error_reason": "Причина ошибки",
       "connection_backend_desc": "Используется для удаленного подключения",
       "certificate-alert": {
 	"title": "Настройка сертификата узлов",
