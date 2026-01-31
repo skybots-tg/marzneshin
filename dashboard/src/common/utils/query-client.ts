@@ -3,10 +3,10 @@ import { QueryClient } from '@tanstack/react-query';
 export const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
-            // Don't refetch when window regains focus
+            // Don't refetch when window regains focus (user's request)
             refetchOnWindowFocus: false,
-            // Don't refetch when reconnecting to network  
-            refetchOnReconnect: false,
+            // Always fetch fresh data when component mounts
+            refetchOnMount: true,
         },
     },
 });
