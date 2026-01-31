@@ -1,5 +1,5 @@
 import { ColumnDef } from "@tanstack/react-table"
-import { NodesStatusBadge, NodeType, NodesStatus } from "@marzneshin/modules/nodes"
+import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation } from "@marzneshin/modules/nodes"
 import {
     DataTableActionsCell,
     DataTableColumnHeader
@@ -13,9 +13,31 @@ import {
     Button
 } from "@marzneshin/common/components"
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
+import { faArrowsRotate, faSync } from '@fortawesome/free-solid-svg-icons';
 import { useState } from "react";
 import { MigrationDialog } from "@marzneshin/modules/nodes";
+
+const ResyncButton = ({ node }: { node: NodeType }) => {
+    const { mutate: resync, isPending } = useNodesResyncMutation();
+    
+    return (
+        <Button
+            variant="outline"
+            size="sm"
+            disabled={isPending || node.status !== "healthy"}
+            onClick={(e) => {
+                e.stopPropagation();
+                resync(node);
+            }}
+            title={i18n.t('page.nodes.resync.title')}
+        >
+            <FontAwesomeIcon 
+                icon={faSync} 
+                className={isPending ? "animate-spin" : ""} 
+            />
+        </Button>
+    );
+};
 
 export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[] => ([
     {
@@ -35,6 +57,15 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
     {
         accessorKey: "usage_coefficient",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.usage_coefficient')} column={column} />,
+    },
+    {
+        id: "resync",
+        header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.resync.title')} column={column} />,
+        cell: ({ row }) => (
+            <div onClick={(e) => e.stopPropagation()}>
+                <ResyncButton node={row.original} />
+            </div>
+        ),
     },
     {
         id: "migrate",

@@ -8,4 +8,5 @@ export * from "./settings.mutate";
 export * from "./update-node.mutate";
 export * from "./create-node.mutate";
 export * from "./delete-node.mutate";
+export * from "./resync-node.mutate";
 export * from "./devices.query";
