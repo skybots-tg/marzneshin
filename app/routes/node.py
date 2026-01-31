@@ -425,15 +425,19 @@ async def migrate_node(
         })
         
         migration_steps = [
-            {"id": "step1", "name": "Step 1/8: Stopping and removing old containers with volumes", "status": "pending"},
-            {"id": "step2", "name": "Step 2/8: Removing old docker image", "status": "pending"},
-            {"id": "step3", "name": "Step 3/8: Creating backup of old installation", "status": "pending"},
-            {"id": "step4", "name": "Step 4/8: Cloning skybots-tg/marznode fork", "status": "pending"},
-            {"id": "step5", "name": "Step 5/8: Building docker image from source", "status": "pending"},
-            {"id": "step6", "name": "Step 6/8: Updating compose.yml with new image", "status": "pending"},
-            {"id": "step7", "name": "Step 7/8: Starting marznode with new configuration", "status": "pending"},
-            {"id": "step8", "name": "Step 8/8: Verifying deployment", "status": "pending"},
+            {"id": "step0", "name": "Step 0/9: Uploading SSL certificate to node", "status": "pending"},
+            {"id": "step1", "name": "Step 1/9: Stopping and removing old containers with volumes", "status": "pending"},
+            {"id": "step2", "name": "Step 2/9: Removing old docker image", "status": "pending"},
+            {"id": "step3", "name": "Step 3/9: Creating backup of old installation", "status": "pending"},
+            {"id": "step4", "name": "Step 4/9: Cloning skybots-tg/marznode fork", "status": "pending"},
+            {"id": "step5", "name": "Step 5/9: Building docker image from source", "status": "pending"},
+            {"id": "step6", "name": "Step 6/9: Updating compose.yml with new image", "status": "pending"},
+            {"id": "step7", "name": "Step 7/9: Starting marznode with new configuration", "status": "pending"},
+            {"id": "step8", "name": "Step 8/9: Verifying deployment", "status": "pending"},
         ]
+        
+        # Get TLS certificate from database
+        tls_certificate = get_tls_certificate(db)
         
         ssh_client = None
         
@@ -508,6 +512,36 @@ async def migrate_node(
                 "message": "SSH connection established successfully"
             })
             
+            # Step 0: Upload SSL certificate to node
+            migration_steps[0]["status"] = "in_progress"
+            yield send_event("step_update", {"step": migration_steps[0]})
+            yield send_event("log", {
+                "message": "Uploading SSL certificate to node..."
+            })
+            
+            try:
+                sftp = ssh_client.open_sftp()
+                
+                # Upload certificate to /opt/marznode/client.pem
+                cert_content = tls_certificate.certificate.encode('utf-8')
+                cert_file = io.BytesIO(cert_content)
+                sftp.putfo(cert_file, "/opt/marznode/client.pem")
+                sftp.chmod("/opt/marznode/client.pem", 0o600)
+                
+                yield send_event("log", {
+                    "message": "✓ SSL certificate uploaded to /opt/marznode/client.pem"
+                })
+                migration_steps[0]["status"] = "success"
+                yield send_event("step_update", {"step": migration_steps[0]})
+                
+                sftp.close()
+            except Exception as e:
+                yield send_event("log", {
+                    "message": f"! Warning: Could not upload certificate: {str(e)} (will continue with migration)"
+                })
+                migration_steps[0]["status"] = "warning"
+                yield send_event("step_update", {"step": migration_steps[0]})
+            
             # Upload migration script via SFTP
             yield send_event("log", {
                 "message": "Uploading migration script to node..."
@@ -558,65 +592,66 @@ async def migrate_node(
                         })
                         
                         # Update step status based on log patterns
+                        # Note: step 0 is certificate upload (handled above), bash script steps start at index 1
                         if "[Step 1/8]" in line:
-                            step_index = 0
-                            migration_steps[0]["status"] = "in_progress"
-                            yield send_event("step_update", {"step": migration_steps[0]})
-                        elif step_index == 0 and ("✓ Old containers stopped" in line or "! No compose file found" in line):
-                            migration_steps[0]["status"] = "success"
-                            yield send_event("step_update", {"step": migration_steps[0]})
-                        elif "[Step 2/8]" in line:
                             step_index = 1
                             migration_steps[1]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[1]})
-                        elif step_index == 1 and ("✓ Old image removed" in line or "! Old image not found" in line):
+                        elif step_index == 1 and ("✓ Old containers stopped" in line or "! No compose file found" in line):
                             migration_steps[1]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[1]})
-                        elif "[Step 3/8]" in line:
+                        elif "[Step 2/8]" in line:
                             step_index = 2
                             migration_steps[2]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[2]})
-                        elif step_index == 2 and "✓ Backup created" in line:
+                        elif step_index == 2 and ("✓ Old image removed" in line or "! Old image not found" in line):
                             migration_steps[2]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[2]})
-                        elif "[Step 4/8]" in line:
+                        elif "[Step 3/8]" in line:
                             step_index = 3
                             migration_steps[3]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[3]})
-                        elif step_index == 3 and "✓ Repository cloned successfully" in line:
+                        elif step_index == 3 and "✓ Backup created" in line:
                             migration_steps[3]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[3]})
-                        elif step_index == 3 and "✗ Failed to clone" in line:
-                            migration_steps[3]["status"] = "error"
-                            yield send_event("step_update", {"step": migration_steps[3]})
-                        elif "[Step 5/8]" in line:
+                        elif "[Step 4/8]" in line:
                             step_index = 4
                             migration_steps[4]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[4]})
-                        elif step_index == 4 and "✓ Docker image built successfully" in line:
+                        elif step_index == 4 and "✓ Repository cloned successfully" in line:
                             migration_steps[4]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[4]})
-                        elif "[Step 6/8]" in line:
+                        elif step_index == 4 and "✗ Failed to clone" in line:
+                            migration_steps[4]["status"] = "error"
+                            yield send_event("step_update", {"step": migration_steps[4]})
+                        elif "[Step 5/8]" in line:
                             step_index = 5
                             migration_steps[5]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[5]})
-                        elif step_index == 5 and "✓ compose.yml updated" in line:
+                        elif step_index == 5 and "✓ Docker image built successfully" in line:
                             migration_steps[5]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[5]})
-                        elif "[Step 7/8]" in line:
+                        elif "[Step 6/8]" in line:
                             step_index = 6
                             migration_steps[6]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[6]})
-                        elif step_index == 6 and "✓ Services started successfully" in line:
+                        elif step_index == 6 and "✓ compose.yml updated" in line:
                             migration_steps[6]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[6]})
-                        elif "[Step 8/8]" in line:
+                        elif "[Step 7/8]" in line:
                             step_index = 7
                             migration_steps[7]["status"] = "in_progress"
                             yield send_event("step_update", {"step": migration_steps[7]})
-                        elif step_index == 7 and "MIGRATION COMPLETED SUCCESSFULLY" in line:
+                        elif step_index == 7 and "✓ Services started successfully" in line:
                             migration_steps[7]["status"] = "success"
                             yield send_event("step_update", {"step": migration_steps[7]})
+                        elif "[Step 8/8]" in line:
+                            step_index = 8
+                            migration_steps[8]["status"] = "in_progress"
+                            yield send_event("step_update", {"step": migration_steps[8]})
+                        elif step_index == 8 and "MIGRATION COMPLETED SUCCESSFULLY" in line:
+                            migration_steps[8]["status"] = "success"
+                            yield send_event("step_update", {"step": migration_steps[8]})
                         
                         # Check for errors
                         if "ERROR:" in line or "✗" in line:
