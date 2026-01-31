@@ -75,7 +75,7 @@ handlers_templates = {
 
 
 def generate_subscription_template(
-    db_user, subscription_settings: SubscriptionSettings
+    db_user, subscription_settings: SubscriptionSettings, hosts: list = None
 ):
     links = generate_subscription(
         user=db_user,
@@ -84,6 +84,7 @@ def generate_subscription_template(
         and subscription_settings.placeholder_if_disabled,
         placeholder_remark=subscription_settings.placeholder_remark,
         shuffle=subscription_settings.shuffle_configs,
+        hosts=hosts,
     ).split()
     return render_template(
         SUBSCRIPTION_PAGE_TEMPLATE,
@@ -98,7 +99,16 @@ def generate_subscription(
     use_placeholder: bool = False,
     placeholder_remark: str = "disabled",
     shuffle: bool = False,
+    hosts: list = None,
+    service_ids: list[int] = None,
 ) -> str:
+    """
+    Generate subscription config for user.
+    
+    Args:
+        hosts: Pre-loaded hosts (for performance - avoids extra DB query)
+        service_ids: Pre-loaded service IDs (used if hosts not provided)
+    """
     extra_data = UserResponse.model_validate(user).model_dump(
         exclude={"subscription_url", "services", "inbounds"}
     )
@@ -131,6 +141,8 @@ def generate_subscription(
             user.id,
             format_variables,
             chaining_support=subscription_handler.chaining_support,
+            hosts=hosts,
+            service_ids=service_ids,
         )
 
     subscription_handler.add_proxies(configs)
@@ -242,12 +254,23 @@ def generate_user_configs(
     user_id: int,
     format_variables: dict,
     chaining_support: bool,
+    hosts: list = None,
+    service_ids: list[int] = None,
 ) -> Union[List, str]:
+    """
+    Generate user configs from hosts.
+    
+    Args:
+        hosts: Pre-loaded hosts list (recommended for performance)
+        service_ids: Pre-loaded service IDs (used if hosts not provided)
+    """
     salt = secrets.token_hex(8)
     configs = []
 
-    with GetDB() as db:
-        hosts = get_hosts_for_user(db, user_id)
+    # Use pre-loaded hosts if available, otherwise fetch (fallback)
+    if hosts is None:
+        with GetDB() as db:
+            hosts = get_hosts_for_user(db, user_id, service_ids=service_ids)
 
     for host in hosts:
         chained_hosts = [c.chained_host for c in host.chain]
