@@ -70,20 +70,40 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         try:
             await asyncio.wait_for(self._channel.channel_ready(), timeout=5)
         except TimeoutError:
-            logger.info("timeout for node, id: %i", self.id)
-            self.set_status(NodeStatus.unhealthy, "timeout")
+            error_msg = f"connection timeout (5s) to {self._address}:{self._port}"
+            logger.warning("Node %i: %s", self.id, error_msg)
+            self.set_status(NodeStatus.unhealthy, error_msg)
+        except Exception as e:
+            error_msg = f"initial connection failed: {type(e).__name__}: {e}"
+            logger.warning("Node %i: %s", self.id, error_msg)
+            self.set_status(NodeStatus.unhealthy, error_msg)
         while state := self._channel.get_state():
             logger.debug("node %i state: %s", self.id, state.value)
             try:
                 if state != ChannelConnectivity.READY:
-                    raise RpcError
+                    state_name = {
+                        ChannelConnectivity.IDLE: "idle",
+                        ChannelConnectivity.CONNECTING: "connecting",
+                        ChannelConnectivity.TRANSIENT_FAILURE: "transient failure",
+                        ChannelConnectivity.SHUTDOWN: "shutdown",
+                    }.get(state, str(state))
+                    raise RpcError(f"channel state: {state_name}")
                 await self._sync()
                 self._streaming_task = asyncio.create_task(
                     self._stream_user_updates()
                 )
-            except RpcError:
+            except RpcError as e:
                 self.synced = False
-                self.set_status(NodeStatus.unhealthy)
+                error_msg = str(e) if str(e) else "RPC connection error"
+                logger.warning("Node %i: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
+                if self._streaming_task:
+                    self._streaming_task.cancel()
+            except Exception as e:
+                self.synced = False
+                error_msg = f"sync failed: {type(e).__name__}: {e}"
+                logger.warning("Node %i: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
                 if self._streaming_task:
                     self._streaming_task.cancel()
             else:

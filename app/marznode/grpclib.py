@@ -78,10 +78,39 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         while state := self._channel._state:
             logger.debug("node %i channel state: %s", self.id, state.value)
             try:
-                await asyncio.wait_for(self._channel.__connect__(), timeout=2)
-            except Exception:
-                logger.debug("timeout for node, id: %i", self.id)
-                self.set_status(NodeStatus.unhealthy, "timeout")
+                await asyncio.wait_for(self._channel.__connect__(), timeout=5)
+            except asyncio.TimeoutError:
+                error_msg = f"connection timeout (5s) to {self._address}:{self._port}"
+                logger.warning("Node %i: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
+                self.synced = False
+                if self._streaming_task:
+                    self._streaming_task.cancel()
+            except ssl.SSLError as e:
+                error_msg = f"SSL error: {e}"
+                logger.warning("Node %i: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
+                self.synced = False
+                if self._streaming_task:
+                    self._streaming_task.cancel()
+            except ConnectionRefusedError:
+                error_msg = f"connection refused by {self._address}:{self._port}"
+                logger.warning("Node %i: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
+                self.synced = False
+                if self._streaming_task:
+                    self._streaming_task.cancel()
+            except OSError as e:
+                error_msg = f"network error: {e}"
+                logger.warning("Node %i: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
+                self.synced = False
+                if self._streaming_task:
+                    self._streaming_task.cancel()
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
+                logger.warning("Node %i connection failed: %s", self.id, error_msg)
+                self.set_status(NodeStatus.unhealthy, error_msg)
                 self.synced = False
                 if self._streaming_task:
                     self._streaming_task.cancel()
@@ -89,8 +118,10 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                 if not self.synced:
                     try:
                         await self._sync()
-                    except:
-                        pass
+                    except Exception as e:
+                        error_msg = f"sync failed: {type(e).__name__}: {e}"
+                        logger.warning("Node %i: %s", self.id, error_msg)
+                        self.set_status(NodeStatus.unhealthy, error_msg)
                     else:
                         self._streaming_task = asyncio.create_task(
                             self._stream_user_updates()
