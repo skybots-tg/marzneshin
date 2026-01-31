@@ -38,3 +38,7 @@ class MarzNodeBase(ABC):
     async def fetch_all_devices(self):
         """Fetch device history for all users"""
         pass
+
+    async def resync_users(self) -> None:
+        """Force resync all users with the node"""
+        pass

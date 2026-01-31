@@ -157,12 +157,32 @@ async def remove_node(node_id: int, db: DBDep, admin: SudoAdminDep):
 
 
 @router.post("/{node_id}/resync")
-async def reconnect_node(node_id: int, db: DBDep, admin: SudoAdminDep):
+async def resync_node_users(node_id: int, db: DBDep, admin: SudoAdminDep):
+    """
+    Force resync all users with the specified node.
+    
+    This will repopulate all users on the node, ensuring the node has
+    up-to-date user data including device limits and allowed fingerprints.
+    """
     db_node = crud.get_node_by_id(db, node_id)
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    return {}
+    node = marznode.nodes.get(node_id)
+    if not node:
+        raise HTTPException(status_code=503, detail="Node is not connected")
+    
+    if not node.synced:
+        raise HTTPException(status_code=503, detail="Node is not synced")
+
+    try:
+        await node.resync_users()
+    except Exception as e:
+        logger.error(f"Failed to resync users on node {node_id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to resync users with node")
+
+    logger.info(f"Users resynced on node `%s`", db_node.name)
+    return {"status": "ok", "message": f"Users resynced on node {db_node.name}"}
 
 
 @router.get("/{node_id}/usage", response_model=TrafficUsageSeries)
