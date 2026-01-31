@@ -52,6 +52,7 @@ export type NodeBackendType = {
 export type NodeType = z.infer<typeof NodeSchema> & {
     id: number;
     backends: NodeBackendType[];
+    message?: string | null;
 };
 
 export type DeviceInfo = {

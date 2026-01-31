@@ -10,7 +10,11 @@ import {
 } from "@marzneshin/libs/entity-table";
 import {
     NoPropogationButton,
-    Button
+    Button,
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger
 } from "@marzneshin/common/components"
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowsRotate, faSync } from '@fortawesome/free-solid-svg-icons';
@@ -47,7 +51,26 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
     {
         accessorKey: "status",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('status')} column={column} />,
-        cell: ({ row }) => <NodesStatusBadge status={NodesStatus[row.original.status]} />,
+        cell: ({ row }) => {
+            const { status, message } = row.original;
+            if (status === 'unhealthy' && message) {
+                return (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span>
+                                    <NodesStatusBadge status={NodesStatus[status]} />
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                                <p className="text-destructive">{message}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                );
+            }
+            return <NodesStatusBadge status={NodesStatus[status]} />;
+        },
     },
     {
         accessorKey: "address",

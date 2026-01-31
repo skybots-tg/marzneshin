@@ -47,6 +47,16 @@ export const NodesDetailTable: FC<NodesDetailTableProps> = ({ node }) => {
                         <NodesStatusBadge status={NodesStatus[node.status]} />
                     </TableCell>
                 </TableRow>
+                {node.status === 'unhealthy' && node.message && (
+                    <TableRow>
+                        <TableHead>
+                            {t('page.nodes.error_reason')}
+                        </TableHead>
+                        <TableCell className="text-destructive">
+                            {node.message}
+                        </TableCell>
+                    </TableRow>
+                )}
             </TableBody>
         </Table>
     )
