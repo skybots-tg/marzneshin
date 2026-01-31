@@ -67,8 +67,9 @@ def create_device(
     client_type: str = "other",
     display_name: Optional[str] = None,
     node_id: Optional[int] = None,
+    auto_commit: bool = True,
 ) -> UserDevice:
-    """Create a new device"""
+    """Create a new device. Set auto_commit=False for batch operations."""
     now = datetime.utcnow()
     device = UserDevice(
         user_id=user_id,
@@ -82,8 +83,11 @@ def create_device(
         last_node_id=node_id,
     )
     db.add(device)
-    db.commit()
-    db.refresh(device)
+    if auto_commit:
+        db.commit()
+        db.refresh(device)
+    else:
+        db.flush()  # Get the ID without committing
     return device
 
 
@@ -95,8 +99,9 @@ def update_device(
     trust_level: Optional[int] = None,
     last_node_id: Optional[int] = None,
     last_ip_id: Optional[int] = None,
+    auto_commit: bool = True,
 ) -> Optional[UserDevice]:
-    """Update device information"""
+    """Update device information. Set auto_commit=False for batch operations."""
     device = get_device_by_id(db, device_id)
     if not device:
         return None
@@ -113,8 +118,9 @@ def update_device(
         device.last_ip_id = last_ip_id
     
     device.last_seen_at = datetime.utcnow()
-    db.commit()
-    db.refresh(device)
+    if auto_commit:
+        db.commit()
+        db.refresh(device)
     return device
 
 
@@ -238,8 +244,9 @@ def create_device_ip(
     region: Optional[str] = None,
     city: Optional[str] = None,
     is_datacenter: Optional[bool] = None,
+    auto_commit: bool = True,
 ) -> UserDeviceIP:
-    """Create a new device IP record"""
+    """Create a new device IP record. Set auto_commit=False for batch operations."""
     now = datetime.utcnow()
     device_ip = UserDeviceIP(
         device_id=device_id,
@@ -255,8 +262,11 @@ def create_device_ip(
         is_datacenter=is_datacenter,
     )
     db.add(device_ip)
-    db.commit()
-    db.refresh(device_ip)
+    if auto_commit:
+        db.commit()
+        db.refresh(device_ip)
+    else:
+        db.flush()
     return device_ip
 
 
@@ -273,14 +283,16 @@ def update_device_ip_stats(
     region: Optional[str] = None,
     city: Optional[str] = None,
     is_datacenter: Optional[bool] = None,
+    auto_commit: bool = True,
 ) -> UserDeviceIP:
-    """Update device IP statistics"""
+    """Update device IP statistics. Set auto_commit=False for batch operations."""
     device_ip = get_device_ip(db, device_id, ip)
     
     if not device_ip:
-        # Create if doesn't exist
+        # Create if doesn't exist - pass auto_commit=False since we'll commit at the end
         device_ip = create_device_ip(
-            db, device_id, ip, asn, asn_org, country_code, region, city, is_datacenter
+            db, device_id, ip, asn, asn_org, country_code, region, city, is_datacenter,
+            auto_commit=False
         )
     
     # Update stats
@@ -305,8 +317,9 @@ def update_device_ip_stats(
     if is_datacenter is not None and device_ip.is_datacenter is None:
         device_ip.is_datacenter = is_datacenter
     
-    db.commit()
-    db.refresh(device_ip)
+    if auto_commit:
+        db.commit()
+        db.refresh(device_ip)
     return device_ip
 
 
@@ -392,8 +405,9 @@ def create_or_update_traffic(
     upload_bytes: int = 0,
     download_bytes: int = 0,
     connect_count: int = 0,
+    auto_commit: bool = True,
 ) -> UserDeviceTraffic:
-    """Create or update traffic aggregate"""
+    """Create or update traffic aggregate. Set auto_commit=False for batch operations."""
     traffic = db.query(UserDeviceTraffic).filter(
         UserDeviceTraffic.device_id == device_id,
         UserDeviceTraffic.node_id == node_id,
@@ -417,8 +431,9 @@ def create_or_update_traffic(
     traffic.download_bytes += download_bytes
     traffic.connect_count += connect_count
     
-    db.commit()
-    db.refresh(traffic)
+    if auto_commit:
+        db.commit()
+        db.refresh(traffic)
     return traffic
 
 

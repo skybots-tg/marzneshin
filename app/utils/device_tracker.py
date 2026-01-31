@@ -35,6 +35,7 @@ def track_user_connection(
     region: Optional[str] = None,
     city: Optional[str] = None,
     is_datacenter: Optional[bool] = None,
+    auto_commit: bool = False,
 ) -> tuple[Optional[int], Optional[int]]:
     """
     Track a user connection and update device records.
@@ -60,6 +61,7 @@ def track_user_connection(
         region: Region name
         city: City name
         is_datacenter: Whether IP is from a datacenter
+        auto_commit: Whether to commit after this operation (default False for batch)
     
     Returns:
         Tuple of (device_id, device_ip_id) or (None, None) if failed
@@ -105,7 +107,7 @@ def track_user_connection(
                     # Return None to indicate device limit exceeded
                     return None, None
             
-            # Create new device
+            # Create new device (no auto-commit, we'll commit at the end of batch)
             device = device_crud.create_device(
                 db=db,
                 user_id=user_id,
@@ -114,6 +116,7 @@ def track_user_connection(
                 client_name=client_name,
                 client_type=client_type,
                 node_id=node_id,
+                auto_commit=False,
             )
             logger.info(
                 f"Created new device {device.id} for user {user_id} "
@@ -125,11 +128,12 @@ def track_user_connection(
                 from app.marznode import operations
                 operations.update_user(user)
         else:
-            # Update last seen
+            # Update last seen (no auto-commit)
             device = device_crud.update_device(
                 db=db,
                 device_id=device.id,
                 last_node_id=node_id,
+                auto_commit=False,
             )
         
         # Check if device is blocked
@@ -141,7 +145,7 @@ def track_user_connection(
             # You can add logic here to reject the connection
             # by returning None or raising an exception
         
-        # Update device IP statistics
+        # Update device IP statistics (no auto-commit)
         device_ip = device_crud.update_device_ip_stats(
             db=db,
             device_id=device.id,
@@ -155,6 +159,7 @@ def track_user_connection(
             region=region,
             city=city,
             is_datacenter=is_datacenter,
+            auto_commit=False,
         )
         
         # Update last_ip_id on device if this is the most recent IP
@@ -163,9 +168,10 @@ def track_user_connection(
                 db=db,
                 device_id=device.id,
                 last_ip_id=device_ip.id,
+                auto_commit=False,
             )
         
-        # Update traffic aggregates
+        # Update traffic aggregates (no auto-commit)
         if bucket_start:
             device_crud.create_or_update_traffic(
                 db=db,
@@ -176,7 +182,12 @@ def track_user_connection(
                 upload_bytes=upload_bytes,
                 download_bytes=download_bytes,
                 connect_count=1,
+                auto_commit=False,
             )
+        
+        # Commit only if auto_commit is True
+        if auto_commit:
+            db.commit()
         
         return device.id, device_ip.id if device_ip else None
         

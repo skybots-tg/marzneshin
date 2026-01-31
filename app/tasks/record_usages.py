@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 def record_user_usage_logs(
-    params: list, node_id: int, consumption_factor: int = 1
+    params: list, node_id: int, consumption_factor: int = 1, db=None
 ):
+    """Record user usage logs. Accepts optional db session to avoid opening new connections."""
     if not params:
         return
 
@@ -25,7 +26,14 @@ def record_user_usage_logs(
         datetime.utcnow().strftime("%Y-%m-%dT%H:00:00")
     )
 
-    with GetDB() as db:
+    # Use provided session or create new one
+    should_close = db is None
+    if should_close:
+        from app.db import GetDB
+        ctx = GetDB()
+        db = ctx.__enter__()
+    
+    try:
         # make user usage row if it doesn't exist
         select_stmt = select(NodeUserUsage.user_id).where(
             and_(
@@ -73,10 +81,17 @@ def record_user_usage_logs(
             ],
             execution_options={"synchronize_session": None},
         )
-        db.commit()
+        
+        # Only commit if we created the session
+        if should_close:
+            db.commit()
+    finally:
+        if should_close:
+            ctx.__exit__(None, None, None)
 
 
-def record_node_stats(node_id: int, usage: int):
+def record_node_stats(node_id: int, usage: int, db=None):
+    """Record node stats. Accepts optional db session to avoid opening new connections."""
     if not usage:
         return
 
@@ -84,7 +99,14 @@ def record_node_stats(node_id: int, usage: int):
         datetime.utcnow().strftime("%Y-%m-%dT%H:00:00")
     )
 
-    with GetDB() as db:
+    # Use provided session or create new one
+    should_close = db is None
+    if should_close:
+        from app.db import GetDB
+        ctx = GetDB()
+        db = ctx.__enter__()
+    
+    try:
         # make node usage row if doesn't exist
         select_stmt = select(NodeUsage.node_id).where(
             and_(
@@ -114,7 +136,13 @@ def record_node_stats(node_id: int, usage: int):
         )
 
         db.execute(stmt)
-        db.commit()
+        
+        # Only commit if we created the session
+        if should_close:
+            db.commit()
+    finally:
+        if should_close:
+            ctx.__exit__(None, None, None)
 
 
 async def get_users_stats(
@@ -148,6 +176,12 @@ async def get_users_stats(
 
 
 async def record_user_usages():
+    """
+    Main task for recording user usages.
+    
+    Optimized to use a single database session for all operations
+    to reduce connection pool pressure and improve performance.
+    """
     # usage_coefficient = {None: 1}  # default usage coefficient for the main api instance
 
     results = await asyncio.gather(
@@ -161,8 +195,9 @@ async def record_user_usages():
     users_usage = defaultdict(int)
     bucket_start = datetime.utcnow()
     
-    # Track device connections
+    # Use a SINGLE session for all operations to reduce connection pool pressure
     with GetDB() as db:
+        # Phase 1: Track device connections and record node stats
         for node_id, params in api_params.items():
             coefficient = (
                 node.usage_coefficient
@@ -185,7 +220,7 @@ async def record_user_usages():
                 logger.debug(f"[Node {node_id}] uid={param['uid']}, remote_ip={param.get('remote_ip')}, "
                            f"client={param.get('client_name')}, traffic={param['value']}")
                 
-                # Track device connection if we have remote_ip
+                # Track device connection if we have remote_ip (no auto-commit)
                 if param.get("remote_ip"):
                     try:
                         device_id, ip_id = track_user_connection(
@@ -198,6 +233,7 @@ async def record_user_usages():
                             upload_bytes=param.get("uplink", 0),
                             download_bytes=param.get("downlink", param["value"]),
                             bucket_start=bucket_start,
+                            auto_commit=False,  # Batch commit later
                         )
                         if device_id:
                             node_tracked += 1
@@ -218,8 +254,28 @@ async def record_user_usages():
                     logger.info(
                         f"[Node {node_id}] Device tracking: {node_tracked}/{node_connections} ({tracking_rate:.1f}%)"
                     )
-                        
-            record_node_stats(node_id, node_usage)
+            
+            # Record node stats using the same session (no separate commit)
+            record_node_stats(node_id, node_usage, db=db)
+        
+        # Commit all device tracking and node stats at once
+        db.commit()
+        
+        # Phase 2: Record user usage logs (using the same session)
+        for node_id, params in api_params.items():
+            record_user_usage_logs(
+                params,
+                node_id,
+                (
+                    node.usage_coefficient
+                    if (node := marznode.nodes.get(node_id))
+                    else 1
+                ),
+                db=db,  # Pass existing session
+            )
+        
+        # Commit user usage logs
+        db.commit()
 
     users_usage = list(
         {"id": uid, "value": value} for uid, value in users_usage.items()
@@ -227,7 +283,7 @@ async def record_user_usages():
     if not users_usage:
         return
 
-    # record users usage
+    # Phase 3: Update user traffic totals (separate session is fine here)
     with GetDB() as db:
         await data_usage_percent_reached(db, users_usage)
 
@@ -262,14 +318,3 @@ async def record_user_usages():
             db.refresh(user)
             if user.data_limit_reached:
                 marznode.operations.update_user(user)
-
-    for node_id, params in api_params.items():
-        record_user_usage_logs(
-            params,
-            node_id,
-            (
-                node.usage_coefficient
-                if (node := marznode.nodes.get(node_id))
-                else 1
-            ),
-        )
