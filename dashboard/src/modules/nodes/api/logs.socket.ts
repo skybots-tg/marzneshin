@@ -1,7 +1,6 @@
 import { NodeType } from "@marzneshin/modules/nodes";
 import useWebSocket, { ReadyState } from "react-use-websocket";
 import { useAuth } from "@marzneshin/modules/auth";
-import { joinPaths } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const MAX_NUMBER_OF_LOGS = 200;
@@ -23,8 +22,20 @@ export const getWebsocketUrl = (nodeId: number, backend: string) => {
                 ? window.location.origin + import.meta.env.VITE_BASE_API
                 : import.meta.env.VITE_BASE_API,
         );
-        const protocol = baseURL.protocol === "https:" ? "wss://" : "ws://";
-        return `${protocol}${joinPaths([baseURL.host + baseURL.pathname, `/nodes/${nodeId}/${backend}/logs`])}?interval=1&token=${useAuth.getState().getAuthToken()}`;
+        
+        // Build the path properly, ensuring no double slashes
+        const basePath = baseURL.pathname.endsWith('/') 
+            ? baseURL.pathname.slice(0, -1) 
+            : baseURL.pathname;
+        const wsPath = `${basePath}/nodes/${nodeId}/${backend}/logs`;
+        
+        // Create WebSocket URL
+        const wsProtocol = baseURL.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = new URL(wsPath, baseURL);
+        wsUrl.protocol = wsProtocol;
+        wsUrl.searchParams.set('token', useAuth.getState().getAuthToken() || '');
+        
+        return wsUrl.toString();
     } catch (e) {
         console.error("Unable to generate websocket url");
         console.error(e);
