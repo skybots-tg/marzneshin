@@ -185,6 +185,11 @@
         "password": "Password",
         "ssh_key_auth": "SSH Key"
       },
+      "resync": {
+        "title": "Resync Users",
+        "success": "Users resynced on node {{name}}",
+        "error": "Failed to resync users on node {{name}}"
+      },
       "devices": {
         "title": "Device History",
         "active_only": "Show active only",
