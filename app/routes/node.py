@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Annotated
 
 import sqlalchemy
@@ -243,6 +244,9 @@ async def alter_node_xray_config(
     if not (node := marznode.nodes.get(node_id)):
         raise HTTPException(status_code=404, detail="Node not found")
 
+    start_time = time.time()
+    timeout_seconds = 60  # Increased timeout to allow for user sync after restart
+    
     try:
         await asyncio.wait_for(
             node.restart_backend(
@@ -250,10 +254,15 @@ async def alter_node_xray_config(
                 config=config.config,
                 config_format=config.format.value,
             ),
-            5,
+            timeout_seconds,
+        )
+        elapsed = time.time() - start_time
+        logger.info(
+            f"Successfully restarted backend '{backend}' on node {node_id} in {elapsed:.2f}s"
         )
     except asyncio.TimeoutError:
-        error_msg = f"Timeout waiting for node {node_id} to restart backend '{backend}'"
+        elapsed = time.time() - start_time
+        error_msg = f"Timeout ({timeout_seconds}s) waiting for node {node_id} to restart backend '{backend}' (elapsed: {elapsed:.2f}s)"
         logger.error(error_msg)
         raise HTTPException(
             status_code=502, detail=error_msg

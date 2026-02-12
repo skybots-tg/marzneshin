@@ -13,6 +13,7 @@ from app.models.notification import (
     ReachedUsagePercent,
     UserUpdated,
     ReachedDaysLeft,
+    DataLimitExhausted,
 )
 
 webhooks_router = APIRouter()
@@ -76,4 +77,9 @@ def user_reached_usage_percent(body: ReachedUsagePercent):
 
 @webhooks_router.post("user-reached-days")
 def user_reached_days(body: ReachedDaysLeft):
+    pass
+
+
+@webhooks_router.post("user-data-limit-exhausted")
+def user_data_limit_exhausted(body: DataLimitExhausted):
     pass
