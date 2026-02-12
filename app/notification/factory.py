@@ -19,6 +19,7 @@ from app.models.notification import (
     UserSubscriptionRevoked,
     ReachedUsagePercent,
     ReachedDaysLeft,
+    DataLimitExhausted,
 )
 from app.models.user import UserResponse
 
@@ -51,6 +52,7 @@ class UserNotificationFactory(NotificationFactory):
         Action.subscription_revoked: UserSubscriptionRevoked,
         Action.reached_usage_percent: ReachedUsagePercent,
         Action.reached_days_left: ReachedDaysLeft,
+        Action.data_limit_exhausted: DataLimitExhausted,
     }
 
     def create_notification(

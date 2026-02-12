@@ -9,6 +9,9 @@ from app import marznode
 from app.db import GetDB
 from app.db.models import NodeUsage, NodeUserUsage, User
 from app.marznode import MarzNodeBase
+from app.models.notification import UserNotification
+from app.models.user import UserResponse
+from app.notification.notifiers import notify
 from app.tasks.data_usage_percent_reached import data_usage_percent_reached
 from app.utils.device_tracker import track_user_connection
 
@@ -318,3 +321,9 @@ async def record_user_usages():
             db.refresh(user)
             if user.data_limit_reached:
                 marznode.operations.update_user(user)
+                asyncio.ensure_future(
+                    notify(
+                        action=UserNotification.Action.data_limit_exhausted,
+                        user=UserResponse.model_validate(user),
+                    )
+                )

@@ -31,6 +31,7 @@ class UserNotification(Notification):
         subscription_revoked = "subscription_revoked"
         reached_usage_percent = "reached_usage_percent"
         reached_days_left = "reached_days_left"
+        data_limit_exhausted = "data_limit_exhausted"
 
 
 class UserCreated(UserNotification):
@@ -88,3 +89,9 @@ class ReachedUsagePercent(UserNotification):
 
 class ReachedDaysLeft(UserNotification):
     action: UserNotification.Action = UserNotification.Action.reached_days_left
+
+
+class DataLimitExhausted(UserNotification):
+    action: UserNotification.Action = (
+        UserNotification.Action.data_limit_exhausted
+    )
