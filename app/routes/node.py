@@ -252,9 +252,29 @@ async def alter_node_xray_config(
             ),
             5,
         )
-    except:
+    except asyncio.TimeoutError:
+        error_msg = f"Timeout waiting for node {node_id} to restart backend '{backend}'"
+        logger.error(error_msg)
         raise HTTPException(
-            status_code=502, detail="No response from the node."
+            status_code=502, detail=error_msg
+        )
+    except (GRPCError, StreamTerminatedError) as e:
+        error_msg = f"gRPC error from node {node_id} when restarting backend '{backend}': {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(
+            status_code=502, detail=f"Connection error: {str(e)}"
+        )
+    except ConnectionError as e:
+        error_msg = f"Connection error with node {node_id} when restarting backend '{backend}': {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(
+            status_code=502, detail=f"Connection refused: {str(e)}"
+        )
+    except Exception as e:
+        error_msg = f"Failed to restart backend '{backend}' on node {node_id}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(
+            status_code=502, detail=f"Failed to update config: {str(e)}"
         )
     return {}
 
