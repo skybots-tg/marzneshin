@@ -6,7 +6,7 @@ from fastapi import Header, HTTPException, Path, Request, Response
 from starlette.responses import HTMLResponse
 
 from app.db import crud
-from app.db.crud import get_hosts_for_user, get_subscription_settings_cached
+from app.db.crud import get_hosts_for_user, get_subscription_settings_cached, get_node_coefficients
 from app.dependencies import DBDep, SubUserDep, StartDateDep, EndDateDep
 from app.models.settings import SubscriptionSettings
 from app.models.system import TrafficUsageSeries
@@ -74,12 +74,32 @@ def user_subscription(
     service_ids = [s.id for s in db_user.services]
     hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
 
+    # Pre-load node coefficients for traffic limit labels
+    node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
+
+    # When only data_limit_reached (not expired/disabled), don't use placeholder —
+    # show real configs with [кончился трафик] labels instead
+    only_data_limit = (
+        user.data_limit_reached
+        and user.enabled
+        and not user.expired
+    )
+    use_placeholder = (
+        not user.is_active
+        and not only_data_limit
+        and subscription_settings.placeholder_if_disabled
+    )
+
     if (
         subscription_settings.template_on_acceptance
         and "text/html" in request.headers.get("Accept", [])
     ):
         return HTMLResponse(
-            generate_subscription_template(db_user, subscription_settings, hosts=hosts)
+            generate_subscription_template(
+                db_user, subscription_settings, hosts=hosts,
+                data_limit_reached=user.data_limit_reached,
+                node_coefficients=node_coefficients,
+            )
         )
 
     response_headers = {
@@ -99,7 +119,9 @@ def user_subscription(
             if rule.result.value == "template":
                 return HTMLResponse(
                     generate_subscription_template(
-                        db_user, subscription_settings, hosts=hosts
+                        db_user, subscription_settings, hosts=hosts,
+                        data_limit_reached=user.data_limit_reached,
+                        node_coefficients=node_coefficients,
                     )
                 )
             elif rule.result.value == "block":
@@ -115,11 +137,12 @@ def user_subscription(
                 user=db_user,
                 config_format=config_format,
                 as_base64=b64,
-                use_placeholder=not user.is_active
-                and subscription_settings.placeholder_if_disabled,
+                use_placeholder=use_placeholder,
                 placeholder_remark=subscription_settings.placeholder_remark,
                 shuffle=subscription_settings.shuffle_configs,
                 hosts=hosts,
+                data_limit_reached=user.data_limit_reached,
+                node_coefficients=node_coefficients,
             )
             return Response(
                 content=conf,
@@ -184,6 +207,21 @@ def user_subscription_with_client_type(
     service_ids = [s.id for s in db_user.services]
     hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
 
+    # Pre-load node coefficients for traffic limit labels
+    node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
+
+    # When only data_limit_reached (not expired/disabled), don't use placeholder
+    only_data_limit = (
+        user.data_limit_reached
+        and user.enabled
+        and not user.expired
+    )
+    use_placeholder = (
+        not user.is_active
+        and not only_data_limit
+        and subscription_settings.placeholder_if_disabled
+    )
+
     response_headers = {
         "content-disposition": f'attachment; filename="{user.username}"',
         "profile-web-page-url": str(request.url),
@@ -207,11 +245,12 @@ def user_subscription_with_client_type(
         user=db_user,
         config_format=actual_format,
         as_base64=client_type == "v2ray",
-        use_placeholder=not user.is_active
-        and subscription_settings.placeholder_if_disabled,
+        use_placeholder=use_placeholder,
         placeholder_remark=subscription_settings.placeholder_remark,
         shuffle=subscription_settings.shuffle_configs,
         hosts=hosts,
+        data_limit_reached=user.data_limit_reached,
+        node_coefficients=node_coefficients,
     )
     
     # Encrypt content if encryption key is provided
