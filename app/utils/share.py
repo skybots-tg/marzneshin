@@ -75,16 +75,28 @@ handlers_templates = {
 
 
 def generate_subscription_template(
-    db_user, subscription_settings: SubscriptionSettings, hosts: list = None
+    db_user, subscription_settings: SubscriptionSettings, hosts: list = None,
+    data_limit_reached: bool = False,
+    node_coefficients: dict[int, float] | None = None,
 ):
+    # When only data_limit_reached (user is otherwise enabled/not expired),
+    # don't use placeholder — show real configs with labels instead
+    only_data_limit = (
+        data_limit_reached
+        and getattr(db_user, 'enabled', True)
+        and not getattr(db_user, 'expired', False)
+    )
     links = generate_subscription(
         user=db_user,
         config_format="links",
         use_placeholder=not db_user.is_active
+        and not only_data_limit
         and subscription_settings.placeholder_if_disabled,
         placeholder_remark=subscription_settings.placeholder_remark,
         shuffle=subscription_settings.shuffle_configs,
         hosts=hosts,
+        data_limit_reached=data_limit_reached,
+        node_coefficients=node_coefficients,
     ).split()
     return render_template(
         SUBSCRIPTION_PAGE_TEMPLATE,
@@ -101,6 +113,8 @@ def generate_subscription(
     shuffle: bool = False,
     hosts: list = None,
     service_ids: list[int] = None,
+    data_limit_reached: bool = False,
+    node_coefficients: dict[int, float] | None = None,
 ) -> str:
     """
     Generate subscription config for user.
@@ -108,6 +122,8 @@ def generate_subscription(
     Args:
         hosts: Pre-loaded hosts (for performance - avoids extra DB query)
         service_ids: Pre-loaded service IDs (used if hosts not provided)
+        data_limit_reached: Whether user's data limit is reached
+        node_coefficients: Mapping of node_id -> usage_coefficient
     """
     extra_data = UserResponse.model_validate(user).model_dump(
         exclude={"subscription_url", "services", "inbounds"}
@@ -143,6 +159,8 @@ def generate_subscription(
             chaining_support=subscription_handler.chaining_support,
             hosts=hosts,
             service_ids=service_ids,
+            data_limit_reached=data_limit_reached,
+            node_coefficients=node_coefficients,
         )
 
     subscription_handler.add_proxies(configs)
@@ -256,6 +274,8 @@ def generate_user_configs(
     chaining_support: bool,
     hosts: list = None,
     service_ids: list[int] = None,
+    data_limit_reached: bool = False,
+    node_coefficients: dict[int, float] | None = None,
 ) -> Union[List, str]:
     """
     Generate user configs from hosts.
@@ -263,6 +283,8 @@ def generate_user_configs(
     Args:
         hosts: Pre-loaded hosts list (recommended for performance)
         service_ids: Pre-loaded service IDs (used if hosts not provided)
+        data_limit_reached: Whether user's data limit is reached
+        node_coefficients: Mapping of node_id -> usage_coefficient
     """
     salt = secrets.token_hex(8)
     configs = []
@@ -277,7 +299,9 @@ def generate_user_configs(
         if chained_hosts and not chaining_support:
             continue
         data = create_config(
-            host, key, format_variables, salt, user_id, chained_hosts
+            host, key, format_variables, salt, user_id, chained_hosts,
+            data_limit_reached=data_limit_reached,
+            node_coefficients=node_coefficients,
         )
         configs.append(data)
 
@@ -285,7 +309,9 @@ def generate_user_configs(
 
 
 def create_config(
-    host, key, format_variables, salt, user_id, next_hosts: list | None = None
+    host, key, format_variables, salt, user_id, next_hosts: list | None = None,
+    data_limit_reached: bool = False,
+    node_coefficients: dict[int, float] | None = None,
 ):
     if next_hosts is None:
         next_hosts = []
@@ -344,9 +370,17 @@ def create_config(
         else None
     )
 
+    # Add [кончился трафик] label for nodes with usage_coefficient > 0
+    # when user's data limit is reached
+    remark = host.remark.format_map(format_variables)
+    if data_limit_reached and node_coefficients and host.inbound:
+        coeff = node_coefficients.get(host.inbound.node_id, 1.0)
+        if coeff > 0:
+            remark = f"[кончился трафик] {remark}"
+
     data = V2Data(
         host.inbound.protocol.value if host.inbound else host.host_protocol,
-        host.remark.format_map(format_variables),
+        remark,
         host.address.format_map(format_variables),
         host.port or inbound.get("port", 0),
         transport_type=network,

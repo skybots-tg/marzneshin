@@ -282,6 +282,11 @@ def get_hosts_for_user(session, user_id, service_ids: list[int] | None = None):
     return unique_hosts
 
 
+def get_node_coefficients(db: Session) -> dict[int, float]:
+    """Get mapping of node_id -> usage_coefficient for all nodes."""
+    return dict(db.query(Node.id, Node.usage_coefficient).all())
+
+
 def get_all_inbounds(db: Session):
     return db.query(Inbound).all()
 
