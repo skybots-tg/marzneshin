@@ -33,7 +33,7 @@ class UserNotification(Notification):
         reached_days_left = "reached_days_left"
         data_limit_exhausted = "data_limit_exhausted"
 
- 
+
 class UserCreated(UserNotification):
     action: UserNotification.Action = UserNotification.Action.user_created
     by: Admin
