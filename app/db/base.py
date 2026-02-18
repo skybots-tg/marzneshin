@@ -17,7 +17,7 @@ from app.config.env import (
 logger = logging.getLogger(__name__)
 
 IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
-IS_MYSQL = SQLALCHEMY_DATABASE_URL.startswith("mysql")
+IS_MYSQL = SQLALCHEMY_DATABASE_URL.startswith("mysql") or SQLALCHEMY_DATABASE_URL.startswith("mariadb")
 IS_POSTGRES = SQLALCHEMY_DATABASE_URL.startswith("postgresql")
 
 logger.info(
