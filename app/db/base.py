@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
 IS_MYSQL = SQLALCHEMY_DATABASE_URL.startswith("mysql") or SQLALCHEMY_DATABASE_URL.startswith("mariadb")
+IS_MARIADB = SQLALCHEMY_DATABASE_URL.startswith("mariadb")
 IS_POSTGRES = SQLALCHEMY_DATABASE_URL.startswith("postgresql")
 
 logger.info(
@@ -78,12 +79,17 @@ else:
     )
 
 
-# Set statement timeout for MariaDB on each connection checkout
+# Set statement timeout for MySQL/MariaDB on each connection checkout
 if IS_MYSQL:
     @event.listens_for(engine, "connect")
     def set_mysql_timeout(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
-        cursor.execute(f"SET SESSION max_execution_time = {SQLALCHEMY_STATEMENT_TIMEOUT * 1000}")
+        if IS_MARIADB:
+            # MariaDB uses max_statement_time in seconds
+            cursor.execute(f"SET SESSION max_statement_time = {SQLALCHEMY_STATEMENT_TIMEOUT}")
+        else:
+            # MySQL uses max_execution_time in milliseconds
+            cursor.execute(f"SET SESSION max_execution_time = {SQLALCHEMY_STATEMENT_TIMEOUT * 1000}")
         cursor.close()
 
 
