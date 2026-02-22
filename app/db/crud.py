@@ -163,7 +163,7 @@ def get_node_users(
         return []
 
     query = (
-        db.query(User.id, User.username, User.key, Inbound)
+        db.query(User.id, User.username, User.key, Inbound, User.device_limit)
         .distinct()
         .join(Inbound.services)
         .join(Service.users)
