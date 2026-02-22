@@ -82,35 +82,35 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             except asyncio.TimeoutError:
                 error_msg = f"connection timeout (5s) to {self._address}:{self._port}"
                 logger.warning("Node %i: %s", self.id, error_msg)
-                self.set_status(NodeStatus.unhealthy, error_msg)
+                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
                 self.synced = False
                 if self._streaming_task:
                     self._streaming_task.cancel()
             except ssl.SSLError as e:
                 error_msg = f"SSL error: {e}"
                 logger.warning("Node %i: %s", self.id, error_msg)
-                self.set_status(NodeStatus.unhealthy, error_msg)
+                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
                 self.synced = False
                 if self._streaming_task:
                     self._streaming_task.cancel()
             except ConnectionRefusedError:
                 error_msg = f"connection refused by {self._address}:{self._port}"
                 logger.warning("Node %i: %s", self.id, error_msg)
-                self.set_status(NodeStatus.unhealthy, error_msg)
+                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
                 self.synced = False
                 if self._streaming_task:
                     self._streaming_task.cancel()
             except OSError as e:
                 error_msg = f"network error: {e}"
                 logger.warning("Node %i: %s", self.id, error_msg)
-                self.set_status(NodeStatus.unhealthy, error_msg)
+                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
                 self.synced = False
                 if self._streaming_task:
                     self._streaming_task.cancel()
             except Exception as e:
                 error_msg = f"{type(e).__name__}: {e}"
                 logger.warning("Node %i connection failed: %s", self.id, error_msg)
-                self.set_status(NodeStatus.unhealthy, error_msg)
+                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
                 self.synced = False
                 if self._streaming_task:
                     self._streaming_task.cancel()
@@ -121,12 +121,12 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     except Exception as e:
                         error_msg = f"sync failed: {type(e).__name__}: {e}"
                         logger.warning("Node %i: %s", self.id, error_msg)
-                        self.set_status(NodeStatus.unhealthy, error_msg)
+                        await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
                     else:
                         self._streaming_task = asyncio.create_task(
                             self._stream_user_updates()
                         )
-                        self.set_status(NodeStatus.healthy)
+                        await asyncio.to_thread(self.set_status, NodeStatus.healthy)
                         logger.info("Connected to node %i", self.id)
             await asyncio.sleep(10)
 
@@ -204,8 +204,8 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
 
     async def _sync(self):
         backends = await self._fetch_backends()
-        self.store_backends(backends)
-        users = self.list_users()
+        await asyncio.to_thread(self.store_backends, backends)
+        users = await asyncio.to_thread(self.list_users)
         await self._repopulate_users(users)
         self.synced = True
 
@@ -235,10 +235,10 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             await self._sync()
         except:
             self.synced = False
-            self.set_status(NodeStatus.unhealthy)
+            await asyncio.to_thread(self.set_status, NodeStatus.unhealthy)
             raise
         else:
-            self.set_status(NodeStatus.healthy)
+            await asyncio.to_thread(self.set_status, NodeStatus.healthy)
 
     async def get_backend_config(self, name: str):
         response: BackendConfig = await self._stub.FetchBackendConfig(
@@ -266,6 +266,6 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
 
     async def resync_users(self) -> None:
         """Force resync all users with the node"""
-        users = self.list_users()
+        users = await asyncio.to_thread(self.list_users)
         await self._repopulate_users(users)
         logger.info("Resynced %d users with node %d", len(users), self.id)

@@ -135,6 +135,31 @@ def delete_device(db: Session, device_id: int) -> bool:
     return True
 
 
+def get_devices_for_users_batch(
+    db: Session,
+    user_ids: List[int],
+    is_blocked: Optional[bool] = None
+) -> dict[int, List[UserDevice]]:
+    """Get devices for multiple users in a single query, grouped by user_id."""
+    if not user_ids:
+        return {}
+    
+    query = db.query(UserDevice).filter(UserDevice.user_id.in_(user_ids))
+    
+    if is_blocked is not None:
+        query = query.filter(UserDevice.is_blocked == is_blocked)
+    
+    devices = query.all()
+    
+    result: dict[int, List[UserDevice]] = {}
+    for device in devices:
+        if device.user_id not in result:
+            result[device.user_id] = []
+        result[device.user_id].append(device)
+    
+    return result
+
+
 def get_devices_by_ip(
     db: Session,
     ip: str,
