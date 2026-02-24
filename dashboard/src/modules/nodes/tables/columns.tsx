@@ -17,9 +17,9 @@ import {
     TooltipTrigger
 } from "@marzneshin/common/components"
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowsRotate, faSync } from '@fortawesome/free-solid-svg-icons';
+import { faArrowsRotate, faSync, faDownload } from '@fortawesome/free-solid-svg-icons';
 import { useState } from "react";
-import { MigrationDialog } from "@marzneshin/modules/nodes";
+import { MigrationDialog, UpdateXrayDialog } from "@marzneshin/modules/nodes";
 
 const ResyncButton = ({ node }: { node: NodeType }) => {
     const { mutate: resync, isPending } = useNodesResyncMutation();
@@ -111,6 +111,36 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
                     </Button>
                     {open && (
                         <MigrationDialog
+                            open={open}
+                            onOpenChange={setOpen}
+                            node={row.original}
+                        />
+                    )}
+                </div>
+            );
+        },
+    },
+    {
+        id: "update-xray",
+        header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.update_xray.update')} column={column} />,
+        cell: ({ row }) => {
+            const [open, setOpen] = useState(false);
+            return (
+                <div onClick={(e) => e.stopPropagation()}>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setOpen(true);
+                        }}
+                        title={i18n.t('page.nodes.update_xray.update')}
+                    >
+                        <FontAwesomeIcon icon={faDownload} className="mr-2" />
+                        {i18n.t('page.nodes.update_xray.update')}
+                    </Button>
+                    {open && (
+                        <UpdateXrayDialog
                             open={open}
                             onOpenChange={setOpen}
                             node={row.original}

@@ -1,4 +1,5 @@
 import type { FC } from "react";
+import { useMemo, useCallback } from "react";
 import {
     ServicesQueryFetchKey,
     fetchServices,
@@ -10,28 +11,36 @@ import { useNavigate } from "@tanstack/react-router";
 
 export const ServicesTable: FC = () => {
     const navigate = useNavigate({ from: "/services" });
-    const onEdit = (entity: ServiceType) => {
+    
+    const onEdit = useCallback((entity: ServiceType) => {
         navigate({
             to: "/services/$serviceId/edit",
             params: { serviceId: String(entity.id) },
         })
-    }
+    }, [navigate]);
 
-    const onDelete = (entity: ServiceType) => {
+    const onDelete = useCallback((entity: ServiceType) => {
         navigate({
             to: "/services/$serviceId/delete",
             params: { serviceId: String(entity.id) },
         })
-    }
+    }, [navigate]);
 
-    const onOpen = (entity: ServiceType) => {
+    const onOpen = useCallback((entity: ServiceType) => {
         navigate({
             to: "/services/$serviceId",
             params: { serviceId: String(entity.id) },
         })
-    }
+    }, [navigate]);
 
-    const columns = columnsFn({ onEdit, onDelete, onOpen });
+    const onCreate = useCallback(() => {
+        navigate({ to: "/services/create" });
+    }, [navigate]);
+
+    const columns = useMemo(
+        () => columnsFn({ onEdit, onDelete, onOpen }),
+        [onEdit, onDelete, onOpen]
+    );
 
     return (
         <EntityTable
@@ -39,7 +48,7 @@ export const ServicesTable: FC = () => {
             columns={columns}
             primaryFilter="name"
             entityKey={ServicesQueryFetchKey}
-            onCreate={() => navigate({ to: "/services/create" })}
+            onCreate={onCreate}
             onOpen={onOpen}
         />
     );

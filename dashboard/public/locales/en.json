@@ -185,6 +185,27 @@
         "password": "Password",
         "ssh_key_auth": "SSH Key"
       },
+      "update_xray": {
+        "title": "Update Xray-core",
+        "update": "Update Xray",
+        "description": "Update Xray-core to the latest version on node {{name}} (current: {{version}})",
+        "start": "Start Update",
+        "stop": "Stop Update",
+        "retry": "Retry Update",
+        "progress": "Progress",
+        "logs": "Update Logs",
+        "connected": "Connected to update service",
+        "disconnected": "Disconnected from update service",
+        "success": "Xray update completed successfully!",
+        "failed": "Xray update failed. Please check the logs.",
+        "ssh_user": "SSH User",
+        "ssh_port": "SSH Port",
+        "ssh_key": "SSH Key Path",
+        "ssh_password": "SSH Password",
+        "auth_method": "Authentication Method",
+        "password": "Password",
+        "ssh_key_auth": "SSH Key"
+      },
       "resync": {
         "title": "Resync Users",
         "success": "Users resynced on node {{name}}",

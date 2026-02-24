@@ -560,6 +560,114 @@ update_command() {
     colorized_echo blue "Marzneshin updated successfully"
 }
 
+update_xray_command() {
+    check_running_as_root
+
+    colorized_echo blue "=== Updating Xray-core to latest version ==="
+
+    # Check for required tools
+    for cmd in curl unzip jq; do
+        if ! command -v $cmd >/dev/null 2>&1; then
+            detect_os
+            install_package $cmd
+        fi
+    done
+
+    local XRAY_DIR="$NODE_DATA_DIR/xray-core"
+    local XRAY_BIN="$XRAY_DIR/xray"
+    local GITHUB_API="https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+
+    # Detect architecture
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64)  arch="64" ;;
+        aarch64|arm64) arch="arm64-v8a" ;;
+        armv7l)        arch="arm32-v7a" ;;
+        i686|i386)     arch="32" ;;
+        s390x)         arch="s390x" ;;
+        *)
+            colorized_echo red "Unsupported architecture: $arch"
+            exit 1
+            ;;
+    esac
+
+    # Get current version
+    local current_version="unknown"
+    if [ -f "$XRAY_BIN" ]; then
+        current_version=$("$XRAY_BIN" version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")
+    fi
+    colorized_echo blue "Current Xray version: ${current_version}"
+
+    # Get latest version
+    local latest_version=$(curl -s "$GITHUB_API" | jq -r '.tag_name' | sed 's/^v//')
+    if [ -z "$latest_version" ] || [ "$latest_version" = "null" ]; then
+        colorized_echo red "Failed to fetch latest Xray version from GitHub"
+        exit 1
+    fi
+    colorized_echo blue "Latest Xray version: ${latest_version}"
+
+    if [ "$current_version" = "$latest_version" ]; then
+        colorized_echo green "Xray is already up to date (v${current_version})"
+        exit 0
+    fi
+
+    # Download
+    local download_url="https://github.com/XTLS/Xray-core/releases/download/v${latest_version}/Xray-linux-${arch}.zip"
+    colorized_echo blue "Downloading Xray v${latest_version}..."
+
+    mkdir -p "$XRAY_DIR"
+    local tmp_zip="/tmp/xray-core.zip"
+    curl -sL "$download_url" -o "$tmp_zip"
+
+    if ! file "$tmp_zip" | grep -q "Zip archive"; then
+        colorized_echo red "Downloaded file is not a valid zip archive"
+        rm -f "$tmp_zip"
+        exit 1
+    fi
+
+    # Extract
+    unzip -o "$tmp_zip" xray geoip.dat geosite.dat -d "$XRAY_DIR" 2>/dev/null || \
+    unzip -o "$tmp_zip" xray -d "$XRAY_DIR"
+    chmod +x "$XRAY_BIN"
+    rm -f "$tmp_zip"
+
+    # Verify
+    if "$XRAY_BIN" version >/dev/null 2>&1; then
+        local installed_version=$("$XRAY_BIN" version | head -1 | awk '{print $2}')
+        colorized_echo green "Xray v${installed_version} downloaded successfully"
+    else
+        colorized_echo red "Xray binary verification failed"
+        exit 1
+    fi
+
+    # Update docker-compose to mount the xray binary
+    if [ -f "$COMPOSE_FILE" ]; then
+        if ! grep -q "${XRAY_BIN}:/usr/local/bin/xray" "$COMPOSE_FILE" 2>/dev/null; then
+            if grep -q "/var/lib/marznode" "$COMPOSE_FILE"; then
+                sed -i "/\/var\/lib\/marznode/a\\      - ${XRAY_BIN}:/usr/local/bin/xray" "$COMPOSE_FILE"
+                colorized_echo green "Added xray binary volume mount to compose file"
+                if [ -f "${XRAY_DIR}/geoip.dat" ]; then
+                    sed -i "/\/usr\/local\/bin\/xray/a\\      - ${XRAY_DIR}/geoip.dat:/usr/local/lib/xray/geoip.dat" "$COMPOSE_FILE"
+                fi
+                if [ -f "${XRAY_DIR}/geosite.dat" ]; then
+                    sed -i "/geoip.dat:\/usr\/local\/lib\/xray\/geoip.dat/a\\      - ${XRAY_DIR}/geosite.dat:/usr/local/lib/xray/geosite.dat" "$COMPOSE_FILE"
+                fi
+            fi
+        else
+            colorized_echo blue "Volume mount already configured"
+        fi
+    fi
+
+    # Restart marznode
+    detect_compose
+    colorized_echo blue "Restarting marznode..."
+    $COMPOSE -f $COMPOSE_FILE -p "$APP_NAME" up -d marznode 2>/dev/null || \
+    $COMPOSE -f $COMPOSE_FILE -p "$APP_NAME" up -d
+
+    colorized_echo green "========================================="
+    colorized_echo green "  Xray updated: v${current_version} -> v${latest_version}"
+    colorized_echo green "========================================="
+}
 
 usage() {
     colorized_echo red "Usage: $0 [command]"
@@ -573,6 +681,7 @@ usage() {
     echo "  cli             Marzneshin command-line interface"
     echo "  install         Install Marzneshin"
     echo "  update          Update latest version"
+    echo "  update-xray     Update Xray-core to latest version"
     echo "  uninstall       Uninstall Marzneshin"
     echo "  install-script  Install Marzneshin script"
     echo
@@ -595,6 +704,8 @@ case "$1" in
     shift; install_command "$@";;
     update)
     shift; update_command "$@";;
+    update-xray)
+    shift; update_xray_command "$@";;
     uninstall)
     shift; uninstall_command "$@";;
     install-script)
