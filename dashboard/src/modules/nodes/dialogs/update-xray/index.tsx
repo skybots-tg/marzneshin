@@ -194,7 +194,7 @@ export const UpdateXrayDialog: FC<UpdateXrayDialogProps> = ({
     return (
         <Dialog open={open} onOpenChange={handleClose}>
             <DialogContent 
-                className="max-w-3xl max-h-[90vh]"
+                className="max-w-3xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <DialogHeader>

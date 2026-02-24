@@ -31,27 +31,37 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 const DialogContent = React.forwardRef<
     React.ElementRef<typeof DialogPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
-    <DialogPortal>
-        <DialogOverlay />
-        <DialogPrimitive.Content
-            ref={ref}
-            className={cn(
-                "fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6",
-                className
-            )}
-            {...props}
-        >
-            <div className="glass relative grid w-full max-w-lg gap-4 p-6 rounded-2xl max-h-[calc(100vh-3rem)] overflow-y-auto transition-smooth data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95">
-                {children}
-                <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-2 opacity-70 ring-offset-background transition-smooth hover:opacity-100 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:pointer-events-none">
-                    <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
-                    <span className="sr-only">Close</span>
-                </DialogPrimitive.Close>
-            </div>
-        </DialogPrimitive.Content>
-    </DialogPortal>
-))
+>(({ className, children, ...props }, ref) => {
+    // Извлекаем max-w классы из className для применения к внутреннему div
+    const maxWMatch = className?.match(/max-w-[\w-]+/);
+    const maxWClass = maxWMatch ? maxWMatch[0] : "max-w-lg";
+    const otherClasses = className?.replace(/max-w-[\w-]+/g, "").trim();
+    
+    return (
+        <DialogPortal>
+            <DialogOverlay />
+            <DialogPrimitive.Content
+                ref={ref}
+                className={cn(
+                    "fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6",
+                    otherClasses
+                )}
+                {...props}
+            >
+                <div className={cn(
+                    "glass relative grid w-full gap-4 p-6 rounded-2xl max-h-[calc(100vh-3rem)] overflow-y-auto transition-smooth data-[state=open]:opacity-100 data-[state=closed]:opacity-0 data-[state=open]:scale-100 data-[state=closed]:scale-95",
+                    maxWClass
+                )}>
+                    {children}
+                    <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-2 opacity-70 ring-offset-background transition-smooth hover:opacity-100 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:pointer-events-none">
+                        <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
+                        <span className="sr-only">Close</span>
+                    </DialogPrimitive.Close>
+                </div>
+            </DialogPrimitive.Content>
+        </DialogPortal>
+    );
+})
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 const DialogHeader = ({
