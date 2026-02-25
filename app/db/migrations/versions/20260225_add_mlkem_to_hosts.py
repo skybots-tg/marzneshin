@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260225_add_mlkem_to_hosts"
-down_revision = "57eba0a293f2"
+down_revision = "optimize_subscription"
 branch_labels = None
 depends_on = None
 
@@ -40,5 +40,6 @@ def downgrade() -> None:
     op.drop_column("hosts", "mlkem_private_key")
     op.drop_column("hosts", "mlkem_public_key")
     op.drop_column("hosts", "mlkem_enabled")
+
 
 
