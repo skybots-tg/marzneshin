@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple, Union
 from sqlalchemy import and_, update, select, func, cast, Date, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.utils.mlkem import ensure_mlkem_keys, MlkemError
 
 # Simple cache for subscription settings (TTL: 60 seconds)
 _subscription_settings_cache = {"data": None, "expires": 0}
@@ -300,6 +301,22 @@ def get_host(db: Session, host_id) -> InboundHost:
 
 
 def add_host(db: Session, inbound: Inbound | None, host: InboundHostModify):
+    # ML-KEM: при включённом флаге автоматически гарантируем наличие ключей.
+    mlkem_enabled = getattr(host, "mlkem_enabled", False)
+    mlkem_public_key = getattr(host, "mlkem_public_key", None)
+    mlkem_private_key = None
+
+    if mlkem_enabled:
+        # Если ключи (или часть ключей) не заданы — генерируем через Xray.
+        # Ошибки генерации пробрасываются наверх как MlkemError,
+        # чтобы их было сразу видно в панели.
+        keypair = ensure_mlkem_keys(
+            public_key=mlkem_public_key,
+            private_key=None,
+        )
+        mlkem_public_key = keypair.public_key
+        mlkem_private_key = keypair.private_key
+
     host = InboundHost(
         remark=host.remark,
         address=host.address,
@@ -323,6 +340,9 @@ def add_host(db: Session, inbound: Inbound | None, host: InboundHostModify):
         header_type=host.header_type,
         reality_public_key=host.reality_public_key,
         reality_short_ids=host.reality_short_ids,
+        mlkem_enabled=mlkem_enabled,
+        mlkem_public_key=mlkem_public_key,
+        mlkem_private_key=mlkem_private_key,
         flow=host.flow,
         shadowtls_version=host.shadowtls_version,
         shadowsocks_method=host.shadowsocks_method,
@@ -387,6 +407,27 @@ def update_host(db: Session, db_host: InboundHost, host: InboundHostModify):
     db_host.header_type = host.header_type
     db_host.reality_public_key = host.reality_public_key
     db_host.reality_short_ids = host.reality_short_ids
+    mlkem_enabled = getattr(host, "mlkem_enabled", False)
+    db_host.mlkem_enabled = mlkem_enabled
+
+    if mlkem_enabled:
+        # Берём уже сохранённые ключи, если есть, либо то, что пришло с фронта.
+        current_public = (
+            getattr(host, "mlkem_public_key", None) or db_host.mlkem_public_key
+        )
+        current_private = db_host.mlkem_private_key
+
+        keypair = ensure_mlkem_keys(
+            public_key=current_public,
+            private_key=current_private,
+        )
+        db_host.mlkem_public_key = keypair.public_key
+        db_host.mlkem_private_key = keypair.private_key
+    else:
+        # ML-KEM выключен — не трогаем основной TLS/Reality, просто
+        # сбрасываем приватный ключ, чтобы не хранить лишнее.
+        db_host.mlkem_public_key = getattr(host, "mlkem_public_key", None)
+        db_host.mlkem_private_key = None
     db_host.flow = host.flow
     db_host.shadowtls_version = host.shadowtls_version
     db_host.shadowsocks_method = host.shadowsocks_method

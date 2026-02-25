@@ -139,6 +139,8 @@ class InboundHost(BaseModel):
     header_type: str | None = None
     reality_public_key: str | None = None
     reality_short_ids: list[str] | None = None
+    mlkem_enabled: bool = False
+    mlkem_public_key: str | None = None
     flow: str | None = None
     shadowtls_version: int | None = None
     shadowsocks_method: str | None = None
