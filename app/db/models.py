@@ -379,6 +379,16 @@ class InboundHost(Base):
     splithttp_settings = Column(JSON())
     mux_settings = Column(JSON())
     early_data = Column(Integer)
+    # ML-KEM настройки для VLESS/Reality и других протоколов.
+    # public/private: строки в формате, который возвращает Xray (обычно base64/hex).
+    mlkem_enabled = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default=sqlalchemy.sql.false(),
+    )
+    mlkem_public_key = Column(String(512))
+    mlkem_private_key = Column(String(4096))
     inbound_id = Column(Integer, ForeignKey("inbounds.id"), nullable=True)
     inbound = relationship("Inbound", back_populates="hosts", lazy="joined")
     allowinsecure = Column(Boolean, default=False)
