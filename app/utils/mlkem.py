@@ -120,3 +120,4 @@ def ensure_mlkem_keys(
         return MlkemKeyPair(public_key=public_key, private_key=private_key)
 
     return generate_mlkem_keypair(variant=variant)
+
