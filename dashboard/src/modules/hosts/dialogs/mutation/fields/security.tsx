@@ -14,7 +14,12 @@ import {
 import { useEffect, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import { AllowInsecureField, AlpnField, FingerprintField } from ".";
+import {
+    AllowInsecureField,
+    AlpnField,
+    FingerprintField,
+    MlkemFields,
+} from ".";
 
 export const SecurityFields = () => {
     const { t } = useTranslation();
@@ -65,6 +70,7 @@ export const SecurityFields = () => {
                         <FingerprintField />
                     </div>
                     <AllowInsecureField />
+                    <MlkemFields />
                 </div>
             )}
         </>

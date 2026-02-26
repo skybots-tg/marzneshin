@@ -3,6 +3,7 @@ export * from "./address";
 export * from "./port";
 export * from "./allow-insecure";
 export * from "./security";
+export * from "./mlkem";
 export * from "./alpn";
 export * from "./fingerprint";
 export * from "./mux";

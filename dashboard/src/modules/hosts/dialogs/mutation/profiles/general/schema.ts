@@ -101,6 +101,9 @@ export const GeneralSchema = HostSchema.merge(TlsSchema).extend({
     security: z
         .enum(["inbound_default", "none", "tls"])
         .default("inbound_default"),
+    // ML-KEM настройки для Reality/VLESS-хостов.
+    mlkem_enabled: z.boolean().default(false).optional(),
+    mlkem_public_key: z.string().nullable().optional(),
 });
 
 export type GeneralSchemaType = z.infer<typeof GeneralSchema>;

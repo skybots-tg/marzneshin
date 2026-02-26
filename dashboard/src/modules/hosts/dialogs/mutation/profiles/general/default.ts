@@ -17,4 +17,6 @@ export const generalProfileDefaultValue: GeneralSchemaType = {
     allowinsecure: false,
     fingerprint: "none",
     is_disabled: false,
+    mlkem_enabled: false,
+    mlkem_public_key: null,
 };
