@@ -192,7 +192,27 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                 )
             )
         
-        await self._stub.RepopulateUsers(UsersData(users_data=updates))
+        try:
+            await self._stub.RepopulateUsers(UsersData(users_data=updates))
+        except GRPCError as e:
+            # Handle EmailExistsError gracefully - if user already exists,
+            # it's not a critical error during repopulation
+            # Check both message and details for "already exists" pattern
+            error_text = ""
+            if e.message:
+                error_text += e.message.lower()
+            if e.details:
+                error_text += " " + str(e.details).lower()
+            
+            if e.status == 2 and ("already exists" in error_text or "emailexistserror" in error_text):
+                logger.warning(
+                    "Node %i: Some users already exist during repopulation (this is expected): %s",
+                    self.id, e.message or str(e.details) or "User already exists"
+                )
+                # Don't raise - this is not a critical error
+                return
+            # Re-raise other GRPC errors
+            raise
 
     async def fetch_users_stats(self):
         response = await self._stub.FetchUsersStats(Empty())
