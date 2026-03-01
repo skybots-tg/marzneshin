@@ -65,6 +65,8 @@ export const InboundHostsTable = () => {
                 sidebarEntityId={selectedInbound}
                 columnsFn={columns}
                 filteredColumn='remark'
+                defaultSortBy="weight"
+                defaultSortDesc={true}
                 setSidebarEntityId={setSelectedInbound}
                 onCreate={onCreate}
                 onOpen={onOpen}

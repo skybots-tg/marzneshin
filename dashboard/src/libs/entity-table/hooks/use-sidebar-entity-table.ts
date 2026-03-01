@@ -30,6 +30,16 @@ interface UseSidebarEntityTableParams<T, S> {
     entityKey: string;
     rowSelection?: UseRowSelectionReturn;
     manualSorting?: boolean;
+    /**
+     * Optional default sorting column id. When no sorting is selected by user,
+     * this column will be used. Defaults to "created_at".
+     */
+    defaultSortBy?: string;
+    /**
+     * Optional default sorting direction. When no sorting is selected by user,
+     * this value will be used. Defaults to false (ascending).
+     */
+    defaultSortDesc?: boolean;
     onCreate: () => void;
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;
@@ -51,6 +61,8 @@ export const useSidebarEntityTable = <T, S>({
     sidebarEntities,
     sidebarCardProps,
     secondaryEntityKey,
+    defaultSortBy = "created_at",
+    defaultSortDesc = false,
 }: UseSidebarEntityTableParams<T, S>) => {
     const { t } = useTranslation();
     const primaryFilter = usePrimaryFiltering({ column: filteredColumn });
@@ -70,8 +82,8 @@ export const useSidebarEntityTable = <T, S>({
         },
         primaryFilter.columnFilters,
         {
-            sortBy: sorting.sorting[0]?.id ? sorting.sorting[0].id : "created_at",
-            desc: sorting.sorting[0]?.desc
+            sortBy: sorting.sorting[0]?.id ? sorting.sorting[0].id : defaultSortBy,
+            desc: sorting.sorting[0]?.desc ?? defaultSortDesc,
         },
         { filters: filters.columnsFilter }
     ];
