@@ -71,7 +71,7 @@ export const HostsOrderDialog: FC<HostsOrderDialogProps> = ({
         return map;
     }, [inboundsData.entities]);
 
-    // Initialize and sort hosts by weight (descending - higher weight = higher in list)
+    // Initialize and sort hosts by weight (ascending - lower weight = higher in list)
     useEffect(() => {
         if (open) {
             refetchHosts();
@@ -81,7 +81,7 @@ export const HostsOrderDialog: FC<HostsOrderDialogProps> = ({
     useEffect(() => {
         if (allHosts && allHosts.length > 0) {
             const sortedHosts = [...allHosts]
-                .sort((a, b) => (b.weight ?? 1) - (a.weight ?? 1))
+                .sort((a, b) => (a.weight ?? 1) - (b.weight ?? 1))
                 .map((host) => ({
                     id: host.id,
                     remark: host.remark,
@@ -149,7 +149,7 @@ export const HostsOrderDialog: FC<HostsOrderDialogProps> = ({
 
             const updatedHosts = flattened.map((host, index) => ({
                 ...host,
-                weight: flattened.length - index,
+                weight: index + 1,
             }));
 
             return updatedHosts;
