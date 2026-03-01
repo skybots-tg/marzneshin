@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -72,6 +72,14 @@ export const useSidebarEntityTable = <T, S>({
     const desktop = useScreenBreakpoint("md");
     const { onPaginationChange, pageIndex, pageSize } = usePagination({entityKey});
 
+    // Initialize default sorting if no user sorting is set
+    useEffect(() => {
+        if (sorting.sorting.length === 0 && defaultSortBy) {
+            sorting.setSorting([{ id: defaultSortBy, desc: defaultSortDesc }]);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const query: SidebarQueryKey = [
         entityKey,
         sidebarEntityId,
@@ -82,8 +90,8 @@ export const useSidebarEntityTable = <T, S>({
         },
         primaryFilter.columnFilters,
         {
-            sortBy: sorting.sorting[0]?.id ? sorting.sorting[0].id : defaultSortBy,
-            desc: sorting.sorting[0]?.desc ?? defaultSortDesc,
+            sortBy: sorting.sorting.length > 0 && sorting.sorting[0]?.id ? sorting.sorting[0].id : defaultSortBy,
+            desc: sorting.sorting.length > 0 && sorting.sorting[0]?.desc !== undefined ? sorting.sorting[0].desc : defaultSortDesc,
         },
         { filters: filters.columnsFilter }
     ];

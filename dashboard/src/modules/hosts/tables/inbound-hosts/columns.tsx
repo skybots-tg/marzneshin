@@ -100,6 +100,8 @@ const InlineEditableRemarkCell = ({ host }: { host: HostType }) => {
                 onChange={(e) => setValue(e.target.value)}
                 onBlur={handleSave}
                 onKeyDown={handleKeyDown}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 className="h-8"
                 disabled={updateMutation.isPending}
             />
