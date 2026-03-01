@@ -32,6 +32,16 @@ interface SidebarEntityTableProps<T, S> {
     entityKey: string;
     rowSelection?: UseRowSelectionReturn;
     manualSorting?: boolean;
+    /**
+     * Optional default sorting column id for this table.
+     * When user has not changed sorting manually, this column will be used.
+     */
+    defaultSortBy?: string;
+    /**
+     * Optional default sorting direction for this table.
+     * When user has not changed sorting manually, this value will be used.
+     */
+    defaultSortDesc?: boolean;
     onCreate: () => void;
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;

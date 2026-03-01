@@ -38,8 +38,21 @@ def get_inbounds(db: DBDep, tag: str = Query(None)):
 
 
 @router.get("/hosts", response_model=Page[InboundHostResponse])
-def get_hosts(db: DBDep):
-    return paginate(db.query(DBInboundHost))
+def get_hosts(
+    db: DBDep,
+    remark: str | None = Query(None),
+):
+    """
+    Get all hosts (optionally filtered) sorted by weight.
+    """
+    query = db.query(DBInboundHost)
+
+    if remark:
+        query = query.filter(DBInboundHost.remark.ilike(f"%{remark}%"))
+
+    query = query.order_by(DBInboundHost.weight.desc(), DBInboundHost.id.desc())
+
+    return paginate(db, query)
 
 
 @router.post("/hosts", response_model=InboundHostResponse)
@@ -119,7 +132,11 @@ def get_inbound(id: int, db: DBDep):
 
 
 @router.get("/{id}/hosts", response_model=Page[InboundHostResponse])
-def get_inbound_hosts(id: int, db: DBDep):
+def get_inbound_hosts(
+    id: int,
+    db: DBDep,
+    remark: str | None = Query(None),
+):
     """
     Get hosts of a specific inbound
     """
@@ -127,9 +144,14 @@ def get_inbound_hosts(id: int, db: DBDep):
     if not inbound:
         raise HTTPException(status_code=404, detail="Inbound not found")
 
-    return paginate(
-        db, db.query(DBInboundHost).filter(DBInboundHost.inbound_id == id)
-    )
+    query = db.query(DBInboundHost).filter(DBInboundHost.inbound_id == id)
+
+    if remark:
+        query = query.filter(DBInboundHost.remark.ilike(f"%{remark}%"))
+
+    query = query.order_by(DBInboundHost.weight.desc(), DBInboundHost.id.desc())
+
+    return paginate(db, query)
 
 
 @router.post("/{id}/hosts", response_model=InboundHostResponse)
