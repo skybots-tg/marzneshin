@@ -67,16 +67,12 @@ def track_user_connection(
         Tuple of (device_id, device_ip_id) or (None, None) if failed
     """
     try:
-        # Extract and normalize client name
         if not client_name and user_agent:
             client_name = extract_client_name(user_agent)
         
         client_name = normalize_client_name(client_name)
-        
-        # Guess client type
         client_type = guess_client_type(client_name, user_agent)
         
-        # Build fingerprint
         fingerprint, fingerprint_version = build_device_fingerprint(
             user_id=user_id,
             client_name=client_name,
@@ -84,18 +80,15 @@ def track_user_connection(
             user_agent=user_agent,
         )
         
-        # Get or create device
         device = device_crud.get_device_by_fingerprint(
             db, user_id, fingerprint, fingerprint_version
         )
         
         if not device:
-            # Check device limit before creating new device
             from app.db.models import User as DBUser
             user = db.query(DBUser).filter(DBUser.id == user_id).first()
             
             if user and user.device_limit is not None:
-                # Count active (non-blocked) devices for this user
                 current_device_count = device_crud.get_devices_count(db, user_id, is_blocked=False)
                 
                 if current_device_count >= user.device_limit:
@@ -104,10 +97,8 @@ def track_user_connection(
                         f"{current_device_count}/{user.device_limit} devices. "
                         f"Cannot create new device."
                     )
-                    # Return None to indicate device limit exceeded
                     return None, None
             
-            # Create new device (no auto-commit, we'll commit at the end of batch)
             device = device_crud.create_device(
                 db=db,
                 user_id=user_id,
@@ -123,12 +114,10 @@ def track_user_connection(
                 f"(client: {client_name or 'unknown'})"
             )
             
-            # Resync user with nodes to add new device to allowed list
             if user:
                 from app.marznode import operations
                 operations.update_user(user)
         else:
-            # Update last seen (no auto-commit)
             device = device_crud.update_device(
                 db=db,
                 device_id=device.id,
@@ -136,16 +125,12 @@ def track_user_connection(
                 auto_commit=False,
             )
         
-        # Check if device is blocked
         if device and device.is_blocked:
             logger.warning(
                 f"Connection from blocked device {device.id} "
                 f"for user {user_id}, IP {remote_ip}"
             )
-            # You can add logic here to reject the connection
-            # by returning None or raising an exception
         
-        # Update device IP statistics (no auto-commit)
         device_ip = device_crud.update_device_ip_stats(
             db=db,
             device_id=device.id,
@@ -162,7 +147,6 @@ def track_user_connection(
             auto_commit=False,
         )
         
-        # Update last_ip_id on device if this is the most recent IP
         if device_ip and not device.last_ip_id:
             device_crud.update_device(
                 db=db,
@@ -171,7 +155,6 @@ def track_user_connection(
                 auto_commit=False,
             )
         
-        # Update traffic aggregates (no auto-commit)
         if bucket_start:
             device_crud.create_or_update_traffic(
                 db=db,
@@ -185,15 +168,16 @@ def track_user_connection(
                 auto_commit=False,
             )
         
-        # Commit only if auto_commit is True
         if auto_commit:
             db.commit()
         
         return device.id, device_ip.id if device_ip else None
         
     except Exception as e:
+        # NEVER rollback here — the caller owns the session and may have
+        # other pending work from previous iterations.  Just log and
+        # return None so the caller can decide what to do.
         logger.error(f"Error tracking user connection: {e}", exc_info=True)
-        db.rollback()
         return None, None
 
 

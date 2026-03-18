@@ -123,6 +123,24 @@
         "copy": "Copy Certificate",
         "error": "Certificate Unavailable",
         "copied": "Certificate Copied"
+      },
+      "database": {
+        "title": "Database Pool",
+        "description": "Monitor and configure the database connection pool. Uses a separate connection so this page is always accessible.",
+        "live-stats": "Live Pool Statistics",
+        "active-connections": "Active (checked out)",
+        "total-connections": "Total connections",
+        "overflow": "Overflow",
+        "idle": "Idle (checked in)",
+        "pool-size": "Pool Size",
+        "pool-size-desc": "Number of persistent connections kept in the pool",
+        "max-overflow": "Max Overflow",
+        "max-overflow-desc": "Extra connections allowed above pool size under load",
+        "pool-timeout": "Pool Timeout (s)",
+        "pool-timeout-desc": "Seconds to wait for a free connection before error",
+        "pool-recycle": "Pool Recycle (s)",
+        "pool-recycle-desc": "Seconds before a connection is recycled (reconnected)",
+        "restart-note": "Changes are applied immediately but won't persist after restart. Update your .env file to make them permanent."
       }
     },
     "login": {

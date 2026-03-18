@@ -2,7 +2,8 @@ import logging
 from sqlalchemy.exc import SQLAlchemyError, TimeoutError as SATimeoutError
 from sqlalchemy.orm import Session
 
-from .base import Base, SessionLocal, engine  # noqa
+from .base import Base, SessionLocal, SettingsSessionLocal, engine  # noqa
+from .base import get_pool_stats, reconfigure_pool  # noqa
 from .crud import (
     create_admin,
     create_user,
@@ -75,6 +76,42 @@ class GetDB:  # Context Manager
                 logger.error(f"Error closing database session: {close_error}")
 
 
+class GetSettingsDB:
+    """
+    Context manager using the dedicated settings engine.
+    Uses a separate small pool so admin settings are always accessible
+    even when the main pool is exhausted.
+    """
+
+    def __init__(self):
+        self.db = None
+
+    def __enter__(self):
+        try:
+            self.db = SettingsSessionLocal()
+            return self.db
+        except SATimeoutError:
+            logger.error("Settings DB pool timeout")
+            raise
+        except SQLAlchemyError as e:
+            logger.error(f"Settings DB connection error: {e}")
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.db is None:
+            return
+        try:
+            if exc_value is not None:
+                self.db.rollback()
+        except Exception:
+            pass
+        finally:
+            try:
+                self.db.close()
+            except Exception:
+                pass
+
+
 __all__ = [
     "get_user",
     "get_user_by_id",
@@ -96,6 +133,9 @@ __all__ = [
     "remove_admin",
     "get_admins",
     "GetDB",
+    "GetSettingsDB",
+    "get_pool_stats",
+    "reconfigure_pool",
     "User",
     "System",
     "JWT",
