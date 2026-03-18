@@ -1,17 +1,23 @@
 from fastapi import APIRouter
 
-from app.db import crud
+from app.db import crud, get_pool_stats, reconfigure_pool
 from app.db.models import Admin as DBAdmin, Settings
 from app.db.models import Node
 from app.dependencies import (
     DBDep,
+    SettingsDBDep,
     AdminDep,
     SudoAdminDep,
     EndDateDep,
     StartDateDep,
 )
 from app.models.node import NodeStatus
-from app.models.settings import SubscriptionSettings, TelegramSettings
+from app.models.settings import (
+    SubscriptionSettings,
+    TelegramSettings,
+    DatabasePoolConfig,
+    DatabasePoolStats,
+)
 from app.models.system import (
     UsersStats,
     NodesStats,
@@ -51,6 +57,33 @@ def update_telegram_settings(
     settings.telegram = new_telegram
     db.commit()
     return settings.telegram
+
+
+@router.get("/settings/database", response_model=DatabasePoolStats)
+def get_database_pool_settings(
+    db: SettingsDBDep, admin: SudoAdminDep
+):
+    """Get current database pool configuration and live stats.
+    Uses a separate dedicated connection pool so this endpoint
+    remains accessible even when the main pool is exhausted."""
+    return get_pool_stats()
+
+
+@router.put("/settings/database", response_model=DatabasePoolStats)
+def update_database_pool_settings(
+    db: SettingsDBDep,
+    config: DatabasePoolConfig,
+    admin: SudoAdminDep,
+):
+    """Apply new pool parameters at runtime by recreating the main engine.
+    The settings engine (used by this endpoint) is not affected."""
+    reconfigure_pool(
+        pool_size=config.pool_size,
+        max_overflow=config.max_overflow,
+        pool_timeout=config.pool_timeout,
+        pool_recycle=config.pool_recycle,
+    )
+    return get_pool_stats()
 
 
 @router.get("/stats/admins", response_model=AdminsStats)

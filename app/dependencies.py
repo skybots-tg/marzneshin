@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.db import crud, User, GetDB
+from app.db import crud, User, GetDB, GetSettingsDB
 from app.db.models import Service
 from app.models.admin import Admin, oauth2_scheme
 from app.utils.auth import get_admin_payload
@@ -12,6 +12,11 @@ from app.utils.auth import get_admin_payload
 
 def get_db():
     with GetDB() as db:
+        yield db
+
+
+def get_settings_db():
+    with GetSettingsDB() as db:
         yield db
 
 
@@ -125,6 +130,7 @@ UserDep = Annotated[User, Depends(get_user)]
 AdminDep = Annotated[Admin, Depends(get_current_admin)]
 SudoAdminDep = Annotated[Admin, Depends(sudo_admin)]
 DBDep = Annotated[Session, Depends(get_db)]
+SettingsDBDep = Annotated[Session, Depends(get_settings_db)]
 StartDateDep = Annotated[datetime, Depends(parse_start_date)]
 EndDateDep = Annotated[datetime, Depends(parse_end_date)]
 ModifyUsersAccess = Annotated[None, Depends(user_modification_access)]
