@@ -104,12 +104,15 @@ _engine_lock = threading.Lock()
 def get_pool_stats():
     """Return live pool statistics for the main engine."""
     pool = engine.pool
+    # pool.overflow() can be negative (means pool hasn't filled to base size yet);
+    # clamp to 0 for a user-friendly display.
+    raw_overflow = pool.overflow()
     return {
         "pool_size": pool.size(),
         "max_overflow": engine.pool._max_overflow,
         "checked_out": pool.checkedout(),
         "checked_in": pool.checkedin(),
-        "overflow": pool.overflow(),
+        "overflow": max(0, raw_overflow),
         "pool_timeout": SQLALCHEMY_POOL_TIMEOUT,
         "pool_recycle": SQLALCHEMY_POOL_RECYCLE,
         "statement_timeout": SQLALCHEMY_STATEMENT_TIMEOUT,
