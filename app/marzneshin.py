@@ -114,6 +114,7 @@ scheduler.add_job(
     "interval",
     coalesce=True,
     seconds=TASKS_RECORD_USER_USAGES_INTERVAL,
+    max_instances=1,
 )
 scheduler.add_job(
     review_users,

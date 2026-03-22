@@ -34,6 +34,11 @@ def update_user(
     for inb in old_inbounds:
         node_inbounds[inb[0]]
 
+    # One DB read per update_user — fingerprints are identical for every node.
+    # (Calling _get_allowed_fingerprints inside the loop used to open GetDB once
+    # per node and, combined with a caller-held session, exhausted the pool.)
+    allowed_fingerprints = _get_allowed_fingerprints(user.id)
+
     for node_id, tags in node_inbounds.items():
         if marznode.nodes.get(node_id):
             asyncio.ensure_future(
@@ -41,7 +46,7 @@ def update_user(
                     user=User.model_validate(user), 
                     inbounds=tags,
                     device_limit=user.device_limit,
-                    allowed_fingerprints=_get_allowed_fingerprints(user.id)
+                    allowed_fingerprints=allowed_fingerprints,
                 )
             )
 
