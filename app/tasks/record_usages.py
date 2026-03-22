@@ -289,7 +289,7 @@ async def record_user_usages():
         for user in users_to_check:
             db.refresh(user)
             if user.data_limit_reached:
-                marznode.operations.update_user(user)
+                marznode.operations.update_user(user, db=db)
                 asyncio.ensure_future(
                     notify(
                         action=UserNotification.Action.data_limit_exhausted,

@@ -9,11 +9,13 @@ from ..models.node import NodeConnectionBackend
 from ..models.user import User
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session as _Session
     from app.db import User as DBUser
 
 
 def update_user(
-    user: "DBUser", old_inbounds: set | None = None, remove: bool = False
+    user: "DBUser", old_inbounds: set | None = None, remove: bool = False,
+    db: "_Session | None" = None,
 ):
     """updates a user on all related nodes"""
     if old_inbounds is None:
@@ -34,10 +36,7 @@ def update_user(
     for inb in old_inbounds:
         node_inbounds[inb[0]]
 
-    # One DB read per update_user — fingerprints are identical for every node.
-    # (Calling _get_allowed_fingerprints inside the loop used to open GetDB once
-    # per node and, combined with a caller-held session, exhausted the pool.)
-    allowed_fingerprints = _get_allowed_fingerprints(user.id)
+    allowed_fingerprints = _get_allowed_fingerprints(user.id, db=db)
 
     for node_id, tags in node_inbounds.items():
         if marznode.nodes.get(node_id):
@@ -51,19 +50,25 @@ def update_user(
             )
 
 
-def _get_allowed_fingerprints(user_id: int) -> list[str]:
-    """Get list of allowed device fingerprints for user"""
-    from app.db import device_crud, GetDB
-    
+def _get_allowed_fingerprints(user_id: int, db=None) -> list[str]:
+    """Get list of allowed device fingerprints for user.
+    Reuses the caller's session when provided to avoid nested pool checkouts.
+    """
+    from app.db import device_crud
+
+    if db is not None:
+        devices = device_crud.get_user_devices(
+            db, user_id, is_blocked=False, limit=1000
+        )
+        return [d.fingerprint for d in devices]
+
+    from app.db import GetDB
     try:
         with GetDB() as db:
             devices = device_crud.get_user_devices(
-                db, 
-                user_id, 
-                is_blocked=False,  # Only non-blocked devices
-                limit=1000
+                db, user_id, is_blocked=False, limit=1000
             )
-            return [device.fingerprint for device in devices]
+            return [d.fingerprint for d in devices]
     except Exception:
         return []
 
