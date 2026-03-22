@@ -36,7 +36,7 @@ async def review_users():
             ):
                 continue
 
-            marznode.operations.update_user(user, remove=True)
+            marznode.operations.update_user(user, remove=True, db=db)
             user.activated = False
             db.commit()
             db.refresh(user)

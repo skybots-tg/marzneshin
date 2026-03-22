@@ -136,7 +136,7 @@ async def add_user(new_user: UserCreate, db: DBDep, admin: AdminDep):
         raise HTTPException(status_code=409, detail="User already exists")
 
     user = UserResponse.model_validate(db_user)
-    marznode.operations.update_user(user=db_user)
+    marznode.operations.update_user(user=db_user, db=db)
 
     asyncio.ensure_future(
         notify(
@@ -242,7 +242,7 @@ async def modify_user(
         inbound_change and new_user.is_active
     ) or active_before != active_after:
         marznode.operations.update_user(
-            new_user, old_inbounds, remove=not db_user.is_active
+            new_user, old_inbounds, remove=not db_user.is_active, db=db
         )
         db_user.activated = db_user.is_active
         db.commit()
@@ -292,7 +292,7 @@ async def remove_user(
     """
     Remove a user
     """
-    marznode.operations.update_user(db_user, remove=True)
+    marznode.operations.update_user(db_user, remove=True, db=db)
 
     deleted_username = db_user.username
     crud.remove_user(db, db_user)
@@ -343,7 +343,7 @@ async def reset_user_data_usage(
     db_user = crud.reset_user_data_usage(db, db_user)
 
     if db_user.is_active and not was_active:
-        marznode.operations.update_user(db_user)
+        marznode.operations.update_user(db_user, db=db)
         db_user.activated = True
         db.commit()
 
@@ -379,7 +379,7 @@ async def enable_user(
 
     if db_user.is_active:
         db_user.activated = True
-        marznode.operations.update_user(db_user)
+        marznode.operations.update_user(db_user, db=db)
 
     db.commit()
 
@@ -412,7 +412,7 @@ async def disable_user(
     db_user.activated = False
     db.commit()
 
-    marznode.operations.update_user(db_user, remove=True)
+    marznode.operations.update_user(db_user, remove=True, db=db)
 
     user = UserResponse.model_validate(db_user)
 
@@ -440,8 +440,8 @@ async def revoke_user_subscription(
     db_user = crud.revoke_user_sub(db, db_user)
 
     if db_user.is_active:
-        marznode.operations.update_user(db_user, remove=True)
-        marznode.operations.update_user(db_user)
+        marznode.operations.update_user(db_user, remove=True, db=db)
+        marznode.operations.update_user(db_user, db=db)
 
     user = UserResponse.model_validate(db_user)
 

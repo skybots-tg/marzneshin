@@ -237,7 +237,7 @@ def admin_update_device(
     # If blocking status changed, resync user with nodes
     if is_blocked_changed:
         from app.marznode import operations
-        operations.update_user(user)
+        operations.update_user(user, db=db)
     
     # Get full response
     stats = device_crud.get_device_total_traffic(db, device.id)
@@ -286,7 +286,7 @@ def admin_delete_device(
     
     # Resync user with nodes to update allowed device list
     from app.marznode import operations
-    operations.update_user(user)
+    operations.update_user(user, db=db)
     
     return None
 

@@ -116,7 +116,7 @@ def track_user_connection(
             
             if user:
                 from app.marznode import operations
-                operations.update_user(user)
+                operations.update_user(user, db=db)
         else:
             device = device_crud.update_device(
                 db=db,

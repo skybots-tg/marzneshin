@@ -168,7 +168,7 @@ async def disable_users(username: str, db: DBDep, admin: SudoAdminDep):
 
     for user in crud.get_users(db, admin=db_admin, enabled=True):
         if user.activated:
-            update_user(user, remove=True)
+            update_user(user, remove=True, db=db)
         user.enabled = False
         user.activated = False
     db.commit()
@@ -191,7 +191,7 @@ async def enable_users(username: str, db: DBDep, admin: SudoAdminDep):
     for user in crud.get_users(db, admin=db_admin, enabled=False):
         user.enabled = True
         if user.is_active:
-            update_user(user)
+            update_user(user, db=db)
             user.activated = True
     db.commit()
 
