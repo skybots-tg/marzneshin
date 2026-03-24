@@ -68,6 +68,7 @@ async def add_node(new_node: NodeCreate, db: DBDep, admin: SudoAdminDep):
             status_code=409, detail=f'Node "{new_node.name}" already exists'
         )
     certificate = get_tls_certificate(db)
+    db.close()
 
     await marznode.operations.add_node(db_node, certificate)
 
@@ -137,10 +138,11 @@ async def modify_node(
         raise HTTPException(status_code=404, detail="Node not found")
 
     db_node = crud.update_node(db, db_node, modified_node)
+    certificate = get_tls_certificate(db) if db_node.status != NodeStatus.disabled else None
+    db.close()
 
     await marznode.operations.remove_node(db_node.id)
-    if db_node.status != NodeStatus.disabled:
-        certificate = get_tls_certificate(db)
+    if certificate:
         await marznode.operations.add_node(db_node, certificate)
 
     logger.info("Node `%s` modified", db_node.name)
@@ -153,10 +155,14 @@ async def remove_node(node_id: int, db: DBDep, admin: SudoAdminDep):
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
 
+    node_name = db_node.name
+    removed_id = db_node.id
     crud.remove_node(db, db_node)
-    await marznode.operations.remove_node(db_node.id)
+    db.close()
 
-    logger.info(f"Node `%s` deleted", db_node.name)
+    await marznode.operations.remove_node(removed_id)
+
+    logger.info("Node `%s` deleted", node_name)
     return {}
 
 
@@ -171,6 +177,8 @@ async def resync_node_users(node_id: int, db: DBDep, admin: SudoAdminDep):
     db_node = crud.get_node_by_id(db, node_id)
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
+    node_name = db_node.name
+    db.close()
 
     node = marznode.nodes.get(node_id)
     if not node:
@@ -185,8 +193,8 @@ async def resync_node_users(node_id: int, db: DBDep, admin: SudoAdminDep):
         logger.error(f"Failed to resync users on node {node_id}: {e}")
         raise HTTPException(status_code=502, detail="Failed to resync users with node")
 
-    logger.info(f"Users resynced on node `%s`", db_node.name)
-    return {"status": "ok", "message": f"Users resynced on node {db_node.name}"}
+    logger.info("Users resynced on node `%s`", node_name)
+    return {"status": "ok", "message": f"Users resynced on node {node_name}"}
 
 
 @router.get("/{node_id}/usage", response_model=TrafficUsageSeries)
@@ -211,6 +219,7 @@ def get_usage(
 async def get_backend_stats(
     node_id: int, backend: str, db: DBDep, admin: SudoAdminDep
 ):
+    db.close()
     if not (node := marznode.nodes.get(node_id)):
         raise HTTPException(status_code=404, detail="Node not found")
 
@@ -404,7 +413,6 @@ async def get_all_devices(
 @router.get("/{node_id}/update-xray")
 async def update_node_xray(
     node_id: int,
-    db: DBDep,
     ssh_user: str = Query("root"),
     ssh_port: int = Query(22),
     ssh_password: str = Query(None),
@@ -422,17 +430,20 @@ async def update_node_xray(
     import io
     import os
     
-    # Authenticate using token from query parameter (EventSource doesn't support custom headers)
-    if token:
-        admin = get_admin(db, token)
-        if not admin or not admin.is_sudo:
-            raise HTTPException(status_code=403, detail="Unauthorized")
-    else:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    db_node = crud.get_node_by_id(db, node_id)
-    if not db_node:
-        raise HTTPException(status_code=404, detail="Node not found")
+    # Short-lived DB session: auth + lookup, then release the pool connection
+    # before the long-running SSE stream begins.
+    with GetDB() as db:
+        if token:
+            admin = get_admin(db, token)
+            if not admin or not admin.is_sudo:
+                raise HTTPException(status_code=403, detail="Unauthorized")
+        else:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        db_node = crud.get_node_by_id(db, node_id)
+        if not db_node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        node_address = db_node.address
     
     # Read update script content
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "update_xray.sh")
@@ -467,14 +478,14 @@ async def update_node_xray(
             yield send_event("steps", {"steps": update_steps})
             
             yield send_event("log", {
-                "message": f"Connecting to {db_node.address}:{ssh_port} as {ssh_user}..."
+                "message": f"Connecting to {node_address}:{ssh_port} as {ssh_user}..."
             })
             
             ssh_client = paramiko.SSHClient()
             ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             
             connect_kwargs = {
-                "hostname": db_node.address,
+                "hostname": node_address,
                 "port": ssh_port,
                 "username": ssh_user,
                 "timeout": 30,
@@ -666,7 +677,6 @@ async def update_node_xray(
 @router.get("/{node_id}/migrate")
 async def migrate_node(
     node_id: int,
-    db: DBDep,
     ssh_user: str = Query("root"),
     ssh_port: int = Query(22),
     ssh_password: str = Query(None),
@@ -685,17 +695,22 @@ async def migrate_node(
     import io
     import os
     
-    # Authenticate using token from query parameter (EventSource doesn't support custom headers)
-    if token:
-        admin = get_admin(db, token)
-        if not admin or not admin.is_sudo:
-            raise HTTPException(status_code=403, detail="Unauthorized")
-    else:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    db_node = crud.get_node_by_id(db, node_id)
-    if not db_node:
-        raise HTTPException(status_code=404, detail="Node not found")
+    # Short-lived DB session: auth + lookup + cert, then release pool connection
+    # before the long-running SSE stream begins.
+    with GetDB() as db:
+        if token:
+            admin = get_admin(db, token)
+            if not admin or not admin.is_sudo:
+                raise HTTPException(status_code=403, detail="Unauthorized")
+        else:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        db_node = crud.get_node_by_id(db, node_id)
+        if not db_node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        node_address = db_node.address
+        
+        tls_certificate = get_tls_certificate(db)
     
     # Read migration script content
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "migrate_skybots.sh")
@@ -730,9 +745,6 @@ async def migrate_node(
             {"id": "step8", "name": "Step 8/9: Verifying deployment", "status": "pending"},
         ]
         
-        # Get TLS certificate from database
-        tls_certificate = get_tls_certificate(db)
-        
         ssh_client = None
         
         try:
@@ -742,7 +754,7 @@ async def migrate_node(
             })
             
             yield send_event("log", {
-                "message": f"Connecting to {db_node.address}:{ssh_port} as {ssh_user}..."
+                "message": f"Connecting to {node_address}:{ssh_port} as {ssh_user}..."
             })
             
             # Create SSH client
@@ -751,7 +763,7 @@ async def migrate_node(
             
             # Connect using password or key
             connect_kwargs = {
-                "hostname": db_node.address,
+                "hostname": node_address,
                 "port": ssh_port,
                 "username": ssh_user,
                 "timeout": 30,

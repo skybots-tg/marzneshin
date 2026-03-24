@@ -36,6 +36,7 @@ from . import __version__
 from .routes import api_router
 from .tasks import (
     nodes_startup,
+    check_pool_health,
     record_user_usages,
     reset_user_data_usage,
     review_users,
@@ -135,6 +136,13 @@ scheduler.add_job(
     "interval",
     seconds=TASKS_RESET_USER_DATA_USAGE,
     coalesce=True,
+)
+scheduler.add_job(
+    check_pool_health,
+    "interval",
+    seconds=15,
+    coalesce=True,
+    max_instances=1,
 )
 
 
