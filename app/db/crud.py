@@ -855,15 +855,20 @@ def revoke_user_sub(db: Session, dbuser: User):
 
 
 def update_user_sub(db: Session, dbuser: User, user_agent: str):
-    with db.get_bind().begin() as conn:
-        conn.execute(
-            update(User)
-            .where(User.id == dbuser.id)
-            .values(
-                sub_updated_at=datetime.utcnow(),
-                sub_last_user_agent=user_agent,
-            )
+    """Update subscription metadata.
+
+    Uses the session's own connection instead of engine.begin() to avoid
+    checking out a *second* pool connection per subscription request.
+    """
+    db.execute(
+        update(User)
+        .where(User.id == dbuser.id)
+        .values(
+            sub_updated_at=datetime.utcnow(),
+            sub_last_user_agent=user_agent,
         )
+    )
+    db.commit()
 
 
 def reset_all_users_data_usage(db: Session, admin: Optional[Admin] = None):

@@ -18,6 +18,15 @@ from app.utils.share import (
 )
 from app.utils.crypto import encrypt_content
 
+
+def _eager_load_hosts(hosts):
+    """Touch lazy relationships so they stay available after session close."""
+    for host in hosts:
+        _ = host.inbound
+        _ = host.chain
+        for c in host.chain:
+            _ = c.chained_host
+
 router = APIRouter(prefix="/sub", tags=["Subscription"])
 
 
@@ -62,23 +71,22 @@ def user_subscription(
 
     user: UserResponse = UserResponse.model_validate(db_user)
 
-    # Update subscription info (non-blocking, uses separate connection)
     crud.update_user_sub(db, db_user, user_agent)
 
-    # Load settings from cache (60s TTL) and hosts in optimized query
     subscription_settings = SubscriptionSettings.model_validate(
         get_subscription_settings_cached(db)
     )
-    
-    # Pre-load hosts ONCE for the entire request (major optimization!)
     service_ids = [s.id for s in db_user.services]
     hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
-
-    # Pre-load node coefficients for traffic limit labels
     node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
 
-    # When only data_limit_reached (not expired/disabled), don't use placeholder —
-    # show real configs with [кончился трафик] labels instead
+    # Force-load ORM relationships, then release the DB connection back to
+    # the pool *before* the CPU-heavy config generation.  Without this, every
+    # concurrent subscription poll holds a connection for the full request.
+    _ = db_user.inbounds
+    _eager_load_hosts(hosts)
+    db.close()
+
     only_data_limit = (
         user.data_limit_reached
         and user.enabled
@@ -198,19 +206,18 @@ def user_subscription_with_client_type(
 
     user: UserResponse = UserResponse.model_validate(db_user)
 
-    # Load settings from cache (60s TTL)
     subscription_settings = SubscriptionSettings.model_validate(
         get_subscription_settings_cached(db)
     )
-    
-    # Pre-load hosts ONCE (major optimization!)
     service_ids = [s.id for s in db_user.services]
     hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
-
-    # Pre-load node coefficients for traffic limit labels
     node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
 
-    # When only data_limit_reached (not expired/disabled), don't use placeholder
+    # Release DB connection before CPU-heavy config generation
+    _ = db_user.inbounds
+    _eager_load_hosts(hosts)
+    db.close()
+
     only_data_limit = (
         user.data_limit_reached
         and user.enabled
