@@ -187,7 +187,10 @@ async def record_user_usages():
     node_usages: dict[int, int] = {}
     
     with GetDB() as db:
-        # Phase 1: Accumulate usage + device tracking
+        # Phase 1: Accumulate usage + device tracking.
+        # Commit after every node to release DB locks quickly and let the
+        # pool breathe — a single giant transaction across all nodes held
+        # locks on Device/DeviceIP/DeviceTraffic for too long.
         for node_id, params in api_params.items():
             coefficient = (
                 node.usage_coefficient
@@ -221,6 +224,7 @@ async def record_user_usages():
                         logger.warning(f"[Node {node_id}] Failed to track device for user {param['uid']}: {e}")
             
             node_usages[node_id] = node_usage
+            db.commit()
             
             if params:
                 tracking_rate = (node_tracked / len(params)) * 100 if node_tracked else 0
@@ -234,7 +238,6 @@ async def record_user_usages():
                         f"[Node {node_id}] Device tracking: {node_tracked}/{len(params)} ({tracking_rate:.1f}%)"
                     )
         
-        # Batch-record all node stats (2 queries instead of 2 * N)
         record_all_node_stats(node_usages, db)
         db.commit()
         
