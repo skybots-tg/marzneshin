@@ -19,7 +19,6 @@ import { useTranslation } from "react-i18next";
 import { VersionIndicator } from "@marzneshin/features/version-indicator";
 
 export const HeaderMenu: FC = () => {
-
     const isDesktop = useScreenBreakpoint("md");
     const { isSudo } = useAuth();
     const { t } = useTranslation();
@@ -29,28 +28,29 @@ export const HeaderMenu: FC = () => {
             <DropdownMenuTrigger asChild>
                 <Button
                     variant="ghost"
-                    className="bg-gradient-to-br from-primary/10 to-secondary/10 backdrop-blur-xl border border-border/50 hover:bg-accent/50 hover:border-primary/30 shadow-sm hover:shadow-md transition-all duration-300"
                     size="icon"
+                    className="h-9 w-9 rounded-lg hover:bg-secondary transition-colors"
                 >
-                    <MenuIcon className="text-foreground" />
+                    <MenuIcon className="size-[18px] text-foreground" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent>
-                <DropdownMenuLabel>Menu</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                    Menu
+                </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {(!isDesktop && isSudo()) && (
                     <>
-                        <DropdownMenuItem className="w-full">
-                            <Link to="/settings" className="hstack gap-1 items-center justify-between w-full h-fit p-0">
+                        <DropdownMenuItem asChild>
+                            <Link to="/settings" className="flex items-center justify-between w-full cursor-pointer">
                                 {t("settings")}
-                                <Settings className="size-4 text-foreground" />
+                                <Settings className="size-4 text-muted-foreground" />
                             </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="w-full">
-                            <Link to="/admins" className="hstack gap-1 items-center justify-between w-full h-fit p-0" >
+                        <DropdownMenuItem asChild>
+                            <Link to="/admins" className="flex items-center justify-between w-full cursor-pointer">
                                 {t("admins")}
-                                <ShieldCheck className="size-4 text-foreground" />
+                                <ShieldCheck className="size-4 text-muted-foreground" />
                             </Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -69,6 +69,6 @@ export const HeaderMenu: FC = () => {
                     <VersionIndicator />
                 </DropdownMenuGroup>
             </DropdownMenuContent>
-        </DropdownMenu >
+        </DropdownMenu>
     )
 };

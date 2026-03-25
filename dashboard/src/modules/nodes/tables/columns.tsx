@@ -16,8 +16,8 @@ import {
     TooltipProvider,
     TooltipTrigger
 } from "@marzneshin/common/components"
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowsRotate, faSync, faDownload } from '@fortawesome/free-solid-svg-icons';
+import { RefreshCw, ArrowLeftRight, Download } from 'lucide-react';
+import { cn } from "@marzneshin/common/utils";
 import { useState } from "react";
 import { MigrationDialog, UpdateXrayDialog } from "@marzneshin/modules/nodes";
 
@@ -35,10 +35,7 @@ const ResyncButton = ({ node }: { node: NodeType }) => {
             }}
             title={i18n.t('page.nodes.resync.title')}
         >
-            <FontAwesomeIcon 
-                icon={faSync} 
-                className={isPending ? "animate-spin" : ""} 
-            />
+            <RefreshCw className={cn("size-4", isPending && "animate-spin")} />
         </Button>
     );
 };
@@ -106,7 +103,7 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
                         }}
                         title={i18n.t('page.nodes.migration.migrate')}
                     >
-                        <FontAwesomeIcon icon={faArrowsRotate} className="mr-2" />
+                        <ArrowLeftRight className="size-4 mr-2" />
                         {i18n.t('page.nodes.migration.migrate')}
                     </Button>
                     {open && (
@@ -136,7 +133,7 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
                         }}
                         title={i18n.t('page.nodes.update_xray.update')}
                     >
-                        <FontAwesomeIcon icon={faDownload} className="mr-2" />
+                        <Download className="size-4 mr-2" />
                         {i18n.t('page.nodes.update_xray.update')}
                     </Button>
                     {open && (

@@ -11,13 +11,7 @@ import type { FC } from "react";
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { NodeType } from "@marzneshin/modules/nodes";
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-    faCheckCircle, 
-    faTimesCircle, 
-    faSpinner,
-    faCircle 
-} from '@fortawesome/free-solid-svg-icons';
+import { CheckCircle2, XCircle, Loader2, Circle } from 'lucide-react';
 
 interface MigrationDialogProps {
     open: boolean;
@@ -172,13 +166,13 @@ export const MigrationDialog: FC<MigrationDialogProps> = ({
     const getStepIcon = (status: MigrationStep["status"]) => {
         switch (status) {
             case "success":
-                return <FontAwesomeIcon icon={faCheckCircle} className="text-green-500" />;
+                return <CheckCircle2 className="size-4 text-green-500" />;
             case "error":
-                return <FontAwesomeIcon icon={faTimesCircle} className="text-red-500" />;
+                return <XCircle className="size-4 text-red-500" />;
             case "in_progress":
-                return <FontAwesomeIcon icon={faSpinner} className="text-blue-500 animate-spin" />;
+                return <Loader2 className="size-4 text-blue-500 animate-spin" />;
             case "pending":
-                return <FontAwesomeIcon icon={faCircle} className="text-gray-400" />;
+                return <Circle className="size-4 text-gray-400" />;
         }
     };
 

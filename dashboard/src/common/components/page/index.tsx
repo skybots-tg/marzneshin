@@ -16,15 +16,15 @@ export const Page: FC<PageProps & PropsWithChildren & HTMLAttributes<HTMLDivElem
 }) => {
     return (
         <div className="flex flex-col h-full w-full">
-            <div className="mb-4">
-                <h1 className="text-2xl font-semibold text-foreground">
+            <div className="mb-3 md:mb-4">
+                <h1 className="text-xl md:text-2xl font-semibold text-foreground tracking-tight">
                     {title}
                 </h1>
             </div>
             <div className={cn("flex flex-col w-full flex-grow", className)}>
                 {content || children}
             </div>
-            {footer && <div className="mt-4">{footer}</div>}
+            {footer && <div className="mt-3 md:mt-4">{footer}</div>}
         </div>
     );
 }

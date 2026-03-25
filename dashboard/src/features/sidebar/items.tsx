@@ -1,61 +1,63 @@
 import { SidebarObject } from '@marzneshin/common/components';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-    faHouse, 
-    faUsers, 
-    faServer, 
-    faCubes, 
-    faNetworkWired, 
-    faUserShield, 
-    faGear 
-} from '@fortawesome/free-solid-svg-icons';
+import {
+    Home,
+    Users,
+    Server,
+    Box,
+    Network,
+    ShieldCheck,
+    Settings,
+} from 'lucide-react';
+import i18n from "@marzneshin/features/i18n";
+
+const iconClass = "size-[18px]";
 
 export const sidebarItems: SidebarObject = {
     Dashboard: [
         {
-            title: 'Home',
+            title: i18n.t('home'),
             to: '/',
-            icon: <FontAwesomeIcon icon={faHouse} className="w-5 h-5 text-foreground" />,
+            icon: <Home className={iconClass} />,
             isParent: false,
         },
     ],
     Management: [
         {
-            title: 'Users',
+            title: i18n.t('users'),
             to: '/users',
-            icon: <FontAwesomeIcon icon={faUsers} className="w-5 h-5 text-foreground" />,
+            icon: <Users className={iconClass} />,
             isParent: false,
         },
         {
-            title: 'Services',
+            title: i18n.t('services'),
             to: '/services',
-            icon: <FontAwesomeIcon icon={faServer} className="w-5 h-5 text-foreground" />,
+            icon: <Server className={iconClass} />,
             isParent: false,
         },
         {
-            title: 'Nodes',
+            title: i18n.t('nodes'),
             to: '/nodes',
-            icon: <FontAwesomeIcon icon={faCubes} className="w-5 h-5 text-foreground" />,
+            icon: <Box className={iconClass} />,
             isParent: false,
         },
         {
-            title: 'Hosts',
+            title: i18n.t('hosts'),
             to: '/hosts',
-            icon: <FontAwesomeIcon icon={faNetworkWired} className="w-5 h-5 text-foreground" />,
+            icon: <Network className={iconClass} />,
             isParent: false,
         },
     ],
     System: [
         {
-            title: 'Admins',
+            title: i18n.t('admins'),
             to: '/admins',
-            icon: <FontAwesomeIcon icon={faUserShield} className="w-5 h-5 text-foreground" />,
+            icon: <ShieldCheck className={iconClass} />,
             isParent: false,
         },
         {
-            title: 'Settings',
+            title: i18n.t('settings'),
             to: '/settings',
-            icon: <FontAwesomeIcon icon={faGear} className="w-5 h-5 text-foreground" />,
+            icon: <Settings className={iconClass} />,
             isParent: false,
         },
     ]
@@ -64,17 +66,17 @@ export const sidebarItems: SidebarObject = {
 export const sidebarItemsNonSudoAdmin: SidebarObject = {
     Dashboard: [
         {
-            title: 'Home',
+            title: i18n.t('home'),
             to: '/',
-            icon: <FontAwesomeIcon icon={faHouse} className="w-5 h-5 text-foreground" />,
+            icon: <Home className={iconClass} />,
             isParent: false,
         },
     ],
     Management: [
         {
-            title: 'Users',
+            title: i18n.t('users'),
             to: '/users',
-            icon: <FontAwesomeIcon icon={faUsers} className="w-5 h-5 text-foreground" />,
+            icon: <Users className={iconClass} />,
             isParent: false,
         },
     ],
