@@ -136,6 +136,7 @@ scheduler.add_job(
     "interval",
     seconds=TASKS_RESET_USER_DATA_USAGE,
     coalesce=True,
+    max_instances=1,
 )
 scheduler.add_job(
     check_pool_health,
