@@ -6,9 +6,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_pagination import Page
 from fastapi_pagination.ext.sqlalchemy import paginate
+from sqlalchemy.orm import selectinload, load_only
 
 from app.db import Session, crud
-from app.db.models import Admin as DBAdmin, Service, User
+from app.db.models import Admin as DBAdmin, Service, User, Inbound
 from app.dependencies import AdminDep, SudoAdminDep, DBDep
 from app.marznode.operations import update_user
 from app.models.admin import (
@@ -128,11 +129,17 @@ def get_admin_services(username: str, db: DBDep, admin: SudoAdminDep):
     if not db_admin:
         raise HTTPException(status_code=404, detail="Admin not found")
 
+    eager = [
+        selectinload(Service.inbounds).load_only(Inbound.id),
+        selectinload(Service.users).load_only(User.id, User.removed),
+    ]
+
     if db_admin.is_sudo or db_admin.all_services_access:
-        query = db.query(Service)
+        query = db.query(Service).options(*eager)
     else:
         query = (
             db.query(Service)
+            .options(*eager)
             .join(Service.admins)
             .where(DBAdmin.id == db_admin.id)
         )

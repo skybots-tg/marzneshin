@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query
 from fastapi import HTTPException
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
+from sqlalchemy.orm import selectinload, load_only
 
 from app import marznode
 from app.db import crud
@@ -17,7 +18,10 @@ router = APIRouter(prefix="/services", tags=["Service"])
 
 @router.get("", response_model=Page[ServiceResponse])
 def get_services(db: DBDep, admin: AdminDep, name: str = Query(None)):
-    query = db.query(Service)
+    query = db.query(Service).options(
+        selectinload(Service.inbounds).load_only(Inbound.id),
+        selectinload(Service.users).load_only(User.id, User.removed),
+    )
 
     if name:
         query = query.filter(Service.name.ilike(f"%{name}%"))
