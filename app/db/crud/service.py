@@ -1,6 +1,6 @@
 from typing import List
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Service, Inbound
 from app.models.service import Service as ServiceModify, ServiceCreate
@@ -21,7 +21,15 @@ def create_service(db: Session, service: ServiceCreate) -> Service:
 
 
 def get_service(db: Session, service_id: id) -> Service:
-    return db.query(Service).filter(Service.id == service_id).first()
+    return (
+        db.query(Service)
+        .options(
+            selectinload(Service.inbounds),
+            selectinload(Service.users),
+        )
+        .filter(Service.id == service_id)
+        .first()
+    )
 
 
 def get_services(db: Session) -> List[Service]:
