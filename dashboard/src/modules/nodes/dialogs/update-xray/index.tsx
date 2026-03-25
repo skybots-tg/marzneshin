@@ -67,87 +67,89 @@ export const UpdateXrayDialog: FC<UpdateXrayDialogProps> = ({
         setSteps([]);
 
         const token = localStorage.getItem("token") || "";
-        
-        let url = `/api/nodes/${node.id}/update-xray?token=${token}&ssh_user=${encodeURIComponent(sshConfig.user)}&ssh_port=${encodeURIComponent(sshConfig.port)}`;
-        
-        if (sshConfig.authMethod === "key" && sshConfig.key) {
-            url += `&ssh_key=${encodeURIComponent(sshConfig.key)}`;
-        } else if (sshConfig.authMethod === "password" && sshConfig.password) {
-            url += `&ssh_password=${encodeURIComponent(sshConfig.password)}`;
-        }
-
-        const eventSource = new EventSource(url);
-        eventSourceRef.current = eventSource;
+        const abortController = new AbortController();
+        eventSourceRef.current = { close: () => abortController.abort() } as EventSource;
 
         addLog(t("page.nodes.update_xray.connected"));
 
-        eventSource.addEventListener("steps", (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                setSteps(data.steps);
-            } catch (error) {
-                console.error("Failed to parse steps event:", error);
-            }
-        });
-
-        eventSource.addEventListener("step_update", (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                setSteps((prevSteps) =>
-                    prevSteps.map((step) =>
-                        step.id === data.step.id ? data.step : step
-                    )
-                );
-            } catch (error) {
-                console.error("Failed to parse step_update event:", error);
-            }
-        });
-
-        eventSource.addEventListener("log", (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                addLog(data.message);
-            } catch (error) {
-                console.error("Failed to parse log event:", error);
-            }
-        });
-
-        eventSource.addEventListener("complete", (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                setIsComplete(true);
-                setIsRunning(false);
-                setSuccess(data.success);
-                addLog(
-                    data.success
-                        ? t("page.nodes.update_xray.success")
-                        : t("page.nodes.update_xray.failed")
-                );
-                eventSource.close();
-            } catch (error) {
-                console.error("Failed to parse complete event:", error);
-            }
-        });
-
-        eventSource.addEventListener("error", (event) => {
-            try {
-                const data = JSON.parse((event as MessageEvent).data);
-                addLog(`ERROR: ${data.message}`);
-            } catch (error) {
-                console.error("EventSource connection error:", error);
-            }
-        });
-
-        eventSource.onerror = (error) => {
-            console.error("EventSource error:", error);
-            addLog(t("page.nodes.update_xray.disconnected"));
-            if (isRunning) {
-                setIsRunning(false);
-                setIsComplete(true);
-                setSuccess(false);
-            }
-            eventSource.close();
+        const body: Record<string, string | number> = {
+            ssh_user: sshConfig.user,
+            ssh_port: Number(sshConfig.port),
         };
+        if (sshConfig.authMethod === "key" && sshConfig.key) {
+            body.ssh_key = sshConfig.key;
+        } else if (sshConfig.authMethod === "password" && sshConfig.password) {
+            body.ssh_password = sshConfig.password;
+        }
+
+        fetch(`/api/nodes/${node.id}/update-xray`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+            signal: abortController.signal,
+        })
+            .then(async (response) => {
+                if (!response.ok || !response.body) {
+                    addLog(t("page.nodes.update_xray.disconnected"));
+                    setIsRunning(false);
+                    setIsComplete(true);
+                    setSuccess(false);
+                    return;
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split("\n\n");
+                    buffer = parts.pop() || "";
+                    for (const part of parts) {
+                        let eventType = "message";
+                        let eventData = "";
+                        for (const line of part.split("\n")) {
+                            if (line.startsWith("event: ")) eventType = line.slice(7);
+                            else if (line.startsWith("data: ")) eventData = line.slice(6);
+                        }
+                        if (!eventData) continue;
+                        try {
+                            const data = JSON.parse(eventData);
+                            if (eventType === "steps") setSteps(data.steps);
+                            else if (eventType === "step_update") {
+                                setSteps((prev) =>
+                                    prev.map((s) => (s.id === data.step.id ? data.step : s))
+                                );
+                            } else if (eventType === "log") addLog(data.message);
+                            else if (eventType === "error") addLog(`ERROR: ${data.message}`);
+                            else if (eventType === "complete") {
+                                setIsComplete(true);
+                                setIsRunning(false);
+                                setSuccess(data.success);
+                                addLog(
+                                    data.success
+                                        ? t("page.nodes.update_xray.success")
+                                        : t("page.nodes.update_xray.failed")
+                                );
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE event:", e);
+                        }
+                    }
+                }
+            })
+            .catch((err) => {
+                if (err.name !== "AbortError") {
+                    console.error("Fetch SSE error:", err);
+                    addLog(t("page.nodes.update_xray.disconnected"));
+                    setIsRunning(false);
+                    setIsComplete(true);
+                    setSuccess(false);
+                }
+            });
     };
 
     const addLog = (message: string) => {

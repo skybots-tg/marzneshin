@@ -301,8 +301,8 @@ async def alter_node_xray_config(
 async def get_user_devices(
     node_id: int,
     user_id: int,
+    admin: SudoAdminDep,
     active_only: bool = Query(False, description="Return only active devices"),
-    admin: SudoAdminDep = None,
 ):
     """
     Get device history for a specific user on a node.
@@ -355,7 +355,7 @@ async def get_user_devices(
 @router.get("/{node_id}/devices", response_model=AllUsersDevicesResponse)
 async def get_all_devices(
     node_id: int,
-    admin: SudoAdminDep = None,
+    admin: SudoAdminDep,
 ):
     """
     Get device history for all users on a node.

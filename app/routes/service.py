@@ -6,9 +6,9 @@ from fastapi_pagination.links import Page
 
 from app import marznode
 from app.db import crud
-from app.db.models import Service, User
+from app.db.models import Service, User, Inbound
 from app.dependencies import DBDep, AdminDep, SudoAdminDep, ServiceDep
-from app.models.proxy import Inbound
+from app.models.proxy import Inbound as InboundSchema
 from app.models.service import ServiceCreate, ServiceModify, ServiceResponse
 from app.models.user import UserResponse
 
@@ -51,7 +51,7 @@ def get_service(service: ServiceDep, db: DBDep, admin: AdminDep):
     Get Service information with id
     """
     if not (
-        admin.is_sudo or admin.all_services_access or id in admin.service_ids
+        admin.is_sudo or admin.all_services_access or service.id in admin.service_ids
     ):
         raise HTTPException(status_code=403, detail="You're not allowed")
 
@@ -73,7 +73,7 @@ def get_service_users(service: ServiceDep, db: DBDep, admin: SudoAdminDep):
     return paginate(query)
 
 
-@router.get("/{id}/inbounds", response_model=Page[Inbound])
+@router.get("/{id}/inbounds", response_model=Page[InboundSchema])
 def get_service_inbounds(service: ServiceDep, db: DBDep, admin: SudoAdminDep):
     """
     Get service inbounds

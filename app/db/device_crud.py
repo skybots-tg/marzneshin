@@ -479,6 +479,48 @@ def get_device_total_traffic(db: Session, device_id: int) -> dict:
     }
 
 
+def get_devices_total_traffic_batch(db: Session, device_ids: List[int]) -> dict[int, dict]:
+    """Get total traffic statistics for multiple devices in one query."""
+    if not device_ids:
+        return {}
+    
+    rows = db.query(
+        UserDeviceTraffic.device_id,
+        func.sum(UserDeviceTraffic.upload_bytes).label('total_upload'),
+        func.sum(UserDeviceTraffic.download_bytes).label('total_download'),
+        func.sum(UserDeviceTraffic.connect_count).label('total_connects'),
+    ).filter(
+        UserDeviceTraffic.device_id.in_(device_ids)
+    ).group_by(UserDeviceTraffic.device_id).all()
+    
+    result = {did: {'total_upload_bytes': 0, 'total_download_bytes': 0, 'total_connect_count': 0} for did in device_ids}
+    for row in rows:
+        result[row.device_id] = {
+            'total_upload_bytes': row.total_upload or 0,
+            'total_download_bytes': row.total_download or 0,
+            'total_connect_count': row.total_connects or 0,
+        }
+    return result
+
+
+def get_device_ip_counts_batch(db: Session, device_ids: List[int]) -> dict[int, int]:
+    """Get IP counts for multiple devices in one query."""
+    if not device_ids:
+        return {}
+    
+    rows = db.query(
+        UserDeviceIP.device_id,
+        func.count(UserDeviceIP.id).label('ip_count'),
+    ).filter(
+        UserDeviceIP.device_id.in_(device_ids)
+    ).group_by(UserDeviceIP.device_id).all()
+    
+    result = {did: 0 for did in device_ids}
+    for row in rows:
+        result[row.device_id] = row.ip_count
+    return result
+
+
 # ============================================================================
 # Statistics and Analytics
 # ============================================================================

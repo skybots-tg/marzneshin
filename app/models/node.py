@@ -130,3 +130,11 @@ class UserDevicesResponse(BaseModel):
 class AllUsersDevicesResponse(BaseModel):
     """Response with all users' device history"""
     users: list[UserDevicesResponse]
+
+
+class SSHCredentials(BaseModel):
+    """SSH connection credentials for node operations"""
+    ssh_user: str = "root"
+    ssh_port: int = 22
+    ssh_password: str | None = None
+    ssh_key: str | None = None

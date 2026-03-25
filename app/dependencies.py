@@ -107,15 +107,25 @@ def parse_start_date(start: str | None = None):
         return datetime.fromtimestamp(
             datetime.utcnow().timestamp() - 30 * 24 * 3600
         )
-    else:
+    try:
         return datetime.fromisoformat(start)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid start date format. Use ISO 8601.",
+        )
 
 
 def parse_end_date(end: str | None = None):
     if not end:
         return datetime.utcnow()
-    else:
+    try:
         return datetime.fromisoformat(end)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid end date format. Use ISO 8601.",
+        )
 
 
 def get_service(id: int, db: Annotated[Session, Depends(get_db)]):

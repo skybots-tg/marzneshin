@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Annotated, Union
 
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from fastapi_pagination import Page, Params
 from fastapi_pagination.ext.sqlalchemy import paginate as sqlalchemy_paginate
 
@@ -52,6 +52,7 @@ def get_user_id_from_identifier(db: DBDep, user_identifier: Union[int, str]) -> 
 def admin_get_all_devices(
     db: DBDep,
     admin: SudoAdminDep,
+    params: Params = Depends(),
     user_id: Optional[int] = Query(None),
     node_id: Optional[int] = Query(None),
     ip: Optional[str] = Query(None),
@@ -79,24 +80,23 @@ def admin_get_all_devices(
         to_date=to_date,
     )
     
-    # Enrich with statistics
+    device_ids = [d.id for d in devices]
+    all_stats = device_crud.get_devices_total_traffic_batch(db, device_ids)
+    all_ip_counts = device_crud.get_device_ip_counts_batch(db, device_ids)
+    
     result = []
     for device in devices:
-        stats = device_crud.get_device_total_traffic(db, device.id)
-        ip_count = len(device_crud.get_device_ips(db, device.id, limit=1000))
-        
+        stats = all_stats.get(device.id, {'total_upload_bytes': 0, 'total_download_bytes': 0, 'total_connect_count': 0})
         result.append(
             UserDeviceListResponse(
                 **device.__dict__,
                 total_upload_bytes=stats['total_upload_bytes'],
                 total_download_bytes=stats['total_download_bytes'],
                 total_connect_count=stats['total_connect_count'],
-                ip_count=ip_count,
+                ip_count=all_ip_counts.get(device.id, 0),
             )
         )
     
-    # Manual pagination
-    params = Params()
     start = (params.page - 1) * params.size
     end = start + params.size
     
@@ -133,18 +133,20 @@ def admin_get_user_devices(
     
     devices = device_crud.get_user_devices(db, actual_user_id, is_blocked=is_blocked)
     
+    device_ids = [d.id for d in devices]
+    all_stats = device_crud.get_devices_total_traffic_batch(db, device_ids)
+    all_ip_counts = device_crud.get_device_ip_counts_batch(db, device_ids)
+    
     result = []
     for device in devices:
-        stats = device_crud.get_device_total_traffic(db, device.id)
-        ip_count = len(device_crud.get_device_ips(db, device.id, limit=1000))
-        
+        stats = all_stats.get(device.id, {'total_upload_bytes': 0, 'total_download_bytes': 0, 'total_connect_count': 0})
         result.append(
             UserDeviceListResponse(
                 **device.__dict__,
                 total_upload_bytes=stats['total_upload_bytes'],
                 total_download_bytes=stats['total_download_bytes'],
                 total_connect_count=stats['total_connect_count'],
-                ip_count=ip_count,
+                ip_count=all_ip_counts.get(device.id, 0),
             )
         )
     
@@ -378,18 +380,20 @@ def user_get_own_devices(
     """
     devices = device_crud.get_user_devices(db, user.id, is_blocked=is_blocked)
     
+    device_ids = [d.id for d in devices]
+    all_stats = device_crud.get_devices_total_traffic_batch(db, device_ids)
+    all_ip_counts = device_crud.get_device_ip_counts_batch(db, device_ids)
+    
     result = []
     for device in devices:
-        stats = device_crud.get_device_total_traffic(db, device.id)
-        ip_count = len(device_crud.get_device_ips(db, device.id, limit=1000))
-        
+        stats = all_stats.get(device.id, {'total_upload_bytes': 0, 'total_download_bytes': 0, 'total_connect_count': 0})
         result.append(
             UserDeviceListResponse(
                 **device.__dict__,
                 total_upload_bytes=stats['total_upload_bytes'],
                 total_download_bytes=stats['total_download_bytes'],
                 total_connect_count=stats['total_connect_count'],
-                ip_count=ip_count,
+                ip_count=all_ip_counts.get(device.id, 0),
             )
         )
     
