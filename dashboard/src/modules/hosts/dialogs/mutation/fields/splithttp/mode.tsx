@@ -21,7 +21,7 @@ export const SplitHttpModeField = (
             render={({ field }) => (
                 <FormItem>
                     <FormLabel >
-                        {t("Mode")}
+                        {t("mode")}
                     </FormLabel>
                     <Select onValueChange={(value) => updater("splithttp_settings.mode", value)} defaultValue={field.value}>
                         <FormControl>

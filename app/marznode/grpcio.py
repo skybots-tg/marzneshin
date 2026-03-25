@@ -3,6 +3,7 @@ import atexit
 import logging
 
 from _testcapi import INT_MAX
+import grpc
 from grpc import ChannelConnectivity, RpcError
 from grpc.aio import insecure_channel
 
@@ -231,15 +232,29 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
 
     async def fetch_user_devices(self, uid: int, active_only: bool = False):
         """Fetch device history for a specific user"""
-        response: UserDevicesHistory = await self._stub.FetchUserDevices(
-            UserDevicesRequest(uid=uid, active_only=active_only)
-        )
-        return response
+        try:
+            response: UserDevicesHistory = await self._stub.FetchUserDevices(
+                UserDevicesRequest(uid=uid, active_only=active_only)
+            )
+            return response
+        except RpcError as e:
+            if hasattr(e, 'code') and callable(e.code) and e.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise NotImplementedError(
+                    "Node does not support FetchUserDevices — update the node software"
+                ) from e
+            raise
 
     async def fetch_all_devices(self):
         """Fetch device history for all users"""
-        response: AllUsersDevices = await self._stub.FetchAllDevices(Empty())
-        return response
+        try:
+            response: AllUsersDevices = await self._stub.FetchAllDevices(Empty())
+            return response
+        except RpcError as e:
+            if hasattr(e, 'code') and callable(e.code) and e.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise NotImplementedError(
+                    "Node does not support FetchAllDevices — update the node software"
+                ) from e
+            raise
 
     async def resync_users(self) -> None:
         """Force resync all users with the node"""

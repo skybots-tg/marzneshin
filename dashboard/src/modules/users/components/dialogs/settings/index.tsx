@@ -59,7 +59,7 @@ export const UsersSettingsDialog: FC<UsersSettingsDialogProps> = ({
                                         {t("page.users.nodes-usage")}
                                     </TabsTrigger>
                                     <TabsTrigger className="w-full" value="devices">
-                                        {t("Devices")}
+                                        {t("devices")}
                                     </TabsTrigger>
                                 </TabsList>
                                 <TabsContent

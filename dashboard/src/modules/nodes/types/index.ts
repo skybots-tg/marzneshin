@@ -69,6 +69,8 @@ export type DeviceInfo = {
     is_active: boolean;
 };
 
+export type DeviceInfoWithUser = DeviceInfo & { uid: number };
+
 export type UserDevicesResponse = {
     uid: number;
     devices: DeviceInfo[];
