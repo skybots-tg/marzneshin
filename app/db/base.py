@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base
@@ -16,6 +17,8 @@ from app.config.env import (
 )
 
 logger = logging.getLogger(__name__)
+
+_LONG_CHECKOUT_WARN = 15  # seconds — warn when a connection is held this long
 
 IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
 IS_MYSQL = SQLALCHEMY_DATABASE_URL.startswith("mysql") or SQLALCHEMY_DATABASE_URL.startswith("mariadb")
@@ -50,6 +53,34 @@ def _build_connect_args():
     return {}
 
 
+def _attach_pool_diagnostics(eng):
+    """Attach checkout/checkin event listeners for pool pressure diagnostics."""
+
+    @event.listens_for(eng, "checkout")
+    def _on_checkout(dbapi_conn, conn_record, conn_proxy):
+        conn_record.info["_checkout_at"] = time.monotonic()
+        pool = eng.pool
+        max_conn = pool.size() + pool._max_overflow
+        if max_conn <= 0:
+            return
+        checked = pool.checkedout()
+        utilization = checked / max_conn
+        if utilization >= 0.8:
+            logger.warning(
+                "Pool high utilization on checkout: %d/%d (%.0f%%), overflow=%d",
+                checked, max_conn, utilization * 100, max(0, pool.overflow()),
+            )
+
+    @event.listens_for(eng, "checkin")
+    def _on_checkin(dbapi_conn, conn_record):
+        start = conn_record.info.pop("_checkout_at", None)
+        if start is None:
+            return
+        held = time.monotonic() - start
+        if held > _LONG_CHECKOUT_WARN:
+            logger.warning("Connection returned after %.1fs (threshold %ds)", held, _LONG_CHECKOUT_WARN)
+
+
 def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle):
     """Create a SQLAlchemy engine with given pool parameters."""
     kwargs = dict(
@@ -75,6 +106,9 @@ def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle):
             else:
                 cursor.execute(f"SET SESSION max_execution_time = {SQLALCHEMY_STATEMENT_TIMEOUT * 1000}")
             cursor.close()
+
+    if not IS_SQLITE:
+        _attach_pool_diagnostics(eng)
 
     return eng
 
