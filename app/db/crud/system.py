@@ -34,7 +34,10 @@ def get_system_usage(db: Session):
 
 
 def get_jwt_secret_key(db: Session):
-    return db.query(JWT).first().secret_key
+    row = db.query(JWT).first()
+    if not row:
+        raise RuntimeError("JWT secret key not found in database. Run migrations first.")
+    return row.secret_key
 
 
 def get_tls_certificate(db: Session):

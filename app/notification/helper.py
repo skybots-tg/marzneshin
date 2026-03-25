@@ -39,6 +39,8 @@ def create_text(notif: Notification) -> str:
             )
 
     text = texts.get(notif.action)
+    if text is None:
+        return f"Unknown notification action: {notif.action}"
     formatted_message = text.format_map(data)
 
     return formatted_message

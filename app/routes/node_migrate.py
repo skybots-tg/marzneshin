@@ -5,24 +5,23 @@ import logging
 import os
 
 import paramiko
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException
 from starlette.responses import StreamingResponse
 
-from app.db import crud, get_tls_certificate, GetDB
-from app.dependencies import get_admin
+from app.db import crud, get_tls_certificate
+from app.dependencies import SudoAdminDep, DBDep
+from app.models.node import SSHCredentials
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nodes", tags=["Node"])
 
 
-@router.get("/{node_id}/migrate")
+@router.post("/{node_id}/migrate")
 async def migrate_node(
     node_id: int,
-    ssh_user: str = Query("root"),
-    ssh_port: int = Query(22),
-    ssh_password: str = Query(None),
-    ssh_key: str = Query(None),
-    token: str = Query(None),
+    credentials: SSHCredentials,
+    admin: SudoAdminDep,
+    db: DBDep,
 ):
     """
     Migrate a node to the skybots-tg/marznode fork using Server-Sent Events (SSE).
@@ -31,20 +30,12 @@ async def migrate_node(
     Each event contains JSON data with the migration status and logs.
     Uses paramiko for SSH connections (no system ssh/sshpass required).
     """
-    with GetDB() as db:
-        if token:
-            admin = get_admin(db, token)
-            if not admin or not admin.is_sudo:
-                raise HTTPException(status_code=403, detail="Unauthorized")
-        else:
-            raise HTTPException(status_code=401, detail="Authentication required")
+    db_node = crud.get_node_by_id(db, node_id)
+    if not db_node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    node_address = db_node.address
 
-        db_node = crud.get_node_by_id(db, node_id)
-        if not db_node:
-            raise HTTPException(status_code=404, detail="Node not found")
-        node_address = db_node.address
-
-        tls_certificate = get_tls_certificate(db)
+    tls_certificate = get_tls_certificate(db)
 
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "migrate_skybots.sh")
     try:
@@ -85,7 +76,7 @@ async def migrate_node(
             })
 
             yield send_event("log", {
-                "message": f"Connecting to {node_address}:{ssh_port} as {ssh_user}..."
+                "message": f"Connecting to {node_address}:{credentials.ssh_port} as {credentials.ssh_user}..."
             })
 
             ssh_client = paramiko.SSHClient()
@@ -93,27 +84,27 @@ async def migrate_node(
 
             connect_kwargs = {
                 "hostname": node_address,
-                "port": ssh_port,
-                "username": ssh_user,
+                "port": credentials.ssh_port,
+                "username": credentials.ssh_user,
                 "timeout": 30,
                 "allow_agent": False,
                 "look_for_keys": False,
             }
 
-            if ssh_password:
-                connect_kwargs["password"] = ssh_password
-            elif ssh_key:
-                if os.path.exists(ssh_key):
-                    connect_kwargs["key_filename"] = ssh_key
+            if credentials.ssh_password:
+                connect_kwargs["password"] = credentials.ssh_password
+            elif credentials.ssh_key:
+                if os.path.exists(credentials.ssh_key):
+                    connect_kwargs["key_filename"] = credentials.ssh_key
                 else:
-                    key_file = io.StringIO(ssh_key)
+                    key_file = io.StringIO(credentials.ssh_key)
                     try:
                         pkey = paramiko.RSAKey.from_private_key(key_file)
-                    except:
+                    except (paramiko.SSHException, ValueError):
                         key_file.seek(0)
                         try:
                             pkey = paramiko.Ed25519Key.from_private_key(key_file)
-                        except:
+                        except (paramiko.SSHException, ValueError):
                             key_file.seek(0)
                             pkey = paramiko.ECDSAKey.from_private_key(key_file)
                     connect_kwargs["pkey"] = pkey

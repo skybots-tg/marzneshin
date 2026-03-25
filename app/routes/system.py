@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.db import crud, get_pool_stats, reconfigure_pool
+from app.db.crud.system import invalidate_subscription_settings_cache
 from app.db.models import Admin as DBAdmin, Settings
 from app.db.models import Node
 from app.dependencies import (
@@ -31,7 +32,10 @@ router = APIRouter(tags=["System"], prefix="/system")
 
 @router.get("/settings/subscription", response_model=SubscriptionSettings)
 def get_subscription_settings(db: DBDep, admin: SudoAdminDep):
-    return db.query(Settings.subscription).first()[0]
+    result = db.query(Settings.subscription).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Settings not found")
+    return result[0]
 
 
 @router.put("/settings/subscription", response_model=SubscriptionSettings)
@@ -39,21 +43,29 @@ def update_subscription_settings(
     db: DBDep, modifications: SubscriptionSettings, admin: SudoAdminDep
 ):
     settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not found")
     settings.subscription = modifications.model_dump(mode="json")
     db.commit()
+    invalidate_subscription_settings_cache()
     return settings.subscription
 
 
 @router.get("/settings/telegram", response_model=TelegramSettings | None)
 def get_telegram_settings(db: DBDep, admin: SudoAdminDep):
-    return db.query(Settings.telegram).first().telegram
+    result = db.query(Settings).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Settings not found")
+    return result.telegram
 
 
 @router.put("/settings/telegram", response_model=TelegramSettings | None)
 def update_telegram_settings(
     db: DBDep, new_telegram: TelegramSettings | None, admin: SudoAdminDep
 ):
-    settings = db.query(Settings.telegram).first()
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not found")
     settings.telegram = new_telegram
     db.commit()
     return settings.telegram

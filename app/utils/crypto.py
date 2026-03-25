@@ -89,7 +89,7 @@ def create_secure_context(
     ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
     ctx.set_alpn_protocols(["h2"])
     ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ctx.verify_mode = ssl.CERT_REQUIRED
     return ctx
 
 

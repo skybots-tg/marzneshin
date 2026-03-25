@@ -11,7 +11,10 @@ if CUSTOM_TEMPLATES_DIRECTORY:
     # User's templates have priority over default templates
     template_directories.insert(0, CUSTOM_TEMPLATES_DIRECTORY)
 
-env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_directories))
+env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(template_directories),
+    autoescape=jinja2.select_autoescape(["html", "htm", "xml"]),
+)
 env.filters.update(CUSTOM_FILTERS)
 env.globals["now"] = datetime.utcnow
 

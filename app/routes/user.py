@@ -324,7 +324,7 @@ def get_user_services(user: UserDep, db: DBDep, admin: AdminDep):
     )
 
     if not admin.is_sudo and not admin.all_services_access:
-        query.filter(Service.id.in_(admin.service_ids))
+        query = query.filter(Service.id.in_(admin.service_ids))
 
     return paginate(query)
 
@@ -485,7 +485,7 @@ def set_owner(
     user = UserResponse.model_validate(db_user)
 
     logger.info(
-        "`%s`'s owner successfully set to `%s`", user.username, admin.username
+        "`%s`'s owner successfully set to `%s`", user.username, admin_username
     )
 
     return user
