@@ -94,7 +94,7 @@ class Service(Base):
         "User", secondary=users_services, back_populates="services"
     )
     inbounds = relationship(
-        "Inbound", secondary=inbounds_services, back_populates="inbounds"
+        "Inbound", secondary=inbounds_services, back_populates="services"
     )
 
     @property
