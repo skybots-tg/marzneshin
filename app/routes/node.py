@@ -4,8 +4,9 @@ import time
 from typing import Annotated
 
 import sqlalchemy
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi import HTTPException, WebSocket
+from fastapi_pagination import Params
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
 from starlette.websockets import WebSocketDisconnect, WebSocketState
@@ -30,6 +31,7 @@ from app.models.node import (
     BackendConfig,
     BackendStats,
     DeviceInfo,
+    DeviceInfoWithUser,
     UserDevicesResponse,
     AllUsersDevicesResponse,
 )
@@ -325,6 +327,12 @@ async def get_user_devices(
 
     try:
         response = await node.fetch_user_devices(uid=user_id, active_only=active_only)
+    except NotImplementedError as e:
+        logger.warning(f"Node {node_id} does not support device listing: {e}")
+        raise HTTPException(
+            status_code=501,
+            detail="This node does not support device listing. Update the node software.",
+        )
     except Exception as e:
         logger.error(f"Failed to fetch user devices from node {node_id}: {e}")
         raise HTTPException(
@@ -352,29 +360,33 @@ async def get_user_devices(
     return UserDevicesResponse(uid=response.uid, devices=devices)
 
 
-@router.get("/{node_id}/devices", response_model=AllUsersDevicesResponse)
+@router.get("/{node_id}/devices", response_model=Page[DeviceInfoWithUser])
 async def get_all_devices(
     node_id: int,
     admin: SudoAdminDep,
+    params: Params = Depends(),
+    search: str | None = Query(None, description="Search in IP, client name, user agent"),
+    active_only: bool = Query(False, description="Return only active devices"),
+    uid: int | None = Query(None, description="Filter by user ID"),
+    protocol: str | None = Query(None, description="Filter by protocol"),
+    sort_by: str = Query("last_seen", description="Sort field"),
+    descending: bool = Query(True, description="Sort direction"),
 ):
     """
-    Get device history for all users on a node.
-
-    This endpoint fetches the complete device connection history from the node's
-    internal storage for all users.
-
-    - **node_id**: ID of the node to query
-
-    Returns a list of users with their device information.
-
-    **Note**: This endpoint can return a large amount of data. Consider using
-    pagination or filtering by user_id for production use.
+    Get paginated device history for all users on a node.
+    Supports search, filtering by status/user/protocol, and sorting.
     """
     if not (node := marznode.nodes.get(node_id)):
         raise HTTPException(status_code=404, detail="Node not found")
 
     try:
         response = await node.fetch_all_devices()
+    except NotImplementedError as e:
+        logger.warning(f"Node {node_id} does not support device listing: {e}")
+        raise HTTPException(
+            status_code=501,
+            detail="This node does not support device listing. Update the node software.",
+        )
     except Exception as e:
         logger.error(f"Failed to fetch all devices from node {node_id}: {e}")
         raise HTTPException(
@@ -382,10 +394,11 @@ async def get_all_devices(
             detail="Failed to fetch device history from node"
         )
 
-    users = []
+    flat: list[DeviceInfoWithUser] = []
     for user_devices in response.users:
-        devices = [
-            DeviceInfo(
+        for device in user_devices.devices:
+            flat.append(DeviceInfoWithUser(
+                uid=user_devices.uid,
                 remote_ip=device.remote_ip,
                 client_name=device.client_name,
                 user_agent=device.user_agent if device.user_agent else None,
@@ -397,9 +410,36 @@ async def get_all_devices(
                 uplink=device.uplink,
                 downlink=device.downlink,
                 is_active=device.is_active,
-            )
-            for device in user_devices.devices
-        ]
-        users.append(UserDevicesResponse(uid=user_devices.uid, devices=devices))
+            ))
 
-    return AllUsersDevicesResponse(users=users)
+    if active_only:
+        flat = [d for d in flat if d.is_active]
+    if uid is not None:
+        flat = [d for d in flat if d.uid == uid]
+    if protocol:
+        proto_lower = protocol.lower()
+        flat = [d for d in flat if d.protocol and proto_lower in d.protocol.lower()]
+    if search:
+        q = search.lower()
+        flat = [
+            d for d in flat
+            if q in d.remote_ip.lower()
+            or q in d.client_name.lower()
+            or (d.user_agent and q in d.user_agent.lower())
+        ]
+
+    sort_field = sort_by if hasattr(DeviceInfoWithUser, sort_by) else "last_seen"
+    flat.sort(
+        key=lambda d: getattr(d, sort_field) or 0,
+        reverse=descending,
+    )
+
+    start = (params.page - 1) * params.size
+    end = start + params.size
+
+    return Page(
+        items=flat[start:end],
+        total=len(flat),
+        page=params.page,
+        size=params.size,
+    )

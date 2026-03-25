@@ -83,6 +83,15 @@
   "running": "Running",
   "down": "Down",
   "weight": "Weight",
+  "unknown": "Unknown",
+  "sni": "SNI",
+  "remark": "Remark",
+  "loading": "Loading",
+  "split_http": "Split HTTP",
+  "wireguard": "WireGuard",
+  "noise": "Noise",
+  "mode": "Mode",
+  "never": "Never",
   "support-us": {
     "title": "Support Us",
     "desc": "Marzneshin is free and open-source software (FOSS), join us and show your support by donating.",
@@ -236,6 +245,8 @@
         "active_devices": "Active: {{count}}",
         "total_users": "Users: {{count}}",
         "user_id": "User #{{id}}",
+        "user_col": "User",
+        "client": "Client",
         "no_devices": "No devices found",
         "no_active_devices": "No active devices",
         "error_loading": "Failed to load device history from node"
@@ -379,10 +390,12 @@
         "interval-error": "Interval can not exceed 32 char and must be number-number",
         "packets-error": "Packets can not exceed 32 char and must be number-number or be tlshello"
       },
+      "padding": "Padding",
       "noise": {
         "interval": "Interval",
         "length": "Length",
         "packets": "Packets",
+        "delay-error": "Delay can not exceed 32 char and must be number-number",
         "length-error": "Length can not exceed 32 char and must be number-number",
         "interval-error": "Interval can not exceed 32 char and must be number-number",
         "packets-error": "Packets can not exceed 32 char and must be number-number or be tlshello"
@@ -439,6 +452,7 @@
         "button": "Order",
         "description": "Drag and drop to reorder hosts. Hosts at the top will appear first in client configs.",
         "no-hosts": "No hosts found for this inbound",
+        "universal": "Universal",
         "saving": "Saving...",
         "update-success": "Hosts order has been updated",
         "update-error": "Failed to update hosts order"

@@ -121,6 +121,11 @@ class DeviceInfo(BaseModel):
     is_active: bool
 
 
+class DeviceInfoWithUser(DeviceInfo):
+    """Flat device info including user ID, used for paginated listing"""
+    uid: int
+
+
 class UserDevicesResponse(BaseModel):
     """Response with user's device history"""
     uid: int

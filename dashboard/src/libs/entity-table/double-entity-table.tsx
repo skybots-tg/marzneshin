@@ -24,6 +24,7 @@ export interface DoubleEntityTableProps<T> {
     primaryFilter: string;
     entityKey: string;
     entityId: number;
+    defaultPageSize?: number;
     rowSelection?: UseRowSelectionReturn;
     fetchEntity: ({ queryKey }: DoubleEntityQueryKeyType) => FetchEntityReturn<T>;
     onCreate?: () => void;
@@ -37,6 +38,7 @@ export function DoubleEntityTable<T>({
     rowSelection,
     entityKey,
     entityId,
+    defaultPageSize,
     onCreate,
     onOpen,
 }: DoubleEntityTableProps<T>) {
@@ -45,7 +47,7 @@ export function DoubleEntityTable<T>({
     const filters = useFilters();
     const sorting = useSorting();
     const visibility = useVisibility();
-    const { onPaginationChange, pageIndex, pageSize } = usePagination({ entityKey });
+    const { onPaginationChange, pageIndex, pageSize } = usePagination({ entityKey, defaultPageSize });
 
     const query: DoubleEntityQueryKey = [
         entityKey,

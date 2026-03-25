@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetch } from "@marzneshin/common/utils";
-import type { UserDevicesResponse, AllUsersDevicesResponse } from "../types";
+import type { UserDevicesResponse, DeviceInfoWithUser } from "../types";
+import type {
+    DoubleEntityQueryKeyType,
+    FetchEntityReturn,
+} from "@marzneshin/libs/entity-table";
 
 export async function fetchUserDevices({
     queryKey,
@@ -16,17 +20,30 @@ export async function fetchUserDevices({
     return await fetch(url);
 }
 
-export async function fetchAllDevices({
+export async function fetchNodeDevices({
     queryKey,
-}: {
-    queryKey: [string, number];
-}): Promise<AllUsersDevicesResponse> {
-    const [, nodeId] = queryKey;
-    return await fetch(`/nodes/${nodeId}/devices`);
+}: DoubleEntityQueryKeyType): FetchEntityReturn<DeviceInfoWithUser> {
+    const nodeId = queryKey[1];
+    const pagination = queryKey[2];
+    const primaryFilter = queryKey[3];
+    const { sortBy, desc } = queryKey[4] ?? { sortBy: "last_seen", desc: true };
+    const { filters } = queryKey[5] ?? { filters: {} };
+    return fetch(`/nodes/${nodeId}/devices`, {
+        query: {
+            ...pagination,
+            search: primaryFilter || undefined,
+            sort_by: sortBy,
+            descending: desc,
+            ...filters,
+        },
+    }).then((result: { items: DeviceInfoWithUser[]; pages: number }) => ({
+        entities: result.items,
+        pageCount: result.pages,
+    }));
 }
 
 export const UserDevicesQueryKey = "user-devices";
-export const AllDevicesQueryKey = "all-devices";
+export const NodeDevicesQueryKey = "node-devices";
 
 export const useUserDevicesQuery = ({
     nodeId,
@@ -42,20 +59,6 @@ export const useUserDevicesQuery = ({
     return useQuery({
         queryKey: [UserDevicesQueryKey, nodeId, userId, activeOnly],
         queryFn: fetchUserDevices,
-        enabled,
-    });
-};
-
-export const useAllDevicesQuery = ({
-    nodeId,
-    enabled = true,
-}: {
-    nodeId: number;
-    enabled?: boolean;
-}) => {
-    return useQuery({
-        queryKey: [AllDevicesQueryKey, nodeId],
-        queryFn: fetchAllDevices,
         enabled,
     });
 };

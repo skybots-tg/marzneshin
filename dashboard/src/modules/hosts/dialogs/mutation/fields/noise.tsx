@@ -106,7 +106,7 @@ export const NoiseField = () => {
                     <FormItem key={index} className="my-2 w-full">
                         {index === 0 && (
                             <FormLabel className="flex flex-row justify-between items-center">
-                                {t("Noise")}
+                                {t("noise")}
                                 <div className="flex flex-row items-center gap-2">
                                     {errors.noise?.[index] && (
                                         <NoiseErrorPopover
@@ -214,7 +214,7 @@ export const NoiseField = () => {
             ) : (
                 <FormItem className="my-2 w-full">
                     <FormLabel className="flex flex-row justify-between items-center">
-                        {t("Noise")}
+                        {t("noise")}
                     </FormLabel>
 
                     <Button
