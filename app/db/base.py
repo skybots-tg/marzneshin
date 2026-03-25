@@ -97,7 +97,7 @@ SettingsSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sett
 
 Base = declarative_base()
 
-# Lock for thread-safe engine reconfiguration
+# Lock for thread-safe engine  reconfiguration
 _engine_lock = threading.Lock()
 
 
