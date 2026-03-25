@@ -1,5 +1,4 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
+import { Moon, Sun } from 'lucide-react';
 import {
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -16,7 +15,7 @@ const ThemeItem = ({ schema }: { schema: Theme }) => {
     const { t } = useTranslation();
     return (
         <DropdownMenuItem
-            className={cn({ "bg-primary/20 text-primary border-l-2 border-primary": theme === schema })}
+            className={cn({ "bg-primary/10 text-primary font-medium": theme === schema })}
             onMouseDown={() => setTheme(schema)}>
             {t(schema)}
         </DropdownMenuItem>
@@ -31,14 +30,14 @@ export function ThemeToggle() {
             <DropdownMenuSubTrigger arrowDir="left" className="w-full flex">
                 <div className="hstack gap-2 items-center justify-end w-full">
                     <span className="font-medium">{t('theme')}</span>
-                    <div className="flex items-center">
-                        <FontAwesomeIcon icon={faSun} className="w-4 h-4 m-0 transition-smooth transform scale-100 rotate-0 dark:scale-0 dark:-rotate-90 text-warning" />
-                        <FontAwesomeIcon icon={faMoon} className="w-4 h-4 m-0 transition-smooth transform scale-0 rotate-90 dark:scale-100 dark:rotate-0 text-primary absolute" />
+                    <div className="flex items-center relative">
+                        <Sun className="size-4 transition-all rotate-0 scale-100 dark:-rotate-90 dark:scale-0 text-warning" />
+                        <Moon className="size-4 transition-all rotate-90 scale-0 dark:rotate-0 dark:scale-100 text-primary absolute" />
                     </div>
                 </div>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-                <DropdownMenuSubContent className="space-y-1">
+                <DropdownMenuSubContent className="space-y-0.5">
                     <ThemeItem schema="system" />
                     <ThemeItem schema="light" />
                     <ThemeItem schema="dark" />
@@ -46,5 +45,4 @@ export function ThemeToggle() {
             </DropdownMenuPortal>
         </DropdownMenuSub>
     );
-
 }

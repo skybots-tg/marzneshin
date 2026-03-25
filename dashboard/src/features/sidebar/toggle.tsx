@@ -1,7 +1,5 @@
-
 import { Button } from '@marzneshin/common/components';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronRight, faChevronLeft } from '@fortawesome/free-solid-svg-icons';
+import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { FC } from 'react';
 
 interface ToggleButtonProps {
@@ -10,16 +8,17 @@ interface ToggleButtonProps {
 }
 
 export const ToggleButton: FC<ToggleButtonProps> = ({ collapsed, onToggle }) => {
-    const icon = collapsed ? faChevronRight : faChevronLeft;
-
     return (
-        <Button 
-            className="p-2 bg-background/60 backdrop-blur-xl border border-border hover:bg-accent/50 hover:border-border shadow-md hover:shadow-lg" 
+        <Button
+            className="h-8 w-8 rounded-lg hover:bg-secondary transition-colors"
             onClick={onToggle}
-            variant="outline"
+            variant="ghost"
             size="icon"
         >
-            <FontAwesomeIcon icon={icon} className="w-4 h-4 text-foreground" />
+            {collapsed
+                ? <ChevronRight className="size-4 text-muted-foreground" />
+                : <ChevronLeft className="size-4 text-muted-foreground" />
+            }
         </Button>
     );
 };

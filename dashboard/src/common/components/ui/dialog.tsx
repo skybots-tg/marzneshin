@@ -1,7 +1,6 @@
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faXmark } from '@fortawesome/free-solid-svg-icons';
+import { X } from 'lucide-react';
 
 import { cn } from "@marzneshin/common/utils"
 
@@ -54,7 +53,7 @@ const DialogContent = React.forwardRef<
                 )}>
                     {children}
                     <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-2 opacity-70 ring-offset-background transition-smooth hover:opacity-100 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:pointer-events-none">
-                        <FontAwesomeIcon icon={faXmark} className="h-4 w-4 text-foreground" />
+                        <X className="h-4 w-4 text-foreground" />
                         <span className="sr-only">Close</span>
                     </DialogPrimitive.Close>
                 </div>

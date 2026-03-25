@@ -60,7 +60,7 @@ export const NavigationDirectory: FC<NavigationDirectoryProps> = ({ sidebar }) =
     const [open, setOpen] = React.useState(false)
     const currentPath = useRouterState().location.pathname;
     const items = getPathDirs(currentPath, sidebar);
-    const isDesktop = !useScreenBreakpoint("sm");
+    const isDesktop = useScreenBreakpoint("md");
     return (
         <Breadcrumb>
             <BreadcrumbList>
@@ -125,7 +125,7 @@ export const NavigationDirectory: FC<NavigationDirectoryProps> = ({ sidebar }) =
                             <>
                                 <BreadcrumbLink
                                     asChild
-                                    className="md:max-w-none max-w-20 truncate text-accent dark:text-accent-foreground hover:text-primary-foreground"
+                                    className="md:max-w-none max-w-20 truncate text-muted-foreground hover:text-foreground"
                                 >
                                     <Link to={item.href}>{item.label}</Link>
                                 </BreadcrumbLink>

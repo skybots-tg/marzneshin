@@ -36,7 +36,7 @@ export const DashboardLayout = () => {
     const { data: stats } = useGithubRepoStatsQuery()
 
     return (
-        <div className="flex flex-col w-screen h-screen relative">
+        <div className="flex flex-col w-screen h-screen relative bg-background">
             <Header
                 start={
                     <>
@@ -44,7 +44,6 @@ export const DashboardLayout = () => {
                             <HeaderLogo />
                         </Link>
                         {isDesktop && (
-
                             <ToggleButton
                                 collapsed={collapsed}
                                 onToggle={toggleCollapse}
@@ -69,7 +68,7 @@ export const DashboardLayout = () => {
                             onCollapse={() => setCollapsed(true)}
                             onExpand={() => setCollapsed(false)}
                             minSize={15}
-                            className={cn("glass-sm w-[120px] min-w-[70px] border-r")}
+                            className={cn("bg-card/50 min-w-[70px] border-r border-border/50")}
                             defaultSize={20}
                             ref={panelRef}
                             maxSize={30}
@@ -79,9 +78,9 @@ export const DashboardLayout = () => {
                                 setCollapsed={setCollapsed}
                             />
                         </ResizablePanel>
-                        <ResizableHandle withHandle className="w-[2px] bg-border transition-smooth" />
+                        <ResizableHandle withHandle className="w-[1px] bg-border/40 hover:bg-primary/20 transition-colors" />
                         <ResizablePanel className="flex flex-col h-full">
-                            <main className="glass-card flex-grow flex flex-col overflow-y-auto p-4">
+                            <main className="flex-grow flex flex-col overflow-y-auto p-5 scrollbar-thin">
                                 <Suspense fallback={<Loading />}>
                                     <Outlet />
                                 </Suspense>
@@ -90,12 +89,12 @@ export const DashboardLayout = () => {
                     </ResizablePanelGroup>
                 ) : (
                     <div className="flex flex-col h-full w-full">
-                        <main className="glass-card flex-grow flex flex-col overflow-y-auto p-4">
+                        <main className="flex-grow flex flex-col overflow-y-auto px-3 py-3 scrollbar-thin">
                             <Suspense fallback={<Loading />}>
                                 <Outlet />
                             </Suspense>
                         </main>
-                        <footer className="glass-sm shrink-0 py-2 px-5 border-t">
+                        <footer className="shrink-0 border-t border-border/50 bg-card safe-bottom">
                             <DashboardBottomMenu variant={isSudo() ? "sudo-admin" : "admin"} />
                         </footer>
                     </div>

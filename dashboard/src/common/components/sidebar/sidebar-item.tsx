@@ -5,18 +5,21 @@ import { cn } from "@marzneshin/common/utils";
 import { type VariantProps, cva } from "class-variance-authority";
 import { useSidebarContext } from "./sidebar-provider";
 
-const sidebarItemVariants = cva("w-full rounded-lg p-2 transition-smooth relative group", {
-    variants: {
-        variant: {
-            default: "glass-sm text-foreground hover:bg-accent/50 hover:scale-[1.02]",
-            active: "glass text-primary font-semibold shadow-md",
+const sidebarItemVariants = cva(
+    "w-full rounded-lg px-3 py-2 transition-all duration-200 relative group",
+    {
+        variants: {
+            variant: {
+                default: "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
+                active: "text-primary bg-primary/10 font-medium",
+            },
+            size: {
+                default: "",
+                collapsed: "",
+            },
         },
-        size: {
-            default: "",
-            collapsed: "",
-        },
-    },
-});
+    }
+);
 
 export interface SidebarItemProps
     extends React.HTMLAttributes<HTMLLinkElement>,
@@ -38,14 +41,13 @@ export const SidebarItem: FC<SidebarItemProps> = ({
             <Link
                 to={item.to}
                 onClick={() => setOpen?.(false)}
-                className={cn("flex flex-row items-center justify-center font-medium text-sm", {
-                    "-justify-center gap-2": !collapsed,
-                })}
+                className={cn(
+                    "flex flex-row items-center text-sm gap-3",
+                    collapsed && "justify-center"
+                )}
             >
-                <span className={cn("transition-smooth", {
-                    "group-hover:scale-110": true
-                })}>{item.icon}</span>
-                {!collapsed && <span className="transition-smooth">{item.title}</span>}
+                <span className="shrink-0">{item.icon}</span>
+                {!collapsed && <span className="truncate">{item.title}</span>}
             </Link>
         </li>
     );

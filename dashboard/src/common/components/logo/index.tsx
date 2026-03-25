@@ -1,9 +1,12 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faShieldHalved } from '@fortawesome/free-solid-svg-icons';
+import { ShieldCheck } from 'lucide-react';
 
 export const HeaderLogo = () => {
-    return <div className="glass-button flex flex-row gap-2 justify-center items-center px-4 py-2 h-10 font-semibold rounded-xl text-foreground">
-        <FontAwesomeIcon icon={faShieldHalved} className="w-5 h-5 text-primary" />
-        <span className="hidden md:inline text-base">MARZNESHIN</span>
-    </div>;
-}
+    return (
+        <div className="flex flex-row gap-2 items-center px-2 py-1.5 h-9 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer">
+            <ShieldCheck className="size-5 text-primary" />
+            <span className="hidden md:inline text-sm font-semibold tracking-tight text-foreground">
+                MARZNESHIN
+            </span>
+        </div>
+    );
+};

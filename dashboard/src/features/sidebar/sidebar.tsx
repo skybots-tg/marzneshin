@@ -5,9 +5,10 @@ import {
 import { useIsCurrentRoute } from "@marzneshin/common/hooks";
 import type { FC } from "react";
 import { sidebarItems as sidebarItemsSudoAdmin, sidebarItemsNonSudoAdmin } from ".";
-import { projectInfo, cn } from "@marzneshin/common/utils";
+import { cn } from "@marzneshin/common/utils";
 import { useAuth } from "@marzneshin/modules/auth";
 import { SupportUs } from "@marzneshin/features/support-us";
+import { projectInfo } from "@marzneshin/common/utils";
 
 interface DashboardSidebarProps {
     collapsed: boolean;
@@ -26,7 +27,7 @@ export const DashboardSidebar: FC<DashboardSidebarProps> = ({
     const { isCurrentRouteActive } = useIsCurrentRoute()
     const sidebarItems = isSudo() ? sidebarItemsSudoAdmin : sidebarItemsNonSudoAdmin
     return (
-        <aside className="size-full py-4  px-4 ">
+        <aside className="size-full py-3 px-3">
             <nav className="size-full">
                 <Sidebar
                     sidebar={sidebarItems}
@@ -39,11 +40,13 @@ export const DashboardSidebar: FC<DashboardSidebarProps> = ({
                         <Sidebar.Body>
                             {Object.keys(sidebarItems).map((key) => (
                                 <div className="w-full" key={key}>
-                                    <Sidebar.Group className="uppercase">{key}</Sidebar.Group>
+                                    <Sidebar.Group className="uppercase text-[10px] tracking-wider font-semibold text-muted-foreground/70 mb-1">
+                                        {key}
+                                    </Sidebar.Group>
                                     {sidebarItems[key].map((item: SidebarItem) => (
                                         <Sidebar.Item
                                             variant={isCurrentRouteActive(item.to) ? "active" : "default"}
-                                            className={cn("my-2 border-transparent", {
+                                            className={cn("my-0.5", {
                                                 "w-10 h-10": collapsed,
                                             })}
                                             item={item}
