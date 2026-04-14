@@ -139,7 +139,7 @@ export const SectionBlock: FC<SectionBlockProps> = ({
                         <div className="ml-auto flex items-center gap-0.5 shrink-0">
                             <CopyJsonButton getJson={getJson} />
                             <BlockActions
-                                onCopy={onDuplicate}
+                                onDuplicate={onDuplicate}
                                 onDelete={onRemove}
                             />
                         </div>

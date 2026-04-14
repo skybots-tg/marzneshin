@@ -48,44 +48,42 @@ export const BlockConfigEditor: FC<BlockConfigEditorProps> = ({
                 onExpandAll={onExpandAll}
                 onAddSection={onAddSection}
             />
-            <ScrollArea className="max-h-[55vh]">
-                <div className="space-y-2 pr-3">
-                    <AnimatePresence initial={false} mode="popLayout">
-                        {blocks.map((block) => (
-                            <motion.div
-                                key={block.id}
-                                variants={blockVariants}
-                                initial="initial"
-                                animate="animate"
-                                exit="exit"
-                                transition={{ duration: 0.2, ease: "easeOut" }}
-                                layout
-                            >
-                                <SectionBlock
-                                    block={block}
-                                    onToggleCollapse={() => onToggleCollapse(block.id)}
-                                    onDuplicate={() => onDuplicate(block.id)}
-                                    onRemove={() => onRemove(block.id)}
-                                    onUpdateRaw={(val) => onUpdateRaw(block.id, val)}
-                                    onUpdateItem={(itemId, val) =>
-                                        onUpdateItem(block.id, itemId, val)
-                                    }
-                                    onDuplicateItem={(itemId) =>
-                                        onDuplicateItem(block.id, itemId)
-                                    }
-                                    onRemoveItem={(itemId) =>
-                                        onRemoveItem(block.id, itemId)
-                                    }
-                                    onReorderItems={(items) =>
-                                        onReorderItems(block.id, items)
-                                    }
-                                    onAddItem={() => onAddItem(block.id)}
-                                />
-                            </motion.div>
-                        ))}
-                    </AnimatePresence>
-                </div>
-            </ScrollArea>
+            <div className="space-y-2">
+                <AnimatePresence initial={false} mode="popLayout">
+                    {blocks.map((block) => (
+                        <motion.div
+                            key={block.id}
+                            variants={blockVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            layout
+                        >
+                            <SectionBlock
+                                block={block}
+                                onToggleCollapse={() => onToggleCollapse(block.id)}
+                                onDuplicate={() => onDuplicate(block.id)}
+                                onRemove={() => onRemove(block.id)}
+                                onUpdateRaw={(val) => onUpdateRaw(block.id, val)}
+                                onUpdateItem={(itemId, val) =>
+                                    onUpdateItem(block.id, itemId, val)
+                                }
+                                onDuplicateItem={(itemId) =>
+                                    onDuplicateItem(block.id, itemId)
+                                }
+                                onRemoveItem={(itemId) =>
+                                    onRemoveItem(block.id, itemId)
+                                }
+                                onReorderItems={(items) =>
+                                    onReorderItems(block.id, items)
+                                }
+                                onAddItem={() => onAddItem(block.id)}
+                            />
+                        </motion.div>
+                    ))}
+                </AnimatePresence>
+            </div>
         </div>
     );
 };

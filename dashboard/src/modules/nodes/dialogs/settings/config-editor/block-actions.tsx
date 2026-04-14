@@ -6,22 +6,22 @@ import {
     TooltipTrigger,
     TooltipProvider,
 } from "@marzneshin/common/components";
-import { Copy, Trash2, Plus } from "lucide-react";
+import { Copy, CopyPlus, Trash2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 interface BlockActionProps {
-    onCopy?: () => void;
+    onDuplicate?: () => void;
     onDelete?: () => void;
-    copyTooltip?: string;
+    duplicateTooltip?: string;
     deleteTooltip?: string;
     size?: "sm" | "icon";
 }
 
 export const BlockActions: FC<BlockActionProps> = ({
-    onCopy,
+    onDuplicate,
     onDelete,
-    copyTooltip,
+    duplicateTooltip,
     deleteTooltip,
     size = "icon",
 }) => {
@@ -30,7 +30,7 @@ export const BlockActions: FC<BlockActionProps> = ({
     return (
         <TooltipProvider delayDuration={300}>
             <div className="flex items-center gap-0.5">
-                {onCopy && (
+                {onDuplicate && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button
@@ -39,14 +39,14 @@ export const BlockActions: FC<BlockActionProps> = ({
                                 className="h-7 w-7"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onCopy();
+                                    onDuplicate();
                                 }}
                             >
-                                <Copy className="size-3.5" />
+                                <CopyPlus className="size-3.5" />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent side="top">
-                            {copyTooltip ?? t("copy")}
+                            {duplicateTooltip ?? t("duplicate")}
                         </TooltipContent>
                     </Tooltip>
                 )}
