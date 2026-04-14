@@ -35,3 +35,4 @@ aiogram==3.17.0
 bcrypt==4.2.1
 aiohttp-socks==0.10.1
 paramiko==3.4.0
+openai>=1.82.0

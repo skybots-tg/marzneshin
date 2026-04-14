@@ -38,3 +38,4 @@ class Settings(Base):
     subscription = Column(JSON, nullable=False)
     telegram = Column(JSON)
     ssh_pin_hash = Column(String(256), nullable=True)
+    ai = Column(JSON, nullable=True)

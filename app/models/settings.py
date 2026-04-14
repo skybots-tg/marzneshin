@@ -71,3 +71,21 @@ class DatabasePoolStats(BaseModel):
     overflow: int
     total_connections: int
     max_connections: int
+
+
+class AISettings(BaseModel):
+    api_key: str = ""
+    default_model: str = "gpt-4o"
+    thinking_model: str = "o3"
+    max_tokens: int = 16384
+    temperature: float = 0.7
+    system_prompt: str = ""
+
+
+class AISettingsResponse(BaseModel):
+    configured: bool = False
+    default_model: str = "gpt-4o"
+    thinking_model: str = "o3"
+    max_tokens: int = 16384
+    temperature: float = 0.7
+    system_prompt: str = ""
