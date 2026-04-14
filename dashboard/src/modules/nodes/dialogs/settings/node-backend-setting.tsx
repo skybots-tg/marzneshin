@@ -9,7 +9,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@marzneshin/common/components";
-import { NodeConfigEditor } from "./node-config-editor";
+import { ConfigEditor } from "./config-editor";
 import { LogContainer } from "../../log";
 import { useTranslation } from "react-i18next";
 import { type NodeType, useBackendStatsQuery } from "../..";
@@ -57,7 +57,7 @@ export const NodeBackendSetting: FC<{ node: NodeType; backend: string }> = ({
             <LogContainer node={node} backend={backend} />
           </TabsContent>
           <TabsContent value="config" className="h-full z-51">
-            <NodeConfigEditor entity={node} backend={backend} />
+            <ConfigEditor entity={node} backend={backend} />
           </TabsContent>
         </Tabs>
       </CardContent>
