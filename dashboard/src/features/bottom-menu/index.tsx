@@ -1,7 +1,7 @@
 import { SidebarItem } from "@marzneshin/common/components";
 import { Link } from "@tanstack/react-router";
 import { FC } from "react";
-import { Box, Home, Server, ServerCog, UsersIcon } from 'lucide-react';
+import { Box, Home, Server, ServerCog, UsersIcon, ShieldCheck, Settings } from 'lucide-react';
 import { useIsCurrentRoute } from "@marzneshin/common/hooks";
 import { cn } from "@marzneshin/common/utils";
 import { useTranslation } from "react-i18next";
@@ -70,6 +70,16 @@ const sudoAdminItems: BottomMenuItemProps[] = [
         title: 'hosts',
         to: '/hosts',
         icon: <ServerCog className="size-[22px]" />,
+    },
+    {
+        title: 'admins',
+        to: '/admins',
+        icon: <ShieldCheck className="size-[22px]" />,
+    },
+    {
+        title: 'settings',
+        to: '/settings',
+        icon: <Settings className="size-[22px]" />,
     },
 ]
 

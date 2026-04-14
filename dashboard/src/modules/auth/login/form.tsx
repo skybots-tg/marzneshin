@@ -43,8 +43,19 @@ export const LoginForm = () => {
             setAuthToken(access_token);
             setSudo(is_sudo);
             navigate({ to: '/' });
-        } catch (err: any) {
-            setError(err.response._data?.detail || 'An error occurred');
+        } catch (err: unknown) {
+            const message = (() => {
+                try {
+                    const e = err as any;
+                    return e?.response?._data?.detail
+                        || e?.response?.data?.detail
+                        || e?.message
+                        || t('error');
+                } catch {
+                    return t('error');
+                }
+            })();
+            setError(message);
         }
     };
 
@@ -78,7 +89,7 @@ export const LoginForm = () => {
                     )}
                 />
                 <Button className="mt-3 w-full" type="submit">{t('login')}</Button>
-                {error && <FormError className="mt-2" title='Submission failed' desc={error} />}
+                {error && <FormError className="mt-2" title={t('submission-failed')} desc={error} />}
             </form>
         </Form>
     )

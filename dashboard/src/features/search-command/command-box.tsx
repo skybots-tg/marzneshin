@@ -10,10 +10,12 @@ import { SearchBox } from "./search-box";
 import { useAuth } from "@marzneshin/modules/auth";
 import { CommandItems } from "./command-items";
 import { commandItems } from "./commands";
+import { useTranslation } from "react-i18next";
 
 export function CommandBox() {
     const [open, setOpen] = useState(false);
     const { isSudo } = useAuth();
+    const { t } = useTranslation();
 
     useEffect(() => {
         const down = (e: KeyboardEvent) => {
@@ -31,12 +33,12 @@ export function CommandBox() {
             <SearchBox onClick={() => setOpen(true)} />
             <CommandDialog open={open} onOpenChange={setOpen}>
                 <CommandInput
-                    placeholder="Type a command or search..."
+                    placeholder={t('search-placeholder')}
                     className="focus:ring-0 ring-0 m-1 border-none"
                 />
                 <ScrollArea className="max-h-100">
                     <CommandList>
-                        <CommandEmpty>No results found.</CommandEmpty>
+                        <CommandEmpty>{t('no-results-found')}</CommandEmpty>
                         <CommandItems items={commandItems} isSudo={isSudo} setOpen={setOpen} />
                     </CommandList>
                 </ScrollArea>

@@ -23,7 +23,7 @@ const LoginPage: FC = () => {
             {t('login')}
           </CardTitle>
           <CardDescription>
-            Sign in to your account to continue
+            {t('login-description')}
           </CardDescription>
         </CardHeader>
         <CardContent>

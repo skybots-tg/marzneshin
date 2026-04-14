@@ -52,13 +52,14 @@ export const useMutationDialog = <TData, TError = unknown, TVariables = unknown>
         resolver: zodResolver(schema)
     });
 
+    const activeMutation = entity ? updateMutation : createMutation;
+    const isPending = activeMutation.isPending;
+
     const submit: SubmitHandler<FieldValues> = async (values) => {
-        if (entity) {
-            updateMutation.mutate(values as TVariables);
-        } else {
-            createMutation.mutate(values as TVariables);
-        }
-        onOpenChange(false);
+        const mutation = entity ? updateMutation : createMutation;
+        mutation.mutate(values as TVariables, {
+            onSuccess: () => onOpenChange(false),
+        });
     };
 
     useEffect(() => {
@@ -79,6 +80,7 @@ export const useMutationDialog = <TData, TError = unknown, TVariables = unknown>
     return {
         form,
         open, onOpenChange,
-        handleSubmit
+        handleSubmit,
+        isPending,
     };
 };

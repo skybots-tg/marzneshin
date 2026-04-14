@@ -9,11 +9,13 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-    Skeleton
+    Skeleton,
+    Button,
 } from "@marzneshin/common/components";
 import { useTranslation } from "react-i18next";
 import { useEntityTableContext } from "@marzneshin/libs/entity-table/contexts";
 import { type FC } from "react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
@@ -69,42 +71,56 @@ const Rows: FC<Readonly<DataTableProps<any, any>>> = ({
     ))
 };
 
-const Loading = () => (
+const Loading: FC<{ columnCount: number }> = ({ columnCount }) => (
     <>
         {Array.from({ length: 5 }).map((_, rowIndex) => (
             <TableRow key={`skeleton-row-${rowIndex}`} className="w-full">
-                <TableCell className="h-12">
-                    <Skeleton className="w-full h-full" />
-                </TableCell>
-                <TableCell className="h-12">
-                    <Skeleton className="w-full h-full" />
-                </TableCell>
-                <TableCell className="h-12">
-                    <Skeleton className="w-full h-full" />
-                </TableCell>
-                <TableCell className="h-12">
-                    <Skeleton className="w-full h-full" />
-                </TableCell>
-                <TableCell className="h-12">
-                    <Skeleton className="w-full h-full" />
-                </TableCell>
+                {Array.from({ length: columnCount }).map((_, colIndex) => (
+                    <TableCell key={`skeleton-cell-${rowIndex}-${colIndex}`} className="h-12">
+                        <Skeleton className="w-full h-full" />
+                    </TableCell>
+                ))}
             </TableRow>
         ))}
     </>
 );
+
+const ErrorState: FC<{ columnCount: number }> = ({ columnCount }) => {
+    const { t } = useTranslation();
+    const { refetch } = useEntityTableContext();
+    return (
+        <TableRow>
+            <TableCell colSpan={columnCount} className="h-32">
+                <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <AlertCircle className="size-8 text-destructive" />
+                    <p className="text-sm font-medium">{t('table.error')}</p>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                        <RefreshCw className="size-4 mr-2" />
+                        {t('retry')}
+                    </Button>
+                </div>
+            </TableCell>
+        </TableRow>
+    );
+};
 
 export function EntityDataTable<TData, TValue>({
     columns,
     onRowClick,
     getRowClassName,
 }: Readonly<DataTableProps<TData, TValue>>) {
-    const { isLoading } = useEntityTableContext();
+    const { isLoading, isError } = useEntityTableContext();
+    const columnCount = columns.length;
 
     return (
         <Table className="w-full">
             <TableHeader> <Headers /> </TableHeader>
             <TableBody>
-                {isLoading ? <Loading /> : <Rows onRowClick={onRowClick} columns={columns} getRowClassName={getRowClassName} />}
+                {isError
+                    ? <ErrorState columnCount={columnCount} />
+                    : isLoading
+                        ? <Loading columnCount={columnCount} />
+                        : <Rows onRowClick={onRowClick} columns={columns} getRowClassName={getRowClassName} />}
             </TableBody>
         </Table>
     );
