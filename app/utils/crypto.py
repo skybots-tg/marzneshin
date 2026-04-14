@@ -1,154 +1,67 @@
-import ssl
 import base64
+import json
 import os
-from datetime import datetime, timedelta
 
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+import bcrypt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.x509.oid import ExtendedKeyUsageOID
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+
+_KDF_ITERATIONS = 480_000
 
 
-def get_cert_SANs(cert: bytes):
-    cert = x509.load_pem_x509_certificate(cert, default_backend())
-    san_list = []
-    for extension in cert.extensions:
-        if isinstance(extension.value, x509.SubjectAlternativeName):
-            san = extension.value
-            for name in san:
-                san_list.append(name.value)
-    return san_list
-
-
-def generate_certificate():
-    key = ec.generate_private_key(ec.SECP256R1())
-
-    subject = issuer = x509.Name([])
-
-    subject_key_id = x509.SubjectKeyIdentifier.from_public_key(
-        key.public_key()
+def _derive_key(pin: str, salt: bytes, secret: str) -> bytes:
+    """Derive a 256-bit AES key from PIN + server secret using PBKDF2."""
+    combined = f"{pin}:{secret}".encode()
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=_KDF_ITERATIONS,
     )
-
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.utcnow())
-        .not_valid_after(datetime.utcnow() + timedelta(days=3650))
-        .add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True
-        )
-        .add_extension(
-            x509.KeyUsage(
-                digital_signature=True,
-                content_commitment=False,
-                key_encipherment=True,
-                data_encipherment=False,
-                key_agreement=False,
-                key_cert_sign=False,
-                crl_sign=False,
-                encipher_only=False,
-                decipher_only=False,
-            ),
-            critical=False,
-        )
-        .add_extension(subject_key_id, critical=False)
-        .add_extension(
-            x509.ExtendedKeyUsage(
-                [
-                    ExtendedKeyUsageOID.SERVER_AUTH,
-                    ExtendedKeyUsageOID.CLIENT_AUTH,
-                ]
-            ),
-            critical=False,
-        )
-        .sign(private_key=key, algorithm=hashes.SHA256())
-    )
-
-    return {
-        "cert": cert.public_bytes(serialization.Encoding.PEM).decode(),
-        "key": key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        ).decode(),
-    }
+    return kdf.derive(combined)
 
 
-def create_secure_context(
-    client_cert: str,
-    client_key: str,
-    trusted: str,
-) -> ssl.SSLContext:
-    ctx = ssl.create_default_context(cafile=trusted)
-    ctx.load_cert_chain(client_cert, client_key)
-    ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
-    ctx.set_alpn_protocols(["h2"])
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_REQUIRED
-    return ctx
-
-
-def encrypt_content(content: str | bytes, key: str) -> str:
+def encrypt_credentials(data: dict, pin: str, secret: str) -> tuple[str, str]:
     """
-    Encrypt content using AES-256-GCM
-    
-    Args:
-        content: Content to encrypt (string or bytes)
-        key: Encryption key (will be hashed to 32 bytes)
-    
-    Returns:
-        Base64-encoded encrypted content with format: nonce(12bytes)||ciphertext||tag(16bytes)
+    Encrypt a dict of credentials with AES-256-GCM.
+    Returns (base64-encoded ciphertext, base64-encoded salt).
     """
-    if isinstance(content, str):
-        content = content.encode('utf-8')
-    
-    # Derive a 32-byte key from the provided key using SHA256
-    key_hash = hashes.Hash(hashes.SHA256(), backend=default_backend())
-    key_hash.update(key.encode('utf-8'))
-    derived_key = key_hash.finalize()
-    
-    # Generate random nonce (12 bytes for GCM)
+    salt = os.urandom(16)
+    key = _derive_key(pin, salt, secret)
+
+    plaintext = json.dumps(data).encode()
     nonce = os.urandom(12)
-    
-    # Encrypt
-    aesgcm = AESGCM(derived_key)
-    ciphertext = aesgcm.encrypt(nonce, content, None)
-    
-    # Return base64-encoded: nonce + ciphertext (which includes tag)
-    encrypted_data = nonce + ciphertext
-    return base64.b64encode(encrypted_data).decode('utf-8')
+    aesgcm = AESGCM(key)
+    ct = aesgcm.encrypt(nonce, plaintext, None)
+
+    payload = nonce + ct
+    return base64.b64encode(payload).decode(), base64.b64encode(salt).decode()
 
 
-def decrypt_content(encrypted_content: str, key: str) -> bytes:
+def decrypt_credentials(encrypted_data: str, salt: str, pin: str, secret: str) -> dict:
     """
-    Decrypt content encrypted with encrypt_content
-    
-    Args:
-        encrypted_content: Base64-encoded encrypted content
-        key: Encryption key (same as used for encryption)
-    
-    Returns:
-        Decrypted content as bytes
+    Decrypt credentials. Raises ValueError on wrong PIN or corrupted data.
     """
-    # Decode from base64
-    encrypted_data = base64.b64decode(encrypted_content)
-    
-    # Extract nonce and ciphertext
-    nonce = encrypted_data[:12]
-    ciphertext = encrypted_data[12:]
-    
-    # Derive the same key
-    key_hash = hashes.Hash(hashes.SHA256(), backend=default_backend())
-    key_hash.update(key.encode('utf-8'))
-    derived_key = key_hash.finalize()
-    
-    # Decrypt
-    aesgcm = AESGCM(derived_key)
-    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-    
-    return plaintext
+    salt_bytes = base64.b64decode(salt)
+    key = _derive_key(pin, salt_bytes, secret)
+
+    payload = base64.b64decode(encrypted_data)
+    nonce = payload[:12]
+    ct = payload[12:]
+
+    aesgcm = AESGCM(key)
+    try:
+        plaintext = aesgcm.decrypt(nonce, ct, None)
+    except Exception as exc:
+        raise ValueError("Decryption failed — wrong PIN or corrupted data") from exc
+
+    return json.loads(plaintext)
+
+
+def hash_pin(pin: str) -> str:
+    return bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_pin(pin: str, pin_hash: str) -> bool:
+    return bcrypt.checkpw(pin.encode(), pin_hash.encode())

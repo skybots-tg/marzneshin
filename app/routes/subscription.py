@@ -77,7 +77,10 @@ def user_subscription(
         get_subscription_settings_cached(db)
     )
     service_ids = [s.id for s in db_user.services]
-    hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
+    hosts = get_hosts_for_user(
+        db, db_user.id, service_ids=service_ids,
+        exclude_unhealthy_nodes=subscription_settings.exclude_unhealthy_nodes,
+    )
     node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
 
     # Force-load ORM relationships, then release the DB connection back to
@@ -210,7 +213,10 @@ def user_subscription_with_client_type(
         get_subscription_settings_cached(db)
     )
     service_ids = [s.id for s in db_user.services]
-    hosts = get_hosts_for_user(db, db_user.id, service_ids=service_ids)
+    hosts = get_hosts_for_user(
+        db, db_user.id, service_ids=service_ids,
+        exclude_unhealthy_nodes=subscription_settings.exclude_unhealthy_nodes,
+    )
     node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
 
     # Release DB connection before CPU-heavy config generation

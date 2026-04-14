@@ -28,6 +28,7 @@ class SubscriptionSettings(BaseModel):
     shuffle_configs: bool = False
     placeholder_if_disabled: bool = True
     placeholder_remark: str = "disabled"
+    exclude_unhealthy_nodes: bool = False
     rules: list[SubscriptionRule]
 
 

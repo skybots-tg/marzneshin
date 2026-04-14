@@ -53,6 +53,31 @@ export type NodeType = z.infer<typeof NodeSchema> & {
     id: number;
     backends: NodeBackendType[];
     message?: string | null;
+    adblock_enabled?: boolean;
+};
+
+export const DnsProviders = {
+    adguard_home_local: "AdGuard Home (local)",
+    adguard_dns_public: "AdGuard DNS (public)",
+    nextdns: "NextDNS",
+    cloudflare_security: "Cloudflare Security",
+    custom: "Custom",
+} as const;
+
+export type DnsProvider = keyof typeof DnsProviders;
+
+export type NodeFilteringConfig = {
+    adblock_enabled: boolean;
+    dns_provider: DnsProvider;
+    dns_address: string | null;
+    adguard_home_port: number;
+    adguard_home_installed: boolean;
+};
+
+export type SSHCredentialsInfo = {
+    exists: boolean;
+    ssh_user?: string | null;
+    ssh_port?: number | null;
 };
 
 export type DeviceInfo = {

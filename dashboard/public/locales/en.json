@@ -259,6 +259,53 @@
         "title": "Nodes Certificate Configuration",
         "desc": "If you aim to configure your nodes certificate, checkout settings page.",
         "click": "Click Here"
+      },
+      "filtering": {
+        "tab": "Filtering",
+        "title": "Ad Blocking",
+        "enable": "Enable filtering",
+        "enable_desc": "Block ads and trackers via DNS on this exit node",
+        "dns_provider": "DNS Provider",
+        "nextdns_id": "NextDNS Config ID",
+        "custom_dns": "Custom DNS Address",
+        "apply": "Apply & Restart",
+        "save_success": "Filtering settings saved and backend restarted",
+        "save_error": "Failed to save filtering settings",
+        "adguard": {
+          "installed": "Installed",
+          "not_installed": "Not installed",
+          "port": "AdGuard Home DNS Port",
+          "install_btn": "Install AdGuard Home",
+          "install_title": "Install AdGuard Home",
+          "install_desc": "Install AdGuard Home on node {{name}} via SSH",
+          "need_ssh": "Save SSH credentials first to enable remote install",
+          "connecting": "Connecting to node...",
+          "connection_failed": "Connection failed",
+          "progress": "Progress",
+          "logs": "Installation Logs",
+          "success": "AdGuard Home installed successfully!",
+          "failed": "Installation failed. Check the logs.",
+          "stop": "Stop Installation",
+          "retry": "Retry"
+        },
+        "ssh": {
+          "title": "SSH Credentials",
+          "saved": "Saved",
+          "not_saved": "Not saved",
+          "stored_info": "SSH credentials are securely stored. Delete to re-enter.",
+          "user": "SSH User",
+          "port": "SSH Port",
+          "auth_method": "Auth Method",
+          "password": "Password",
+          "pin": "4-digit PIN",
+          "pin_desc": "PIN is used to encrypt/decrypt your SSH credentials",
+          "save": "Save Credentials",
+          "delete": "Delete Credentials",
+          "save_success": "SSH credentials saved securely",
+          "save_error": "Failed to save SSH credentials",
+          "delete_success": "SSH credentials deleted",
+          "delete_error": "Failed to delete SSH credentials"
+        }
       }
     },
     "services": {

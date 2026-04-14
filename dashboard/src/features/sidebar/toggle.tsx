@@ -10,14 +10,14 @@ interface ToggleButtonProps {
 export const ToggleButton: FC<ToggleButtonProps> = ({ collapsed, onToggle }) => {
     return (
         <Button
-            className="h-8 w-8 rounded-lg hover:bg-secondary transition-colors"
+            className="h-7 w-7 rounded-full hover:bg-secondary/60"
             onClick={onToggle}
             variant="ghost"
             size="icon"
         >
             {collapsed
-                ? <ChevronRight className="size-4 text-muted-foreground" />
-                : <ChevronLeft className="size-4 text-muted-foreground" />
+                ? <ChevronRight className="size-3.5 text-muted-foreground" />
+                : <ChevronLeft className="size-3.5 text-muted-foreground" />
             }
         </Button>
     );

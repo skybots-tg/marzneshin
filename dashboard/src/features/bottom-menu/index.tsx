@@ -13,15 +13,16 @@ const BottomMenuItem: FC<BottomMenuItemProps & { active: boolean }> = ({ title, 
         <Link
             to={to}
             className={cn(
-                "flex flex-col items-center justify-center gap-0.5 py-2 px-1 min-w-[3rem] rounded-xl text-[11px] font-medium transition-all duration-200",
+                "flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 min-w-[3.5rem] rounded-2xl text-[10px] font-medium",
+                "transition-all duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
                 active
-                    ? "text-primary bg-primary/10"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "text-primary"
+                    : "text-muted-foreground/70 hover:text-foreground active:scale-[0.92]"
             )}
         >
             <span className={cn(
-                "transition-transform duration-200",
-                active && "scale-110"
+                "p-1 rounded-xl transition-all duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                active && "bg-primary/10 scale-105"
             )}>
                 {icon}
             </span>
@@ -34,12 +35,12 @@ const adminItems: BottomMenuItemProps[] = [
     {
         title: i18n.t('home'),
         to: '/',
-        icon: <Home className="size-5" />,
+        icon: <Home className="size-[22px]" />,
     },
     {
         title: i18n.t('users'),
         to: '/users',
-        icon: <UsersIcon className="size-5" />,
+        icon: <UsersIcon className="size-[22px]" />,
     },
 ]
 
@@ -47,27 +48,27 @@ const sudoAdminItems: BottomMenuItemProps[] = [
     {
         title: i18n.t('home'),
         to: '/',
-        icon: <Home className="size-5" />,
+        icon: <Home className="size-[22px]" />,
     },
     {
         title: i18n.t('users'),
         to: '/users',
-        icon: <UsersIcon className="size-5" />,
+        icon: <UsersIcon className="size-[22px]" />,
     },
     {
         title: i18n.t('services'),
         to: '/services',
-        icon: <Server className="size-5" />,
+        icon: <Server className="size-[22px]" />,
     },
     {
         title: i18n.t('nodes'),
         to: '/nodes',
-        icon: <Box className="size-5" />,
+        icon: <Box className="size-[22px]" />,
     },
     {
         title: i18n.t('hosts'),
         to: '/hosts',
-        icon: <ServerCog className="size-5" />,
+        icon: <ServerCog className="size-[22px]" />,
     },
 ]
 
@@ -75,7 +76,7 @@ export const DashboardBottomMenu = ({ variant = "admin" }: { variant: "sudo-admi
     const { isCurrentRouteActive } = useIsCurrentRoute()
     const items = variant === "sudo-admin" ? sudoAdminItems : adminItems;
     return (
-        <nav className="flex flex-row items-center justify-around w-full px-2 py-1">
+        <nav className="flex flex-row items-center justify-around w-full px-2 py-1.5">
             {items.map((item: BottomMenuItemProps) => (
                 <BottomMenuItem
                     key={item.to}

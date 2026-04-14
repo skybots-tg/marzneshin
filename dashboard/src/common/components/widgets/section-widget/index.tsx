@@ -23,9 +23,9 @@ export const SectionWidget: FC<SectionWidgetProps & PropsWithChildren> = ({
 }) => {
     return (
         <Card className={className}>
-            <CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
-                <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-                    <CardTitle className="flex flex-row justify-start items-center gap-3 text-xl">
+            <CardHeader className="flex flex-col items-stretch space-y-0 border-b border-border/30 p-0 sm:flex-row">
+                <div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
+                    <CardTitle className="flex flex-row justify-start items-center gap-3 text-lg">
                         {title}
                     </CardTitle>
                     <CardDescription>
@@ -38,11 +38,11 @@ export const SectionWidget: FC<SectionWidgetProps & PropsWithChildren> = ({
                     </div>
                 }
             </CardHeader>
-            <Separator />
-            <CardContent className="p-4 flex justify-center">
+            <Separator className="bg-border/30" />
+            <CardContent className="p-5 flex justify-center">
                 {content || children}
             </CardContent>
-            {footer && <CardFooter className="flex w-full justify-center"> {footer} </CardFooter>}
+            {footer && <CardFooter className="flex w-full justify-center pb-5"> {footer} </CardFooter>}
         </Card>
     )
 }

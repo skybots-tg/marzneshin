@@ -16,6 +16,7 @@ import {
     NodesUsageWidget
 } from "@marzneshin/modules/nodes";
 import { NodeBackendSetting } from "./node-backend-setting";
+import { FilteringTab } from "./filtering-tab";
 import { AllDevicesList } from "../../devices";
 
 interface NodesSettingsDialogProps extends SettingsDialogProps {
@@ -36,9 +37,13 @@ export const NodesSettingsDialog: FC<NodesSettingsDialogProps> = ({
             <Tabs defaultValue="config">
                 <TabsList className="w-full">
                     <TabsTrigger className="w-full" value="config">{t("config")}</TabsTrigger>
+                    <TabsTrigger className="w-full" value="filtering">{t("page.nodes.filtering.tab")}</TabsTrigger>
                     <TabsTrigger className="w-full" value="info">{t("info")}</TabsTrigger>
                     <TabsTrigger className="w-full" value="devices">{t("devices")}</TabsTrigger>
                 </TabsList>
+                <TabsContent value="filtering">
+                    <FilteringTab node={entity} />
+                </TabsContent>
                 <TabsContent value="config">
                     {entity.backends.length === 0 ? (
                         <AlertCard

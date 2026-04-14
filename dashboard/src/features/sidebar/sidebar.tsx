@@ -40,7 +40,7 @@ export const DashboardSidebar: FC<DashboardSidebarProps> = ({
                         <Sidebar.Body>
                             {Object.keys(sidebarItems).map((key) => (
                                 <div className="w-full" key={key}>
-                                    <Sidebar.Group className="uppercase text-[10px] tracking-wider font-semibold text-muted-foreground/70 mb-1">
+                                    <Sidebar.Group className="uppercase text-[10px] tracking-[0.1em] font-semibold text-muted-foreground/50 mb-1.5 px-3">
                                         {key}
                                     </Sidebar.Group>
                                     {sidebarItems[key].map((item: SidebarItem) => (

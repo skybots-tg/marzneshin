@@ -222,6 +222,11 @@ class Node(Base):
     def inbound_ids(self):
         return [inbound.id for inbound in self.inbounds]
 
+    @property
+    def adblock_enabled(self) -> bool:
+        cfg = getattr(self, "filtering_config", None)
+        return cfg.adblock_enabled if cfg else False
+
 
 class NodeUserUsage(Base):
     __tablename__ = "node_user_usages"

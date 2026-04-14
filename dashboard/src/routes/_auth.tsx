@@ -3,12 +3,12 @@ import network from '@marzneshin/assets/undraw_connected_world_wuay.svg'
 
 const AuthLayout = () => {
   return (
-    <div className='grid-cols-2 w-screen h-screen md:grid bg-primary md:bg-primary-foreground'>
-      <div className="w-full h-full">
+    <div className='grid-cols-2 w-screen h-screen md:grid bg-background'>
+      <div className="w-full h-full flex items-center justify-center">
         <Outlet />
       </div>
-      <div className='hidden justify-center items-center w-full h-full md:flex bg-primary dark:bg-accent'>
-        <img src={network} className="w-1/2 h-1/2" />
+      <div className='hidden justify-center items-center w-full h-full md:flex bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 dark:from-primary/8 dark:via-primary/15 dark:to-primary/5'>
+        <img src={network} className="w-2/5 h-2/5 opacity-80" />
       </div>
     </div>
   )

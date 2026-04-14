@@ -10,3 +10,7 @@ export * from "./create-node.mutate";
 export * from "./delete-node.mutate";
 export * from "./resync-node.mutate";
 export * from "./devices.query";
+export * from "./filtering.query";
+export * from "./filtering.mutate";
+export * from "./ssh-credentials.query";
+export * from "./ssh-credentials.mutate";

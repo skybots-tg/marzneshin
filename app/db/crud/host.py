@@ -16,6 +16,7 @@ from app.db.models import (
     inbounds_services,
     hosts_services,
 )
+from app.models.node import NodeStatus
 from app.models.proxy import InboundHost as InboundHostModify
 from app.utils.mlkem import ensure_mlkem_keys, MlkemError  # noqa: F401
 
@@ -149,7 +150,10 @@ def get_inbounds_hosts(
     )
 
 
-def get_hosts_for_user(session, user_id, service_ids: list[int] | None = None):
+def get_hosts_for_user(
+    session, user_id, service_ids: list[int] | None = None,
+    exclude_unhealthy_nodes: bool = False,
+):
     """
     Get hosts for a user. Optimized version using JOINs instead of subqueries.
 
@@ -157,6 +161,7 @@ def get_hosts_for_user(session, user_id, service_ids: list[int] | None = None):
         session: Database session
         user_id: User ID
         service_ids: Optional pre-loaded list of service IDs (avoids extra query)
+        exclude_unhealthy_nodes: If True, skip hosts belonging to unhealthy nodes
     """
     if service_ids is None:
         service_ids = [
@@ -183,6 +188,13 @@ def get_hosts_for_user(session, user_id, service_ids: list[int] | None = None):
             joinedload(InboundHost.chain).joinedload(HostChain.chained_host)
         )
     )
+
+    if exclude_unhealthy_nodes:
+        hosts_with_inbound = (
+            hosts_with_inbound
+            .join(Node, Inbound.node_id == Node.id)
+            .filter(Node.status != NodeStatus.unhealthy)
+        )
 
     universal_hosts = (
         session.query(InboundHost)
