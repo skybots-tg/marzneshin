@@ -28,12 +28,14 @@ export const SettingsDialog: FC<SettingsDialogProps & PropsWithChildren> = ({
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="sm:min-w-full md:min-w-[60vw] lg:min-w-[50vw] space-y-5 max-w-[90vw]">
-                <SheetHeader>
+            <SheetContent className="sm:min-w-full md:min-w-[60vw] lg:min-w-[50vw] max-w-[90vw] overflow-hidden flex flex-col gap-0 p-0">
+                <SheetHeader className="px-6 pt-6 pb-4">
                     <SheetTitle>{t("settings")}</SheetTitle>
                 </SheetHeader>
-                <ScrollArea className="flex flex-col gap-4 h-[calc(100vh-100px)] max-h-full">
-                    {children}
+                <ScrollArea className="flex-1 min-h-0 px-6 pb-6">
+                    <div className="flex flex-col gap-4 min-w-0">
+                        {children}
+                    </div>
                 </ScrollArea>
             </SheetContent>
         </Sheet>

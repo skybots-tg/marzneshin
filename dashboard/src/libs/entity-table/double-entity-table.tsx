@@ -88,7 +88,7 @@ export function DoubleEntityTable<T>({
 
     return (
         <EntityTableContext.Provider value={contextValue}>
-            <div className="flex flex-col">
+            <div className="flex flex-col min-w-0 overflow-hidden">
                 <div className="flex flex-col md:flex-row-reverse items-center py-4 gap-2 w-full">
                     <div className="flex flex-row items-center w-full">
                         <DataTableViewOptions table={table} />
@@ -100,7 +100,7 @@ export function DoubleEntityTable<T>({
                     </div>
                     <TableSearch />
                 </div>
-                <div className="w-full rounded-md border">
+                <div className="w-full rounded-xl border overflow-hidden">
                     <EntityDataTable columns={columns} onRowClick={onOpen} />
                     <DataTablePagination table={table} />
                 </div>
