@@ -61,8 +61,16 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         atexit.register(self._close_channel)
 
     async def stop(self):
-        await self._channel.close()
         self._monitor_task.cancel()
+        if self._streaming_task:
+            self._streaming_task.cancel()
+        for task in (self._monitor_task, self._streaming_task):
+            if task:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        await self._channel.close()
 
     def _close_channel(self):
         asyncio.run(self._channel.close())

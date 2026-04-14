@@ -71,8 +71,16 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         atexit.register(self._channel.close)
 
     async def stop(self):
-        self._channel.close()
         self._monitor_task.cancel()
+        if self._streaming_task:
+            self._streaming_task.cancel()
+        for task in (self._monitor_task, self._streaming_task):
+            if task:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        self._channel.close()
 
     async def _monitor_channel(self):
         while state := self._channel._state:
