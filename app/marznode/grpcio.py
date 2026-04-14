@@ -73,11 +73,11 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         except TimeoutError:
             error_msg = f"connection timeout (5s) to {self._address}:{self._port}"
             logger.warning("Node %i: %s", self.id, error_msg)
-            await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
+            await self._set_unhealthy(error_msg)
         except Exception as e:
             error_msg = f"initial connection failed: {type(e).__name__}: {e}"
             logger.warning("Node %i: %s", self.id, error_msg)
-            await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
+            await self._set_unhealthy(error_msg)
         while state := self._channel.get_state():
             logger.debug("node %i state: %s", self.id, state.value)
             try:
@@ -97,14 +97,14 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
                 self.synced = False
                 error_msg = str(e) if str(e) else "RPC connection error"
                 logger.warning("Node %i: %s", self.id, error_msg)
-                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
+                await self._set_unhealthy(error_msg)
                 if self._streaming_task:
                     self._streaming_task.cancel()
             except Exception as e:
                 self.synced = False
                 error_msg = f"sync failed: {type(e).__name__}: {e}"
                 logger.warning("Node %i: %s", self.id, error_msg)
-                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy, error_msg)
+                await self._set_unhealthy(error_msg)
                 if self._streaming_task:
                     self._streaming_task.cancel()
             else:
@@ -137,7 +137,7 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
                 )
             except RpcError:
                 self.synced = False
-                await asyncio.to_thread(self.set_status, NodeStatus.unhealthy)
+                await self._set_unhealthy()
                 return
 
     async def update_user(
@@ -215,7 +215,7 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
             await self._sync()
         except RpcError:
             self.synced = False
-            await asyncio.to_thread(self.set_status, NodeStatus.unhealthy)
+            await self._set_unhealthy()
             raise
         else:
             await asyncio.to_thread(self.set_status, NodeStatus.healthy)

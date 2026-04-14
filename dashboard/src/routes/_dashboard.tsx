@@ -68,7 +68,10 @@ export const DashboardLayout = () => {
                             onCollapse={() => setCollapsed(true)}
                             onExpand={() => setCollapsed(false)}
                             minSize={15}
-                            className={cn("bg-card/50 min-w-[70px] border-r border-border/50")}
+                            className={cn(
+                                "min-w-[70px] border-r border-border/30",
+                                "bg-background/50"
+                            )}
                             defaultSize={20}
                             ref={panelRef}
                             maxSize={30}
@@ -78,9 +81,9 @@ export const DashboardLayout = () => {
                                 setCollapsed={setCollapsed}
                             />
                         </ResizablePanel>
-                        <ResizableHandle withHandle className="w-[1px] bg-border/40 hover:bg-primary/20 transition-colors" />
+                        <ResizableHandle withHandle className="w-[1px] bg-border/30 hover:bg-primary/20 transition-all duration-200" />
                         <ResizablePanel className="flex flex-col h-full">
-                            <main className="flex-grow flex flex-col overflow-y-auto p-5 scrollbar-thin">
+                            <main className="flex-grow flex flex-col overflow-y-auto p-6 scrollbar-thin">
                                 <Suspense fallback={<Loading />}>
                                     <Outlet />
                                 </Suspense>
@@ -89,12 +92,12 @@ export const DashboardLayout = () => {
                     </ResizablePanelGroup>
                 ) : (
                     <div className="flex flex-col h-full w-full">
-                        <main className="flex-grow flex flex-col overflow-y-auto px-3 py-3 scrollbar-thin">
+                        <main className="flex-grow flex flex-col overflow-y-auto px-4 py-4 scrollbar-thin">
                             <Suspense fallback={<Loading />}>
                                 <Outlet />
                             </Suspense>
                         </main>
-                        <footer className="shrink-0 border-t border-border/50 bg-card safe-bottom">
+                        <footer className="shrink-0 border-t border-border/30 bg-card/80 backdrop-blur-xl safe-bottom">
                             <DashboardBottomMenu variant={isSudo() ? "sudo-admin" : "admin"} />
                         </footer>
                     </div>

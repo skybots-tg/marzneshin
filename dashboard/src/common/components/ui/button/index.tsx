@@ -5,30 +5,30 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@marzneshin/common/utils";
 
 const buttonVariants = cva(
-    "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium ring-offset-background transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]",
+    "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] text-sm font-medium ring-offset-background transition-all duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97] active:opacity-90",
     {
         variants: {
             variant: {
                 default:
-                    "glass bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg",
+                    "bg-primary text-primary-foreground shadow-apple-sm hover:brightness-110 hover:shadow-apple-md",
                 destructive:
-                    "glass bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-md hover:shadow-lg",
+                    "bg-destructive text-destructive-foreground shadow-apple-sm hover:brightness-110 hover:shadow-apple-md",
                 "secondary-destructive":
-                    "glass-sm bg-destructive-accent text-destructive hover:bg-destructive/15",
+                    "bg-destructive/10 text-destructive hover:bg-destructive/15",
                 success:
-                    "glass bg-success text-success-foreground hover:bg-success/90 shadow-md hover:shadow-lg",
+                    "bg-success text-success-foreground shadow-apple-sm hover:brightness-110 hover:shadow-apple-md",
                 outline:
-                    "glass-sm border-2 border-border hover:bg-accent hover:text-accent-foreground",
+                    "border border-border/60 bg-transparent hover:bg-accent/60 text-foreground",
                 secondary:
-                    "glass-sm bg-secondary text-secondary-foreground hover:bg-secondary/80",
-                ghost: "hover:bg-accent hover:text-accent-foreground",
+                    "bg-secondary text-secondary-foreground hover:bg-secondary/70",
+                ghost: "hover:bg-accent/60 text-foreground",
                 link: "text-primary underline-offset-4 hover:underline",
             },
             size: {
-                default: "h-10 px-4 py-2",
-                sm: "h-9 rounded-lg px-3",
-                lg: "h-11 rounded-xl px-6",
-                icon: "h-10 w-10",
+                default: "h-10 px-5 py-2",
+                sm: "h-8 rounded-lg px-3.5 text-[13px]",
+                lg: "h-11 rounded-xl px-7 text-[15px]",
+                icon: "h-9 w-9 rounded-[10px]",
             },
         },
         defaultVariants: {

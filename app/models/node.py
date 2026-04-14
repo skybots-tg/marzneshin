@@ -93,6 +93,7 @@ class NodeResponse(Node):
     model_config = ConfigDict(from_attributes=True)
     inbound_ids: list[int] | None = None
     backends: list[Backend]
+    adblock_enabled: bool = False
 
 
 class NodeUsageResponse(BaseModel):

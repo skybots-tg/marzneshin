@@ -11,12 +11,13 @@ import {
 import {
     NoPropogationButton,
     Button,
+    Badge,
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger
 } from "@marzneshin/common/components"
-import { RefreshCw, ArrowLeftRight, Download } from 'lucide-react';
+import { RefreshCw, ArrowLeftRight, Download, Shield } from 'lucide-react';
 import { cn } from "@marzneshin/common/utils";
 import { useState } from "react";
 import { MigrationDialog, UpdateXrayDialog } from "@marzneshin/modules/nodes";
@@ -49,24 +50,34 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
         accessorKey: "status",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('status')} column={column} />,
         cell: ({ row }) => {
-            const { status, message } = row.original;
-            if (status === 'unhealthy' && message) {
-                return (
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <span>
-                                    <NodesStatusBadge status={NodesStatus[status]} />
-                                </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                                <p className="text-destructive">{message}</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                );
-            }
-            return <NodesStatusBadge status={NodesStatus[status]} />;
+            const { status, message, adblock_enabled } = row.original;
+            const statusBadge = status === 'unhealthy' && message ? (
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span>
+                                <NodesStatusBadge status={NodesStatus[status]} />
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                            <p className="text-destructive">{message}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            ) : (
+                <NodesStatusBadge status={NodesStatus[status]} />
+            );
+            return (
+                <div className="flex items-center gap-1.5">
+                    {statusBadge}
+                    {adblock_enabled && (
+                        <Badge variant="positive" className="h-6 gap-1">
+                            <Shield className="size-3" />
+                            Ad-block
+                        </Badge>
+                    )}
+                </div>
+            );
         },
     },
     {

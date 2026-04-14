@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import admin, node, node_update, node_migrate, service, inbounds, subscription, system, user, device
+from . import admin, node, node_update, node_migrate, node_filtering, service, inbounds, subscription, system, user, device
 
 api_router = APIRouter()
 
@@ -8,6 +8,7 @@ api_router.include_router(admin.router, prefix="/api")
 api_router.include_router(node.router, prefix="/api")
 api_router.include_router(node_update.router, prefix="/api")
 api_router.include_router(node_migrate.router, prefix="/api")
+api_router.include_router(node_filtering.router, prefix="/api")
 api_router.include_router(service.router, prefix="/api")
 api_router.include_router(inbounds.router, prefix="/api")
 api_router.include_router(subscription.router)

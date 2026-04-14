@@ -6,12 +6,12 @@ import { type VariantProps, cva } from "class-variance-authority";
 import { useSidebarContext } from "./sidebar-provider";
 
 const sidebarItemVariants = cva(
-    "w-full rounded-lg px-3 py-2 transition-all duration-200 relative group",
+    "w-full rounded-xl px-3 py-2 transition-all duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)] relative group",
     {
         variants: {
             variant: {
-                default: "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
-                active: "text-primary bg-primary/10 font-medium",
+                default: "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
+                active: "text-primary bg-primary/8 font-medium",
             },
             size: {
                 default: "",
@@ -42,7 +42,7 @@ export const SidebarItem: FC<SidebarItemProps> = ({
                 to={item.to}
                 onClick={() => setOpen?.(false)}
                 className={cn(
-                    "flex flex-row items-center text-sm gap-3",
+                    "flex flex-row items-center text-[13px] gap-3",
                     collapsed && "justify-center"
                 )}
             >

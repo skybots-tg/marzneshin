@@ -1,143 +1,74 @@
-from enum import Enum
+"""Backward-compatible shim.
 
-from decouple import config
-from dotenv import load_dotenv
+All settings are now managed by ``app.core.settings.Settings``.
+This module re-exports every name that the rest of the codebase expects
+so that existing ``from app.config.env import X`` statements keep working.
+"""
 
-load_dotenv()
+from app.core.settings import AuthAlgorithm, settings as _s
 
-DASHBOARD_PATH = config("DASHBOARD_PATH", default="/dashboard/")
+# Database
+SQLALCHEMY_DATABASE_URL = _s.db.database_url
+SQLALCHEMY_CONNECTION_POOL_SIZE = _s.db.connection_pool_size
+SQLALCHEMY_CONNECTION_MAX_OVERFLOW = _s.db.connection_max_overflow
+SQLALCHEMY_POOL_TIMEOUT = _s.db.pool_timeout
+SQLALCHEMY_POOL_RECYCLE = _s.db.pool_recycle
+SQLALCHEMY_STATEMENT_TIMEOUT = _s.db.statement_timeout
+SQLALCHEMY_CONNECT_TIMEOUT = _s.db.connect_timeout
 
-SQLALCHEMY_DATABASE_URL = config(
-    "SQLALCHEMY_DATABASE_URL", default="sqlite:///db.sqlite3"
-)
-SQLALCHEMY_CONNECTION_POOL_SIZE = config(
-    "SQLALCHEMY_CONNECTION_POOL_SIZE", default=20, cast=int
-)
-SQLALCHEMY_CONNECTION_MAX_OVERFLOW = config(
-    "SQLALCHEMY_CONNECTION_MAX_OVERFLOW", default=10, cast=int
-)
-# Pool timeout - how long to wait for a connection from the pool
-SQLALCHEMY_POOL_TIMEOUT = config(
-    "SQLALCHEMY_POOL_TIMEOUT", default=30, cast=int
-)
-# Connection recycle time - reconnect after this many seconds
-SQLALCHEMY_POOL_RECYCLE = config(
-    "SQLALCHEMY_POOL_RECYCLE", default=1800, cast=int
-)
-# Database query timeout (for supported databases)
-SQLALCHEMY_STATEMENT_TIMEOUT = config(
-    "SQLALCHEMY_STATEMENT_TIMEOUT", default=25, cast=int
-)
-# Database connection timeout
-SQLALCHEMY_CONNECT_TIMEOUT = config(
-    "SQLALCHEMY_CONNECT_TIMEOUT", default=10, cast=int
-)
+# Uvicorn
+UVICORN_HOST = _s.uvicorn.host
+UVICORN_PORT = _s.uvicorn.port
+UVICORN_UDS = _s.uvicorn.uds
+UVICORN_SSL_CERTFILE = _s.uvicorn.ssl_certfile
+UVICORN_SSL_KEYFILE = _s.uvicorn.ssl_keyfile
+UVICORN_TIMEOUT_KEEP_ALIVE = _s.uvicorn.timeout_keep_alive
+REQUEST_TIMEOUT = _s.request_timeout
 
-UVICORN_HOST = config("UVICORN_HOST", default="0.0.0.0")
-UVICORN_PORT = config("UVICORN_PORT", cast=int, default=8000)
-UVICORN_UDS = config("UVICORN_UDS", default=None)
-UVICORN_SSL_CERTFILE = config("UVICORN_SSL_CERTFILE", default=None)
-UVICORN_SSL_KEYFILE = config("UVICORN_SSL_KEYFILE", default=None)
-UVICORN_TIMEOUT_KEEP_ALIVE = config("UVICORN_TIMEOUT_KEEP_ALIVE", cast=int, default=5)
-# Request timeout for API endpoints (seconds)
-REQUEST_TIMEOUT = config("REQUEST_TIMEOUT", cast=int, default=30)
+# App flags
+DEBUG = _s.debug
+DOCS = _s.docs
+DASHBOARD_PATH = _s.dashboard_path
+VITE_BASE_API = _s.vite_base_api
 
+# Subscription
+SUBSCRIPTION_URL_PREFIX = _s.subscription_url_prefix
+SUBSCRIPTION_PAGE_TEMPLATE = _s.subscription_templates.subscription_page_template
+SINGBOX_SUBSCRIPTION_TEMPLATE = _s.subscription_templates.singbox_subscription_template
+XRAY_SUBSCRIPTION_TEMPLATE = _s.subscription_templates.xray_subscription_template
+CLASH_SUBSCRIPTION_TEMPLATE = _s.subscription_templates.clash_subscription_template
 
-DEBUG = config("DEBUG", default=False, cast=bool)
-DOCS = config("DOCS", default=False, cast=bool)
+# Telegram
+TELEGRAM_API_TOKEN = _s.telegram.api_token
+TELEGRAM_ADMIN_ID = _s.telegram.admin_id
+TELEGRAM_PROXY_URL = _s.telegram.proxy_url
+TELEGRAM_LOGGER_CHANNEL_ID = _s.telegram.logger_channel_id
 
-VITE_BASE_API = (
-    f"http://127.0.0.1:{UVICORN_PORT}/api/"
-    if DEBUG and config("VITE_BASE_API", default="/api/") == "/api/"
-    else config("VITE_BASE_API", default="/api/")
-)
+# Webhook
+WEBHOOK_ADDRESS = _s.webhook.address
+WEBHOOK_SECRET = _s.webhook.secret
 
-SUBSCRIPTION_URL_PREFIX = config("SUBSCRIPTION_URL_PREFIX", default="").strip(
-    "/"
-)
+# Auth
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = _s.jwt_access_token_expire_minutes
+AUTH_GENERATION_ALGORITHM = _s.auth_generation_algorithm
 
-TELEGRAM_API_TOKEN = config("TELEGRAM_API_TOKEN", default="")
-TELEGRAM_ADMIN_ID = config(
-    "TELEGRAM_ADMIN_ID",
-    default="",
-    cast=lambda v: [
-        int(i) for i in filter(str.isdigit, (s.strip() for s in v.split(",")))
-    ],
-)
-TELEGRAM_PROXY_URL = config("TELEGRAM_PROXY_URL", default="")
+# Templates
+CUSTOM_TEMPLATES_DIRECTORY = _s.custom_templates_directory
+HOME_PAGE_TEMPLATE = _s.home_page_template
 
-# Device limits enforcement on proxy level
-ENFORCE_DEVICE_LIMITS_ON_PROXY = config("ENFORCE_DEVICE_LIMITS_ON_PROXY", default=True, cast=bool)
-TELEGRAM_LOGGER_CHANNEL_ID = config(
-    "TELEGRAM_LOGGER_CHANNEL_ID", cast=int, default=0
-)
+# Device
+ENFORCE_DEVICE_LIMITS_ON_PROXY = _s.enforce_device_limits_on_proxy
 
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = config(
-    "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", cast=int, default=1440
-)
+# Notifications
+RECURRENT_NOTIFICATIONS_TIMEOUT = _s.notification.recurrent_notifications_timeout
+NUMBER_OF_RECURRENT_NOTIFICATIONS = _s.notification.number_of_recurrent_notifications
+NOTIFY_REACHED_USAGE_PERCENT = _s.notification.notify_reached_usage_percent
+NOTIFY_DAYS_LEFT = _s.notification.notify_days_left
+NODE_UNHEALTHY_ALERT_COOLDOWN = _s.notification.node_unhealthy_alert_cooldown
+DISABLE_RECORDING_NODE_USAGE = _s.notification.disable_recording_node_usage
 
-CUSTOM_TEMPLATES_DIRECTORY = config("CUSTOM_TEMPLATES_DIRECTORY", default=None)
-
-SUBSCRIPTION_PAGE_TEMPLATE = config(
-    "SUBSCRIPTION_PAGE_TEMPLATE", default="subscription/index.html"
-)
-HOME_PAGE_TEMPLATE = config("HOME_PAGE_TEMPLATE", default="home/index.html")
-
-SINGBOX_SUBSCRIPTION_TEMPLATE = config(
-    "SINGBOX_SUBSCRIPTION_TEMPLATE", default=None
-)
-XRAY_SUBSCRIPTION_TEMPLATE = config("XRAY_SUBSCRIPTION_TEMPLATE", default=None)
-CLASH_SUBSCRIPTION_TEMPLATE = config(
-    "CLASH_SUBSCRIPTION_TEMPLATE", default=None
-)
-
-WEBHOOK_ADDRESS = config("WEBHOOK_ADDRESS", default=None)
-WEBHOOK_SECRET = config("WEBHOOK_SECRET", default=None)
-
-
-class AuthAlgorithm(Enum):
-    PLAIN = "plain"
-    XXH128 = "xxh128"
-
-
-AUTH_GENERATION_ALGORITHM = config(
-    "AUTH_GENERATION_ALGORITHM",
-    cast=AuthAlgorithm,
-    default=AuthAlgorithm.XXH128,
-)
-
-# recurrent notifications
-
-# timeout between each retry of sending a notification in seconds
-RECURRENT_NOTIFICATIONS_TIMEOUT = config(
-    "RECURRENT_NOTIFICATIONS_TIMEOUT", default=180, cast=int
-)
-# how many times to try after ok response not received after sending a notifications
-NUMBER_OF_RECURRENT_NOTIFICATIONS = config(
-    "NUMBER_OF_RECURRENT_NOTIFICATIONS", default=3, cast=int
-)
-
-# sends a notification when the user uses this much of their data
-NOTIFY_REACHED_USAGE_PERCENT = config(
-    "NOTIFY_REACHED_USAGE_PERCENT", default=80, cast=int
-)
-
-# sends a notification when there is n days left of their service
-NOTIFY_DAYS_LEFT = config("NOTIFY_DAYS_LEFT", default=3, cast=int)
-
-DISABLE_RECORDING_NODE_USAGE = config(
-    "DISABLE_RECORDING_NODE_USAGE", cast=bool, default=False
-)
-
-TASKS_RECORD_USER_USAGES_INTERVAL = config(
-    "TASKS_RECORD_USER_USAGES_INTERVAL", default=30, cast=int
-)
-TASKS_REVIEW_USERS_INTERVAL = config(
-    "TASKS_REVIEW_USERS_INTERVAL", default=30, cast=int
-)
-TASKS_EXPIRE_DAYS_REACHED_INTERVAL = config(
-    "TASKS_EXPIRE_DAYS_REACHED_INTERVAL", default=30, cast=int
-)
-TASKS_RESET_USER_DATA_USAGE = config(
-    "TASKS_RESET_USER_DATA_USAGE", default=3600, cast=int
-)
+# Tasks
+TASKS_RECORD_USER_USAGES_INTERVAL = _s.tasks.record_user_usages_interval
+TASKS_REVIEW_USERS_INTERVAL = _s.tasks.review_users_interval
+TASKS_EXPIRE_DAYS_REACHED_INTERVAL = _s.tasks.expire_days_reached_interval
+TASKS_RESET_USER_DATA_USAGE = _s.tasks.reset_user_data_usage

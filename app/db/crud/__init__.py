@@ -64,6 +64,15 @@ from .node import (
     update_node,
     update_node_status,
 )
+from .node_filtering import (
+    get_filtering_config,
+    get_or_create_filtering_config,
+    update_filtering_config,
+    set_adguard_installed,
+    get_ssh_credentials,
+    save_ssh_credentials,
+    delete_ssh_credentials,
+)
 
 __all__ = [
     "get_subscription_settings_cached",
@@ -120,4 +129,11 @@ __all__ = [
     "remove_node",
     "update_node",
     "update_node_status",
+    "get_filtering_config",
+    "get_or_create_filtering_config",
+    "update_filtering_config",
+    "set_adguard_installed",
+    "get_ssh_credentials",
+    "save_ssh_credentials",
+    "delete_ssh_credentials",
 ]

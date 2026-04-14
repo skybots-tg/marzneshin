@@ -1,15 +1,14 @@
+import asyncio
 import logging
 import threading
-import time
 
 from app.db import crud, GetDB, device_crud
 from app.models.node import NodeStatus
 
 logger = logging.getLogger(__name__)
 
-# Throttle concurrent DB operations from node sync/status updates.
-# Without this, a reconnection storm (all nodes reconnecting at once after
-# a network blip) opens N×3+ DB connections simultaneously and exhausts the pool.
+_address_cache: dict[int, str] = {}
+
 _MAX_NODE_DB_OPS = 10
 _node_db_sem = threading.BoundedSemaphore(_MAX_NODE_DB_OPS)
 _node_db_waiting = 0
@@ -17,7 +16,6 @@ _node_db_waiting_lock = threading.Lock()
 
 
 def _acquire_node_db(timeout: float = 60) -> bool:
-    """Acquire the node-DB semaphore; returns True on success."""
     global _node_db_waiting
     with _node_db_waiting_lock:
         _node_db_waiting += 1
@@ -27,7 +25,8 @@ def _acquire_node_db(timeout: float = 60) -> bool:
             logger.error(
                 "Node DB semaphore acquire timed out after %.0fs "
                 "(%d waiters). Possible deadlock or very slow queries.",
-                timeout, _node_db_waiting,
+                timeout,
+                _node_db_waiting,
             )
         return acquired
     finally:
@@ -40,7 +39,6 @@ def _release_node_db():
 
 
 def get_node_db_pressure() -> dict:
-    """Return current node-DB throttle stats (for monitoring)."""
     return {
         "max_concurrent": _MAX_NODE_DB_OPS,
         "waiting": _node_db_waiting,
@@ -50,7 +48,9 @@ def get_node_db_pressure() -> dict:
 class MarzNodeDB:
     def list_users(self):
         if not _acquire_node_db():
-            logger.error("Node %d: skipping list_users, semaphore timeout", self.id)
+            logger.error(
+                "Node %d: skipping list_users, semaphore timeout", self.id
+            )
             return []
 
         try:
@@ -86,12 +86,16 @@ class MarzNodeDB:
 
     def store_backends(self, backends):
         if not _acquire_node_db():
-            logger.error("Node %d: skipping store_backends, semaphore timeout", self.id)
+            logger.error(
+                "Node %d: skipping store_backends, semaphore timeout", self.id
+            )
             return
 
         try:
             inbounds = [
-                inbound for backend in backends for inbound in backend.inbounds
+                inbound
+                for backend in backends
+                for inbound in backend.inbounds
             ]
             with GetDB() as db:
                 crud.ensure_node_backends(db, backends, self.id)
@@ -101,7 +105,9 @@ class MarzNodeDB:
 
     def set_status(self, status: NodeStatus, message: str | None = None):
         if not _acquire_node_db():
-            logger.error("Node %d: skipping set_status, semaphore timeout", self.id)
+            logger.error(
+                "Node %d: skipping set_status, semaphore timeout", self.id
+            )
             return
 
         try:
@@ -109,3 +115,13 @@ class MarzNodeDB:
                 crud.update_node_status(db, self.id, status, message)
         finally:
             _release_node_db()
+
+    async def _set_unhealthy(self, message: str | None = None):
+        await asyncio.to_thread(
+            self.set_status, NodeStatus.unhealthy, message
+        )
+
+        from app.notification.node_alerts import notify_node_unhealthy
+
+        address = _address_cache.get(self.id, "unknown")
+        await notify_node_unhealthy(self.id, address, message)

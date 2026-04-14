@@ -77,10 +77,21 @@ const config = {
                 },
             },
             borderRadius: {
-                xl: "calc(var(--radius) + 4px)",
+                "2xl": "calc(var(--radius) + 6px)",
+                xl: "calc(var(--radius) + 2px)",
                 lg: "var(--radius)",
                 md: "calc(var(--radius) - 2px)",
                 sm: "calc(var(--radius) - 4px)",
+            },
+            boxShadow: {
+                'apple-xs': 'var(--shadow-xs)',
+                'apple-sm': 'var(--shadow-sm)',
+                'apple-md': 'var(--shadow-md)',
+                'apple-lg': 'var(--shadow-lg)',
+                'apple-xl': 'var(--shadow-xl)',
+                'apple-card': 'var(--shadow-card)',
+                'apple-card-hover': 'var(--shadow-card-hover)',
+                'apple-float': 'var(--shadow-float)',
             },
             keyframes: {
                 "accordion-down": {
@@ -91,10 +102,25 @@ const config = {
                     from: { height: "var(--radix-accordion-content-height)" },
                     to: { height: "0" },
                 },
+                "apple-fade-in": {
+                    from: { opacity: "0", transform: "scale(0.97)" },
+                    to: { opacity: "1", transform: "scale(1)" },
+                },
+                "apple-slide-up": {
+                    from: { opacity: "0", transform: "translateY(8px)" },
+                    to: { opacity: "1", transform: "translateY(0)" },
+                },
+                "apple-slide-down": {
+                    from: { opacity: "0", transform: "translateY(-8px)" },
+                    to: { opacity: "1", transform: "translateY(0)" },
+                },
             },
             animation: {
-                "accordion-down": "accordion-down 0.2s ease-out",
-                "accordion-up": "accordion-up 0.2s ease-out",
+                "accordion-down": "accordion-down 0.25s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                "accordion-up": "accordion-up 0.25s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                "apple-fade-in": "apple-fade-in 0.3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                "apple-slide-up": "apple-slide-up 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                "apple-slide-down": "apple-slide-down 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
             },
         },
     },

@@ -29,13 +29,13 @@ export const HeaderMenu: FC = () => {
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="h-9 w-9 rounded-lg hover:bg-secondary transition-colors"
+                    className="h-8 w-8 rounded-full hover:bg-secondary/80"
                 >
-                    <MenuIcon className="size-[18px] text-foreground" />
+                    <MenuIcon className="size-[17px] text-foreground" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+            <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 px-3">
                     Menu
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
