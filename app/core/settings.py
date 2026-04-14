@@ -37,21 +37,20 @@ class TelegramSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TELEGRAM_")
 
     api_token: str = ""
-    admin_id: list[int] = Field(default_factory=list)
+    admin_id: str = ""
     proxy_url: str = ""
     logger_channel_id: int = 0
 
-    @field_validator("admin_id", mode="before")
-    @classmethod
-    def parse_admin_ids(cls, v):
-        if isinstance(v, str):
-            return [
-                int(i)
-                for i in filter(
-                    str.isdigit, (s.strip() for s in v.split(","))
-                )
-            ]
-        return v
+    def get_admin_ids(self) -> list[int]:
+        raw = self.admin_id.strip().strip("[]")
+        if not raw:
+            return []
+        return [
+            int(i)
+            for i in filter(
+                str.isdigit, (s.strip() for s in raw.split(","))
+            )
+        ]
 
 
 class WebhookSettings(BaseSettings):

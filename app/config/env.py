@@ -40,7 +40,7 @@ CLASH_SUBSCRIPTION_TEMPLATE = _s.subscription_templates.clash_subscription_templ
 
 # Telegram
 TELEGRAM_API_TOKEN = _s.telegram.api_token
-TELEGRAM_ADMIN_ID = _s.telegram.admin_id
+TELEGRAM_ADMIN_ID = _s.telegram.get_admin_ids()
 TELEGRAM_PROXY_URL = _s.telegram.proxy_url
 TELEGRAM_LOGGER_CHANNEL_ID = _s.telegram.logger_channel_id
 

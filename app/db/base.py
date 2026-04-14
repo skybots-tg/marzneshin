@@ -53,6 +53,17 @@ def _build_connect_args():
     return {}
 
 
+def _get_max_connections(pool):
+    """Return the maximum number of connections the pool can hold.
+
+    Returns None when overflow is unlimited (-1).
+    """
+    max_overflow = getattr(pool, "_max_overflow", 0)
+    if max_overflow < 0:
+        return None
+    return pool.size() + max_overflow
+
+
 def _attach_pool_diagnostics(eng):
     """Attach checkout/checkin event listeners for pool pressure diagnostics."""
 
@@ -60,8 +71,8 @@ def _attach_pool_diagnostics(eng):
     def _on_checkout(dbapi_conn, conn_record, conn_proxy):
         conn_record.info["_checkout_at"] = time.monotonic()
         pool = eng.pool
-        max_conn = pool.size() + pool._max_overflow
-        if max_conn <= 0:
+        max_conn = _get_max_connections(pool)
+        if not max_conn:
             return
         checked = pool.checkedout()
         utilization = checked / max_conn
@@ -102,9 +113,9 @@ def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle):
         def _set_mysql_timeout(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             if IS_MARIADB:
-                cursor.execute(f"SET SESSION max_statement_time = {SQLALCHEMY_STATEMENT_TIMEOUT}")
+                cursor.execute("SET SESSION max_statement_time = %s", (int(SQLALCHEMY_STATEMENT_TIMEOUT),))
             else:
-                cursor.execute(f"SET SESSION max_execution_time = {SQLALCHEMY_STATEMENT_TIMEOUT * 1000}")
+                cursor.execute("SET SESSION max_execution_time = %s", (int(SQLALCHEMY_STATEMENT_TIMEOUT * 1000),))
             cursor.close()
 
     if not IS_SQLITE:
@@ -137,13 +148,14 @@ _engine_lock = threading.Lock()
 
 def get_pool_stats():
     """Return live pool statistics for the main engine."""
-    pool = engine.pool
-    # pool.overflow() can be negative (means pool hasn't filled to base size yet);
-    # clamp to 0 for a user-friendly display.
+    with _engine_lock:
+        eng = engine
+    pool = eng.pool
     raw_overflow = pool.overflow()
+    max_conn = _get_max_connections(pool)
     return {
         "pool_size": pool.size(),
-        "max_overflow": engine.pool._max_overflow,
+        "max_overflow": getattr(pool, "_max_overflow", 0),
         "checked_out": pool.checkedout(),
         "checked_in": pool.checkedin(),
         "overflow": max(0, raw_overflow),
@@ -152,7 +164,7 @@ def get_pool_stats():
         "statement_timeout": SQLALCHEMY_STATEMENT_TIMEOUT,
         "connect_timeout": SQLALCHEMY_CONNECT_TIMEOUT,
         "total_connections": pool.checkedout() + pool.checkedin(),
-        "max_connections": pool.size() + engine.pool._max_overflow,
+        "max_connections": max_conn or -1,
     }
 
 
@@ -165,7 +177,7 @@ def reconfigure_pool(pool_size: int, max_overflow: int,
         old_engine = engine
         engine = _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle)
         SessionLocal.configure(bind=engine)
-        old_engine.dispose()
+        old_engine.dispose(close=False)
         logger.info(
             f"Pool reconfigured: pool_size={pool_size}, max_overflow={max_overflow}, "
             f"pool_timeout={pool_timeout}, pool_recycle={pool_recycle}"
