@@ -95,6 +95,20 @@
         "copy": "kopî birrwaname",
         "error": "birrwaname berdest nîye",
         "copied": "birrwaname kopî kira"
+      },
+      "ssh_pin": {
+        "title": "SSH PIN",
+        "configured": "PIN hatiye saz kirin û çalak e",
+        "not_configured": "PIN nehatiye saz kirin",
+        "has_credentials_warning": "Dema ku nasnameyên SSH hatine hilanîn, PIN nikare were jêbirin.",
+        "enter_pin": "PIN-a 4 hejmarî binivîse",
+        "pin_desc": "PIN nasnameyên SSH yên li ser serverê diparêze",
+        "setup": "PIN saz bike",
+        "setup_success": "SSH PIN bi serkeftî hat saz kirin",
+        "setup_error": "Saz kirina SSH PIN bi ser neket",
+        "delete": "PIN jê bibe",
+        "delete_success": "SSH PIN bi serkeftî hat jêbirin",
+        "delete_error": "Jêbirina SSH PIN bi ser neket"
       }
     },
     "login": {

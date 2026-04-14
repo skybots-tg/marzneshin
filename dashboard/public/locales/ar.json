@@ -116,6 +116,20 @@
         "copy": "نسخ الشهادة",
         "error": "الشهادة غير متاحة",
         "copied": "تم نسخ الشهادة"
+      },
+      "ssh_pin": {
+        "title": "رمز SSH PIN",
+        "configured": "رمز PIN مُعد ونشط",
+        "not_configured": "رمز PIN غير مُعد",
+        "has_credentials_warning": "لا يمكن حذف رمز PIN أثناء تخزين بيانات اعتماد SSH. قم بإزالة البيانات أولاً.",
+        "enter_pin": "أدخل رمز PIN المكون من 4 أرقام",
+        "pin_desc": "رمز PIN يحمي بيانات اعتماد SSH المخزنة على الخادم",
+        "setup": "تعيين رمز PIN",
+        "setup_success": "تم تعيين رمز SSH PIN بنجاح",
+        "setup_error": "فشل في تعيين رمز SSH PIN",
+        "delete": "إزالة رمز PIN",
+        "delete_success": "تم إزالة رمز SSH PIN بنجاح",
+        "delete_error": "فشل في إزالة رمز SSH PIN"
       }
     },
     "login": {
