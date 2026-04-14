@@ -44,6 +44,7 @@ interface UseSidebarEntityTableParams<T, S> {
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;
     onDelete: (entity: T) => void;
+    onDuplicate?: (entity: T) => void;
 }
 
 export const useSidebarEntityTable = <T, S>({
@@ -56,6 +57,7 @@ export const useSidebarEntityTable = <T, S>({
     onEdit,
     onOpen,
     onDelete,
+    onDuplicate,
     sidebarEntityId,
     setSidebarEntityId,
     sidebarEntities,
@@ -102,7 +104,7 @@ export const useSidebarEntityTable = <T, S>({
         initialData: { entities: [], pageCount: 1 },
     });
 
-    const columns = columnsFn({ onEdit, onDelete, onOpen });
+    const columns = columnsFn({ onEdit, onDelete, onOpen, onDuplicate });
     const table = useEntityTable({
         data,
         columns,

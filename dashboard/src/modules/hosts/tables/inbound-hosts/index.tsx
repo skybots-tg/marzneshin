@@ -1,14 +1,17 @@
 import {
     HostType,
     fetchHosts,
+    fetchHost,
+    HostQueryFetchKey,
     HostsOrderDialog,
+    useHostsCreationMutation,
 } from '@marzneshin/modules/hosts';
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
     useInboundsQuery,
 } from '@marzneshin/modules/inbounds';
-import { SidebarEntityTable } from '@marzneshin/libs/entity-table';
+import { SidebarEntityTable, useRowSelection } from '@marzneshin/libs/entity-table';
 import { columns } from './columns';
 import { useDialog } from '@marzneshin/common/hooks';
 import {
@@ -21,6 +24,8 @@ import {
 import { Button } from "@marzneshin/common/components";
 import { ArrowUpDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
+import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 
 export const InboundHostsTable = () => {
     const { t } = useTranslation();
@@ -29,10 +34,27 @@ export const InboundHostsTable = () => {
     const navigate = useNavigate({ from: "/hosts" })
     const [inboundSelectionAlert, setInboundSelectionAlert] = useDialog();
     const [orderDialogOpen, setOrderDialogOpen] = useState(false);
+    const rowSelection = useRowSelection({});
+    const createMutation = useHostsCreationMutation();
+    const queryClient = useQueryClient();
 
     const onEdit = (entity: HostType) => navigate({ to: "/hosts/$hostId/edit", params: { hostId: String(entity.id) } });
     const onDelete = (entity: HostType) => navigate({ to: "/hosts/$hostId/delete", params: { hostId: String(entity.id) } });
-    const onOpen = (entity: HostType) => navigate({ to: "/hosts/$hostId", params: { hostId: String(entity.id) } });
+    const onOpen = (entity: HostType) => navigate({ to: "/hosts/$hostId/edit", params: { hostId: String(entity.id) } });
+    const getRowClassName = useCallback((entity: HostType) => {
+        return entity.is_disabled ? "opacity-50" : undefined;
+    }, []);
+
+    const onDuplicate = useCallback(async (entity: HostType) => {
+        if (!entity.id || !entity.inboundId) return;
+        const fullHost = await fetchHost({ queryKey: [HostQueryFetchKey, entity.id] });
+        const { id: _id, inboundId: _inboundId, protocol: _protocol, ...hostData } = fullHost;
+        await createMutation.mutateAsync({
+            inboundId: entity.inboundId,
+            host: { ...hostData, remark: `${hostData.remark} (copy)` },
+        });
+        queryClient.invalidateQueries({ queryKey: ["inbounds"] });
+    }, [createMutation, queryClient]);
 
     const onCreate = () => {
         if (selectedInbound) {
@@ -72,20 +94,26 @@ export const InboundHostsTable = () => {
                 onOpen={onOpen}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onDuplicate={onDuplicate}
+                rowSelection={rowSelection}
+                getRowClassName={getRowClassName}
                 sidebarCardProps={{
                     header: InboundCardHeader,
                     content: InboundCardContent
                 }}
                 extraActions={
-                    <Button
-                        variant="outline"
-                        onClick={() => setOrderDialogOpen(true)}
-                        className="gap-2"
-                        title={t("page.hosts.order.title", "Manage Servers Order")}
-                    >
-                        <ArrowUpDown className="h-4 w-4" />
-                        <span className="hidden sm:inline">{t("page.hosts.order.button", "Order")}</span>
-                    </Button>
+                    <>
+                        <BulkActionsToolbar />
+                        <Button
+                            variant="outline"
+                            onClick={() => setOrderDialogOpen(true)}
+                            className="gap-2"
+                            title={t("page.hosts.order.title", "Manage Servers Order")}
+                        >
+                            <ArrowUpDown className="h-4 w-4" />
+                            <span className="hidden sm:inline">{t("page.hosts.order.button", "Order")}</span>
+                        </Button>
+                    </>
                 }
             />
         </div>

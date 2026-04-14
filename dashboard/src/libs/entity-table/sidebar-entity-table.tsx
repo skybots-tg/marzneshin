@@ -46,12 +46,14 @@ interface SidebarEntityTableProps<T, S> {
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;
     onDelete: (entity: T) => void;
+    onDuplicate?: (entity: T) => void;
     extraActions?: React.ReactNode;
+    getRowClassName?: (original: T) => string | undefined;
 }
 
 function MainTable<T, S>({ table, columns, props }: { table: Table<T>, columns: any, props: SidebarEntityTableProps<T, S> }) {
     return <div className="flex flex-col justify-between size-full">
-        <EntityDataTable columns={columns} onRowClick={props.onOpen} />
+        <EntityDataTable columns={columns} onRowClick={props.onOpen} getRowClassName={props.getRowClassName} />
         <DataTablePagination table={table} />
     </div>;
 }

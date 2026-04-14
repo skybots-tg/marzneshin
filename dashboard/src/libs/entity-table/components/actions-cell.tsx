@@ -12,7 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@marzneshin/common/components"
-import { MoreHorizontal, PencilIcon, TrashIcon } from "lucide-react"
+import { MoreHorizontal, PencilIcon, TrashIcon, CopyIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 interface DataTableActionsCellProps<TData>
@@ -21,10 +21,11 @@ interface DataTableActionsCellProps<TData>
     onDelete: (object: TData) => void,
     onEdit: (object: TData) => void,
     onOpen: (object: TData) => void,
+    onDuplicate?: (object: TData) => void,
 }
 
 export function DataTableActionsCell<TData>({
-    row, onDelete, onEdit, onOpen
+    row, onDelete, onEdit, onOpen, onDuplicate
 }: DataTableActionsCellProps<TData>) {
     const { t } = useTranslation();
 
@@ -45,6 +46,11 @@ export function DataTableActionsCell<TData>({
                 <DropdownMenuItem data-testid="action-row-edit" onClick={(e) => { e.stopPropagation(); onEdit(row.original) }}>
                     <PencilIcon className="mr-1 w-4 h-4 text-foreground" />    {t('edit')}
                 </DropdownMenuItem>
+                {onDuplicate && (
+                    <DropdownMenuItem data-testid="action-row-duplicate" onClick={(e) => { e.stopPropagation(); onDuplicate(row.original) }}>
+                        <CopyIcon className="mr-1 w-4 h-4 text-foreground" /> {t('duplicate')}
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem data-testid="action-row-delete" onClick={(e) => { e.stopPropagation(); onDelete(row.original) }} className="text-destructive">
                     <TrashIcon className="mr-1 w-4 h-4 text-destructive" />{t('delete')}
                 </DropdownMenuItem>
