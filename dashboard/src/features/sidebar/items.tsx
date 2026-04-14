@@ -8,54 +8,53 @@ import {
     ShieldCheck,
     Settings,
 } from 'lucide-react';
-import i18n from "@marzneshin/features/i18n";
 
 const iconClass = "size-[18px]";
 
 export const sidebarItems: SidebarObject = {
-    Dashboard: [
+    dashboard: [
         {
-            title: i18n.t('home'),
+            title: 'home',
             to: '/',
             icon: <Home className={iconClass} />,
             isParent: false,
         },
     ],
-    Management: [
+    management: [
         {
-            title: i18n.t('users'),
+            title: 'users',
             to: '/users',
             icon: <Users className={iconClass} />,
             isParent: false,
         },
         {
-            title: i18n.t('services'),
+            title: 'services',
             to: '/services',
             icon: <Server className={iconClass} />,
             isParent: false,
         },
         {
-            title: i18n.t('nodes'),
+            title: 'nodes',
             to: '/nodes',
             icon: <Box className={iconClass} />,
             isParent: false,
         },
         {
-            title: i18n.t('hosts'),
+            title: 'hosts',
             to: '/hosts',
             icon: <Network className={iconClass} />,
             isParent: false,
         },
     ],
-    System: [
+    system: [
         {
-            title: i18n.t('admins'),
+            title: 'admins',
             to: '/admins',
             icon: <ShieldCheck className={iconClass} />,
             isParent: false,
         },
         {
-            title: i18n.t('settings'),
+            title: 'settings',
             to: '/settings',
             icon: <Settings className={iconClass} />,
             isParent: false,
@@ -64,17 +63,17 @@ export const sidebarItems: SidebarObject = {
 };
 
 export const sidebarItemsNonSudoAdmin: SidebarObject = {
-    Dashboard: [
+    dashboard: [
         {
-            title: i18n.t('home'),
+            title: 'home',
             to: '/',
             icon: <Home className={iconClass} />,
             isParent: false,
         },
     ],
-    Management: [
+    management: [
         {
-            title: i18n.t('users'),
+            title: 'users',
             to: '/users',
             icon: <Users className={iconClass} />,
             isParent: false,

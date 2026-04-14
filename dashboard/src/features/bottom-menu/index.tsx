@@ -1,14 +1,15 @@
 import { SidebarItem } from "@marzneshin/common/components";
-import i18n from "@marzneshin/features/i18n";
 import { Link } from "@tanstack/react-router";
 import { FC } from "react";
 import { Box, Home, Server, ServerCog, UsersIcon } from 'lucide-react';
 import { useIsCurrentRoute } from "@marzneshin/common/hooks";
 import { cn } from "@marzneshin/common/utils";
+import { useTranslation } from "react-i18next";
 
 type BottomMenuItemProps = Omit<SidebarItem, 'isParent' | 'subItem'>
 
 const BottomMenuItem: FC<BottomMenuItemProps & { active: boolean }> = ({ title, icon, to, active }) => {
+    const { t } = useTranslation();
     return (
         <Link
             to={to}
@@ -26,19 +27,19 @@ const BottomMenuItem: FC<BottomMenuItemProps & { active: boolean }> = ({ title, 
             )}>
                 {icon}
             </span>
-            <span className="truncate max-w-[4rem]">{title}</span>
+            <span className="truncate max-w-[4rem]">{t(title)}</span>
         </Link>
     )
 }
 
 const adminItems: BottomMenuItemProps[] = [
     {
-        title: i18n.t('home'),
+        title: 'home',
         to: '/',
         icon: <Home className="size-[22px]" />,
     },
     {
-        title: i18n.t('users'),
+        title: 'users',
         to: '/users',
         icon: <UsersIcon className="size-[22px]" />,
     },
@@ -46,27 +47,27 @@ const adminItems: BottomMenuItemProps[] = [
 
 const sudoAdminItems: BottomMenuItemProps[] = [
     {
-        title: i18n.t('home'),
+        title: 'home',
         to: '/',
         icon: <Home className="size-[22px]" />,
     },
     {
-        title: i18n.t('users'),
+        title: 'users',
         to: '/users',
         icon: <UsersIcon className="size-[22px]" />,
     },
     {
-        title: i18n.t('services'),
+        title: 'services',
         to: '/services',
         icon: <Server className="size-[22px]" />,
     },
     {
-        title: i18n.t('nodes'),
+        title: 'nodes',
         to: '/nodes',
         icon: <Box className="size-[22px]" />,
     },
     {
-        title: i18n.t('hosts'),
+        title: 'hosts',
         to: '/hosts',
         icon: <ServerCog className="size-[22px]" />,
     },

@@ -9,6 +9,7 @@ import { cn } from "@marzneshin/common/utils";
 import { useAuth } from "@marzneshin/modules/auth";
 import { SupportUs } from "@marzneshin/features/support-us";
 import { projectInfo } from "@marzneshin/common/utils";
+import { useTranslation } from "react-i18next";
 
 interface DashboardSidebarProps {
     collapsed: boolean;
@@ -25,6 +26,7 @@ export const DashboardSidebar: FC<DashboardSidebarProps> = ({
 }) => {
     const { isSudo } = useAuth();
     const { isCurrentRouteActive } = useIsCurrentRoute()
+    const { t } = useTranslation();
     const sidebarItems = isSudo() ? sidebarItemsSudoAdmin : sidebarItemsNonSudoAdmin
     return (
         <aside className="size-full py-3 px-3">
@@ -41,7 +43,7 @@ export const DashboardSidebar: FC<DashboardSidebarProps> = ({
                             {Object.keys(sidebarItems).map((key) => (
                                 <div className="w-full" key={key}>
                                     <Sidebar.Group className="uppercase text-[10px] tracking-[0.1em] font-semibold text-muted-foreground/50 mb-1.5 px-3">
-                                        {key}
+                                        {t(key)}
                                     </Sidebar.Group>
                                     {sidebarItems[key].map((item: SidebarItem) => (
                                         <Sidebar.Item
