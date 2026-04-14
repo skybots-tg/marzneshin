@@ -7,9 +7,58 @@ Create Date: 2024-01-15 09:48:24.808505
 """
 
 import os
+from datetime import datetime, timedelta
+
 from alembic import op
 import sqlalchemy as sa
-from app.utils.crypto import generate_certificate
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import ExtendedKeyUsageOID
+
+
+def generate_certificate():
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = issuer = x509.Name([])
+    subject_key_id = x509.SubjectKeyIdentifier.from_public_key(key.public_key())
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.utcnow())
+        .not_valid_after(datetime.utcnow() + timedelta(days=3650))
+        .add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True
+        )
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True, content_commitment=False,
+                key_encipherment=True, data_encipherment=False,
+                key_agreement=False, key_cert_sign=False,
+                crl_sign=False, encipher_only=False, decipher_only=False,
+            ),
+            critical=False,
+        )
+        .add_extension(subject_key_id, critical=False)
+        .add_extension(
+            x509.ExtendedKeyUsage([
+                ExtendedKeyUsageOID.SERVER_AUTH,
+                ExtendedKeyUsageOID.CLIENT_AUTH,
+            ]),
+            critical=False,
+        )
+        .sign(private_key=key, algorithm=hashes.SHA256())
+    )
+    return {
+        "cert": cert.public_bytes(serialization.Encoding.PEM).decode(),
+        "key": key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode(),
+    }
 
 # revision identifiers, used by Alembic.
 revision = "20faa9f18c0a"

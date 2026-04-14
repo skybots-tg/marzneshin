@@ -3,6 +3,7 @@ import json
 import os
 
 import bcrypt
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -57,6 +58,34 @@ def decrypt_credentials(encrypted_data: str, salt: str, pin: str, secret: str) -
         raise ValueError("Decryption failed — wrong PIN or corrupted data") from exc
 
     return json.loads(plaintext)
+
+
+def encrypt_content(content: str | bytes, key: str) -> str:
+    """Encrypt content using AES-256-GCM.
+
+    Returns base64-encoded: nonce(12 bytes) || ciphertext || tag(16 bytes).
+    """
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    key_hash = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    key_hash.update(key.encode("utf-8"))
+    derived_key = key_hash.finalize()
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(derived_key)
+    ciphertext = aesgcm.encrypt(nonce, content, None)
+    return base64.b64encode(nonce + ciphertext).decode("utf-8")
+
+
+def decrypt_content(encrypted_content: str, key: str) -> bytes:
+    """Decrypt content encrypted with encrypt_content."""
+    encrypted_data = base64.b64decode(encrypted_content)
+    nonce = encrypted_data[:12]
+    ciphertext = encrypted_data[12:]
+    key_hash = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    key_hash.update(key.encode("utf-8"))
+    derived_key = key_hash.finalize()
+    aesgcm = AESGCM(derived_key)
+    return aesgcm.decrypt(nonce, ciphertext, None)
 
 
 def hash_pin(pin: str) -> str:
