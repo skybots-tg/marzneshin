@@ -37,3 +37,4 @@ class Settings(Base):
     id = Column(Integer, primary_key=True, server_default=text("0"))
     subscription = Column(JSON, nullable=False)
     telegram = Column(JSON)
+    ssh_pin_hash = Column(String(256), nullable=True)

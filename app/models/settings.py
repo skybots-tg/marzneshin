@@ -43,6 +43,15 @@ class Settings(BaseModel):
     telegram: TelegramSettings | None
 
 
+class SSHPinStatus(BaseModel):
+    configured: bool
+    has_credentials: bool
+
+
+class SSHPinSetup(BaseModel):
+    pin: str = Field(min_length=4, max_length=4, pattern=r"^\d{4}$")
+
+
 class DatabasePoolConfig(BaseModel):
     pool_size: int = Field(ge=1, le=200)
     max_overflow: int = Field(ge=0, le=200)

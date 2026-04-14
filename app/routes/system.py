@@ -18,6 +18,8 @@ from app.models.settings import (
     TelegramSettings,
     DatabasePoolConfig,
     DatabasePoolStats,
+    SSHPinStatus,
+    SSHPinSetup,
 )
 from app.models.system import (
     UsersStats,
@@ -96,6 +98,42 @@ def update_database_pool_settings(
         pool_recycle=config.pool_recycle,
     )
     return get_pool_stats()
+
+
+@router.get("/settings/ssh-pin", response_model=SSHPinStatus)
+def get_ssh_pin_status(db: DBDep, admin: SudoAdminDep):
+    pin_hash = crud.get_ssh_pin_hash(db)
+    has_creds = crud.has_any_ssh_credentials(db)
+    return SSHPinStatus(configured=pin_hash is not None, has_credentials=has_creds)
+
+
+@router.post("/settings/ssh-pin", response_model=SSHPinStatus)
+def setup_ssh_pin(db: DBDep, body: SSHPinSetup, admin: SudoAdminDep):
+    from app.utils.crypto import hash_pin
+
+    existing = crud.get_ssh_pin_hash(db)
+    if existing is not None:
+        raise HTTPException(409, "PIN is already configured. Delete it first.")
+
+    crud.set_ssh_pin_hash(db, hash_pin(body.pin))
+    return SSHPinStatus(configured=True, has_credentials=False)
+
+
+@router.delete("/settings/ssh-pin", response_model=SSHPinStatus)
+def delete_ssh_pin(db: DBDep, admin: SudoAdminDep):
+    existing = crud.get_ssh_pin_hash(db)
+    if existing is None:
+        raise HTTPException(404, "PIN is not configured")
+
+    if crud.has_any_ssh_credentials(db):
+        raise HTTPException(
+            409,
+            "Cannot delete PIN while SSH credentials exist. "
+            "Delete all stored SSH credentials first.",
+        )
+
+    crud.clear_ssh_pin_hash(db)
+    return SSHPinStatus(configured=False, has_credentials=False)
 
 
 @router.get("/stats/admins", response_model=AdminsStats)
