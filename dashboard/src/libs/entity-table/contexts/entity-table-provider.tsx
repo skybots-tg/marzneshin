@@ -9,6 +9,8 @@ interface EntityTableContextProps<TData> {
     primaryFilter: UsePrimaryFilterReturn
     filters: UseFiltersReturn
     isLoading: boolean
+    isError: boolean
+    refetch: () => void
 }
 
 export const EntityTableContext = createContext<EntityTableContextProps<any> | null>(null);

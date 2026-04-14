@@ -3,6 +3,7 @@ import {
     defer,
     Await,
     Outlet,
+    useNavigate,
 } from "@tanstack/react-router";
 import {
     RouterHostContext,
@@ -13,13 +14,16 @@ import {
     AlertDialog,
     AlertDialogContent,
     AlertDialogTitle,
-    Loading
+    AlertDialogFooter,
+    Loading,
+    Button,
 } from "@marzneshin/common/components";
+import { useTranslation } from "react-i18next";
 
 const HostProvider = () => {
     const { host } = Route.useLoaderData()
     return (
-        <Suspense fallback={<Loading />}>
+        <Suspense fallback={<Loading inline />}>
             <Await promise={host}>
                 {(host) => (
                     <RouterHostContext.Provider value={{ host }}>
@@ -33,6 +37,23 @@ const HostProvider = () => {
     )
 }
 
+const HostNotFound = () => {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+    return (
+        <AlertDialog open={true}>
+            <AlertDialogContent>
+                <AlertDialogTitle>{t('not-found', { entity: t('hosts') })}</AlertDialogTitle>
+                <AlertDialogFooter>
+                    <Button variant="outline" onClick={() => navigate({ to: '/hosts' })}>
+                        {t('go-back')}
+                    </Button>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+};
+
 export const Route = createFileRoute('/_dashboard/hosts/$hostId')({
     loader: async ({ params }) => {
         const hostPromise = fetchHost({
@@ -43,14 +64,6 @@ export const Route = createFileRoute('/_dashboard/hosts/$hostId')({
             host: defer(hostPromise)
         }
     },
-    errorComponent: () => (
-        <AlertDialog open={true}>
-            <AlertDialogContent>
-                <AlertDialogTitle>
-                    Host not found
-                </AlertDialogTitle>
-            </AlertDialogContent>
-        </AlertDialog>
-    ),
+    errorComponent: HostNotFound,
     component: HostProvider,
 })

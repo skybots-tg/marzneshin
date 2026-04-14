@@ -84,7 +84,7 @@ export const DashboardLayout = () => {
                         <ResizableHandle withHandle className="w-[1px] bg-border/30 hover:bg-primary/20 transition-all duration-200" />
                         <ResizablePanel className="flex flex-col h-full">
                             <main className="flex-grow flex flex-col overflow-y-auto p-6 scrollbar-thin">
-                                <Suspense fallback={<Loading />}>
+                                <Suspense fallback={<Loading inline />}>
                                     <Outlet />
                                 </Suspense>
                             </main>
@@ -93,7 +93,7 @@ export const DashboardLayout = () => {
                 ) : (
                     <div className="flex flex-col h-full w-full">
                         <main className="flex-grow flex flex-col overflow-y-auto px-4 py-4 scrollbar-thin">
-                            <Suspense fallback={<Loading />}>
+                            <Suspense fallback={<Loading inline />}>
                                 <Outlet />
                             </Suspense>
                         </main>

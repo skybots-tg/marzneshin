@@ -2,7 +2,8 @@ import {
     createFileRoute,
     defer,
     Await,
-    Outlet
+    Outlet,
+    useNavigate,
 } from "@tanstack/react-router";
 import {
     fetchNode,
@@ -12,14 +13,18 @@ import { Suspense } from "react";
 import {
     AlertDialog,
     AlertDialogContent,
+    AlertDialogTitle,
+    AlertDialogFooter,
     Loading,
+    Button,
 } from "@marzneshin/common/components";
+import { useTranslation } from "react-i18next";
 
 const NodeProvider = () => {
     const { node } = Route.useLoaderData()
 
     return (
-        <Suspense fallback={<Loading />}>
+        <Suspense fallback={<Loading inline />}>
             <Await promise={node}>
                 {(node) => (
                     <RouterNodeContext.Provider value={{ node }}>
@@ -30,6 +35,23 @@ const NodeProvider = () => {
                 )}
             </Await>
         </Suspense>
+    );
+};
+
+const NodeNotFound = () => {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+    return (
+        <AlertDialog open={true}>
+            <AlertDialogContent>
+                <AlertDialogTitle>{t('not-found', { entity: t('nodes') })}</AlertDialogTitle>
+                <AlertDialogFooter>
+                    <Button variant="outline" onClick={() => navigate({ to: '/nodes' })}>
+                        {t('go-back')}
+                    </Button>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     );
 };
 
@@ -44,9 +66,5 @@ export const Route = createFileRoute('/_dashboard/nodes/$nodeId')({
         }
     },
     component: NodeProvider,
-    errorComponent: () => (
-        <AlertDialog open={true}>
-            <AlertDialogContent>Node not found</AlertDialogContent>
-        </AlertDialog>
-    ),
+    errorComponent: NodeNotFound,
 })
