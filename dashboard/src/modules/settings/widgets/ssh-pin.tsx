@@ -23,7 +23,7 @@ const PinInput = ({
     onChange: (pin: string) => void;
 }) => {
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const digits = value.padEnd(PIN_LENGTH, "").split("").slice(0, PIN_LENGTH);
+    const digits = value.padEnd(PIN_LENGTH, " ").split("").slice(0, PIN_LENGTH);
 
     const focusAt = (index: number) => {
         inputRefs.current[index]?.focus();
