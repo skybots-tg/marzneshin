@@ -110,22 +110,16 @@ export const DatabaseSettingsWidget = () => {
                                     max={data.max_connections}
                                     label={tdb("total-connections")}
                                 />
-                                <div className="flex items-center justify-between text-sm">
-                                    <span className="text-muted-foreground">
-                                        {tdb("overflow")}
-                                    </span>
-                                    <span className="tabular-nums font-medium">
-                                        {data.overflow}/{data.max_overflow}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between text-sm">
-                                    <span className="text-muted-foreground">
-                                        {tdb("idle")}
-                                    </span>
-                                    <span className="tabular-nums font-medium">
-                                        {data.checked_in}
-                                    </span>
-                                </div>
+                                <PoolGauge
+                                    used={data.overflow}
+                                    max={data.max_overflow}
+                                    label={tdb("overflow")}
+                                />
+                                <PoolGauge
+                                    used={data.checked_in}
+                                    max={data.pool_size}
+                                    label={tdb("idle")}
+                                />
                             </>
                         )}
                         {isFetching && !data && (
