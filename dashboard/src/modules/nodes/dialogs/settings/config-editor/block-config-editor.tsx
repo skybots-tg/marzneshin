@@ -1,5 +1,4 @@
 import type { FC } from "react";
-import { ScrollArea } from "@marzneshin/common/components";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ConfigBlock, ConfigBlockItem } from "./types";
 import { SectionBlock } from "./section-block";

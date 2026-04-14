@@ -64,7 +64,7 @@ def _get_max_connections(pool):
     return pool.size() + max_overflow
 
 
-def _attach_pool_diagnostics(eng):
+def _attach_pool_diagnostics(eng, name: str):
     """Attach checkout/checkin event listeners for pool pressure diagnostics."""
 
     @event.listens_for(eng, "checkout")
@@ -78,8 +78,8 @@ def _attach_pool_diagnostics(eng):
         utilization = checked / max_conn
         if utilization >= 0.8:
             logger.warning(
-                "Pool high utilization on checkout: %d/%d (%.0f%%), overflow=%d",
-                checked, max_conn, utilization * 100, max(0, pool.overflow()),
+                "[%s] Pool high utilization on checkout: %d/%d (%.0f%%), overflow=%d",
+                name, checked, max_conn, utilization * 100, max(0, pool.overflow()),
             )
 
     @event.listens_for(eng, "checkin")
@@ -89,10 +89,14 @@ def _attach_pool_diagnostics(eng):
             return
         held = time.monotonic() - start
         if held > _LONG_CHECKOUT_WARN:
-            logger.warning("Connection returned after %.1fs (threshold %ds)", held, _LONG_CHECKOUT_WARN)
+            logger.warning(
+                "[%s] Connection returned after %.1fs (threshold %ds)",
+                name, held, _LONG_CHECKOUT_WARN,
+            )
 
 
-def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle):
+def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle,
+                   *, name: str = "unknown"):
     """Create a SQLAlchemy engine with given pool parameters."""
     kwargs = dict(
         pool_size=pool_size,
@@ -119,66 +123,108 @@ def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle):
             cursor.close()
 
     if not IS_SQLITE:
-        _attach_pool_diagnostics(eng)
+        _attach_pool_diagnostics(eng, name)
 
     return eng
 
 
-# --- Main engine (used by the entire application) ---
-engine = _create_engine(
+class EnginePool:
+    """Unified engine pool with stats, reconfiguration, and thread safety."""
+
+    def __init__(self, name: str, pool_size: int, max_overflow: int,
+                 pool_timeout: int, pool_recycle: int):
+        self.name = name
+        self._lock = threading.Lock()
+        self._engine = _create_engine(
+            pool_size, max_overflow, pool_timeout, pool_recycle,
+            name=name,
+        )
+        self.session_factory = sessionmaker(
+            autocommit=False, autoflush=False, bind=self._engine,
+        )
+        logger.info(
+            "[%s] Pool created: pool_size=%d, max_overflow=%d",
+            name, pool_size, max_overflow,
+        )
+
+    @property
+    def engine(self):
+        with self._lock:
+            return self._engine
+
+    def get_stats(self) -> dict:
+        """Return live pool statistics."""
+        with self._lock:
+            pool = self._engine.pool
+        raw_overflow = pool.overflow()
+        max_conn = _get_max_connections(pool)
+        return {
+            "name": self.name,
+            "pool_size": pool.size(),
+            "max_overflow": getattr(pool, "_max_overflow", 0),
+            "checked_out": pool.checkedout(),
+            "checked_in": pool.checkedin(),
+            "overflow": max(0, raw_overflow),
+            "pool_timeout": SQLALCHEMY_POOL_TIMEOUT,
+            "pool_recycle": SQLALCHEMY_POOL_RECYCLE,
+            "statement_timeout": SQLALCHEMY_STATEMENT_TIMEOUT,
+            "connect_timeout": SQLALCHEMY_CONNECT_TIMEOUT,
+            "total_connections": pool.checkedout() + pool.checkedin(),
+            "max_connections": max_conn or -1,
+        }
+
+    def reconfigure(self, pool_size: int, max_overflow: int,
+                    pool_timeout: int, pool_recycle: int):
+        """Recreate the engine with new pool parameters (thread-safe)."""
+        with self._lock:
+            old = self._engine
+            self._engine = _create_engine(
+                pool_size, max_overflow, pool_timeout, pool_recycle,
+                name=self.name,
+            )
+            self.session_factory.configure(bind=self._engine)
+            old.dispose(close=False)
+            logger.info(
+                "[%s] Pool reconfigured: pool_size=%d, max_overflow=%d, "
+                "pool_timeout=%d, pool_recycle=%d",
+                self.name, pool_size, max_overflow, pool_timeout, pool_recycle,
+            )
+
+
+# --- Pool instances ---
+main_pool = EnginePool(
+    "main",
     SQLALCHEMY_CONNECTION_POOL_SIZE,
     SQLALCHEMY_CONNECTION_MAX_OVERFLOW,
     SQLALCHEMY_POOL_TIMEOUT,
     SQLALCHEMY_POOL_RECYCLE,
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# --- Settings engine (dedicated small pool, always accessible) ---
-settings_engine = _create_engine(
-    _SETTINGS_POOL_SIZE, _SETTINGS_MAX_OVERFLOW,
-    SQLALCHEMY_POOL_TIMEOUT, SQLALCHEMY_POOL_RECYCLE,
+settings_pool = EnginePool(
+    "settings",
+    _SETTINGS_POOL_SIZE,
+    _SETTINGS_MAX_OVERFLOW,
+    SQLALCHEMY_POOL_TIMEOUT,
+    SQLALCHEMY_POOL_RECYCLE,
 )
-SettingsSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=settings_engine)
+
+# --- Backward-compatible aliases ---
+engine = main_pool.engine
+SessionLocal = main_pool.session_factory
+settings_engine = settings_pool.engine
+SettingsSessionLocal = settings_pool.session_factory
 
 Base = declarative_base()
-
-# Lock for thread-safe engine  reconfiguration
-_engine_lock = threading.Lock()
 
 
 def get_pool_stats():
     """Return live pool statistics for the main engine."""
-    with _engine_lock:
-        eng = engine
-    pool = eng.pool
-    raw_overflow = pool.overflow()
-    max_conn = _get_max_connections(pool)
-    return {
-        "pool_size": pool.size(),
-        "max_overflow": getattr(pool, "_max_overflow", 0),
-        "checked_out": pool.checkedout(),
-        "checked_in": pool.checkedin(),
-        "overflow": max(0, raw_overflow),
-        "pool_timeout": SQLALCHEMY_POOL_TIMEOUT,
-        "pool_recycle": SQLALCHEMY_POOL_RECYCLE,
-        "statement_timeout": SQLALCHEMY_STATEMENT_TIMEOUT,
-        "connect_timeout": SQLALCHEMY_CONNECT_TIMEOUT,
-        "total_connections": pool.checkedout() + pool.checkedin(),
-        "max_connections": max_conn or -1,
-    }
+    return main_pool.get_stats()
 
 
 def reconfigure_pool(pool_size: int, max_overflow: int,
                      pool_timeout: int, pool_recycle: int):
     """Recreate the main engine with new pool parameters (thread-safe)."""
-    global engine, SessionLocal
-
-    with _engine_lock:
-        old_engine = engine
-        engine = _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle)
-        SessionLocal.configure(bind=engine)
-        old_engine.dispose(close=False)
-        logger.info(
-            f"Pool reconfigured: pool_size={pool_size}, max_overflow={max_overflow}, "
-            f"pool_timeout={pool_timeout}, pool_recycle={pool_recycle}"
-        )
+    global engine
+    main_pool.reconfigure(pool_size, max_overflow, pool_timeout, pool_recycle)
+    engine = main_pool.engine
