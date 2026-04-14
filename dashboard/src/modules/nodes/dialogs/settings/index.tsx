@@ -34,7 +34,7 @@ export const NodesSettingsDialog: FC<NodesSettingsDialogProps> = ({
 
     return (
         <SettingsDialog open={open} onClose={onClose} onOpenChange={onOpenChange}>
-            <Tabs defaultValue="config">
+            <Tabs defaultValue="config" className="min-w-0">
                 <TabsList className="w-full">
                     <TabsTrigger className="w-full" value="config">{t("config")}</TabsTrigger>
                     <TabsTrigger className="w-full" value="filtering">{t("page.nodes.filtering.tab")}</TabsTrigger>
@@ -80,19 +80,18 @@ export const NodesSettingsDialog: FC<NodesSettingsDialogProps> = ({
                     )}
                 </TabsContent>
                 <TabsContent value="info">
-                    <div className="my-4">
-                        <h1 className="font-medium font-header">
-                            {t("page.nodes.settings.detail")}
-                        </h1>
-                        <NodesDetailTable node={entity} />
+                    <div className="space-y-5 mt-2">
+                        <div>
+                            <h2 className="text-sm font-semibold text-foreground mb-3">
+                                {t("page.nodes.settings.detail")}
+                            </h2>
+                            <NodesDetailTable node={entity} />
+                        </div>
+                        <NodesUsageWidget node={entity} />
                     </div>
-                    <NodesUsageWidget node={entity} />
                 </TabsContent>
-                <TabsContent value="devices">
-                    <div className="my-4">
-                        <h1 className="font-medium font-header mb-4">
-                            {t("page.nodes.devices.title")}
-                        </h1>
+                <TabsContent value="devices" className="min-w-0 overflow-hidden">
+                    <div className="mt-2 min-w-0 overflow-hidden">
                         <AllDevicesList nodeId={entity.id} />
                     </div>
                 </TabsContent>
