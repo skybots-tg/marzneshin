@@ -26,7 +26,8 @@ import {
 } from "@marzneshin/common/components"
 import { useScreenBreakpoint } from "@marzneshin/common/hooks";
 import { AppRouterPaths } from "@marzneshin/common/types";
-import i18n from "@marzneshin/features/i18n";
+import { useTranslation } from "react-i18next";
+import { type TFunction } from "i18next";
 
 interface Dir {
     href: AppRouterPaths;
@@ -38,17 +39,17 @@ interface NavigationDirectoryProps {
 }
 
 
-function getPathDirs(currentPath: string, sidebar: SidebarObject): Dir[] {
+function getPathDirs(currentPath: string, sidebar: SidebarObject, t: TFunction): Dir[] {
     const dirs: Dir[] = [];
-    const pathArray = currentPath.split('/').filter(Boolean); // Split path and remove empty strings
+    const pathArray = currentPath.split('/').filter(Boolean);
     let fullPath = '/';
     for (let i = 0; i < pathArray.length; i++) {
         const dir = pathArray[i];
         fullPath += `/${dir}`;
         if (sidebar[dir]) {
-            dirs.push({ href: sidebar[dir][0].to, label: sidebar[dir][0].title });
+            dirs.push({ href: sidebar[dir][0].to, label: t(sidebar[dir][0].title) });
         } else {
-            dirs.push({ href: fullPath as AppRouterPaths, label: i18n.t(dir) });
+            dirs.push({ href: fullPath as AppRouterPaths, label: t(dir) });
         }
     }
     return dirs;
@@ -59,7 +60,8 @@ const ITEMS_TO_DISPLAY = 3
 export const NavigationDirectory: FC<NavigationDirectoryProps> = ({ sidebar }) => {
     const [open, setOpen] = React.useState(false)
     const currentPath = useRouterState().location.pathname;
-    const items = getPathDirs(currentPath, sidebar);
+    const { t } = useTranslation();
+    const items = getPathDirs(currentPath, sidebar, t);
     const isDesktop = useScreenBreakpoint("md");
     return (
         <Breadcrumb>
@@ -92,9 +94,9 @@ export const NavigationDirectory: FC<NavigationDirectoryProps> = ({ sidebar }) =
                                     </DrawerTrigger>
                                     <DrawerContent>
                                         <DrawerHeader className="text-left">
-                                            <DrawerTitle>Navigate to</DrawerTitle>
+                                            <DrawerTitle>{t('navigate-to')}</DrawerTitle>
                                             <DrawerDescription>
-                                                Select a page to navigate to.
+                                                {t('select-page')}
                                             </DrawerDescription>
                                         </DrawerHeader>
                                         <div className="grid gap-1 px-4">
@@ -110,7 +112,7 @@ export const NavigationDirectory: FC<NavigationDirectoryProps> = ({ sidebar }) =
                                         </div>
                                         <DrawerFooter className="pt-4">
                                             <DrawerClose asChild>
-                                                <Button variant="outline">Close</Button>
+                                                <Button variant="outline">{t('close')}</Button>
                                             </DrawerClose>
                                         </DrawerFooter>
                                     </DrawerContent>

@@ -4,6 +4,7 @@ import type { SidebarItem as SidebarItemType } from "./types";
 import { cn } from "@marzneshin/common/utils";
 import { type VariantProps, cva } from "class-variance-authority";
 import { useSidebarContext } from "./sidebar-provider";
+import { useTranslation } from "react-i18next";
 
 const sidebarItemVariants = cva(
     "w-full rounded-xl px-3 py-2 transition-all duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)] relative group",
@@ -33,6 +34,7 @@ export const SidebarItem: FC<SidebarItemProps> = ({
     variant,
 }) => {
     const { collapsed, setOpen } = useSidebarContext();
+    const { t } = useTranslation();
     return (
         <li
             key={item.title}
@@ -47,7 +49,7 @@ export const SidebarItem: FC<SidebarItemProps> = ({
                 )}
             >
                 <span className="shrink-0">{item.icon}</span>
-                {!collapsed && <span className="truncate">{item.title}</span>}
+                {!collapsed && <span className="truncate">{t(item.title)}</span>}
             </Link>
         </li>
     );
