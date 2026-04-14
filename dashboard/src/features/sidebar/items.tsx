@@ -7,6 +7,7 @@ import {
     Network,
     ShieldCheck,
     Settings,
+    Bot,
 } from 'lucide-react';
 
 const iconClass = "size-[18px]";
@@ -51,6 +52,12 @@ export const sidebarItems: SidebarObject = {
             title: 'admins',
             to: '/admins',
             icon: <ShieldCheck className={iconClass} />,
+            isParent: false,
+        },
+        {
+            title: 'ai-assistant',
+            to: '/ai',
+            icon: <Bot className={iconClass} />,
             isParent: false,
         },
         {
