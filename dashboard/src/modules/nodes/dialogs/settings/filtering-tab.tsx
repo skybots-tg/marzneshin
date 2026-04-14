@@ -30,6 +30,7 @@ import {
     useStoreSSHCredsMutation,
     useDeleteSSHCredsMutation,
 } from "@marzneshin/modules/nodes";
+import { useSSHPinStatusQuery } from "@marzneshin/modules/settings";
 import { InstallAdGuardDialog } from "./install-adguard-dialog";
 import {
     Shield,
@@ -39,12 +40,14 @@ import {
     Trash2,
     Save,
     Download,
+    AlertTriangle,
 } from "lucide-react";
 
 export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
     const { t } = useTranslation();
     const { data: config } = useFilteringConfigQuery(node.id);
     const { data: sshInfo } = useSSHCredsQuery(node.id);
+    const { data: pinStatus } = useSSHPinStatusQuery();
     const filteringMutation = useFilteringMutation();
     const storeSSHMutation = useStoreSSHCredsMutation();
     const deleteSSHMutation = useDeleteSSHCredsMutation();
@@ -279,6 +282,17 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                         <CardContent className="space-y-4 pt-0">
+                            {!pinStatus.configured && (
+                                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                                    <AlertTriangle className="size-4 shrink-0" />
+                                    <span>
+                                        {t(
+                                            "page.nodes.filtering.ssh.pin_not_configured",
+                                        )}
+                                    </span>
+                                </div>
+                            )}
+
                             {sshInfo.exists ? (
                                 <div className="space-y-3">
                                     <p className="text-sm text-muted-foreground">
@@ -314,6 +328,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                 onChange={(e) =>
                                                     setSshUser(e.target.value)
                                                 }
+                                                disabled={!pinStatus.configured}
                                             />
                                         </div>
                                         <div className="space-y-1">
@@ -328,6 +343,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                 onChange={(e) =>
                                                     setSshPort(e.target.value)
                                                 }
+                                                disabled={!pinStatus.configured}
                                             />
                                         </div>
                                     </div>
@@ -353,6 +369,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                             "password",
                                                         )
                                                     }
+                                                    disabled={!pinStatus.configured}
                                                 />
                                                 <span className="text-sm">
                                                     {t(
@@ -371,6 +388,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                     onChange={() =>
                                                         setSshAuthMethod("key")
                                                     }
+                                                    disabled={!pinStatus.configured}
                                                 />
                                                 <span className="text-sm">
                                                     SSH Key
@@ -394,6 +412,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                         e.target.value,
                                                     )
                                                 }
+                                                disabled={!pinStatus.configured}
                                             />
                                         </div>
                                     ) : (
@@ -407,6 +426,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                     setSshKey(e.target.value)
                                                 }
                                                 placeholder="/path/to/key"
+                                                disabled={!pinStatus.configured}
                                             />
                                         </div>
                                     )}
@@ -429,10 +449,11 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                                         .slice(0, 4),
                                                 )
                                             }
+                                            disabled={!pinStatus.configured}
                                         />
                                         <p className="text-xs text-muted-foreground">
                                             {t(
-                                                "page.nodes.filtering.ssh.pin_desc",
+                                                "page.nodes.filtering.ssh.pin_verify_desc",
                                             )}
                                         </p>
                                     </div>
@@ -441,6 +462,7 @@ export const FilteringTab: FC<{ node: NodeType }> = ({ node }) => {
                                         onClick={handleSaveSSH}
                                         className="w-full"
                                         disabled={
+                                            !pinStatus.configured ||
                                             sshPin.length !== 4 ||
                                             (!sshPassword && !sshKey) ||
                                             storeSSHMutation.isPending

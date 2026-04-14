@@ -55,7 +55,6 @@ def save_ssh_credentials(
     node_id: int,
     encrypted_data: str,
     encryption_salt: str,
-    pin_hash: str,
 ) -> NodeSSHCredentials:
     creds = get_ssh_credentials(db, node_id)
     if creds is None:
@@ -63,16 +62,24 @@ def save_ssh_credentials(
             node_id=node_id,
             encrypted_data=encrypted_data,
             encryption_salt=encryption_salt,
-            pin_hash=pin_hash,
         )
         db.add(creds)
     else:
         creds.encrypted_data = encrypted_data
         creds.encryption_salt = encryption_salt
-        creds.pin_hash = pin_hash
     db.commit()
     db.refresh(creds)
     return creds
+
+
+def has_any_ssh_credentials(db: Session) -> bool:
+    return db.query(NodeSSHCredentials).first() is not None
+
+
+def delete_all_ssh_credentials(db: Session) -> int:
+    count = db.query(NodeSSHCredentials).delete()
+    db.commit()
+    return count
 
 
 def delete_ssh_credentials(db: Session, node_id: int) -> bool:

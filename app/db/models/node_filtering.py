@@ -51,4 +51,3 @@ class NodeSSHCredentials(Base):
 
     encrypted_data = Column(Text, nullable=False)
     encryption_salt = Column(String(128), nullable=False)
-    pin_hash = Column(String(256), nullable=False)

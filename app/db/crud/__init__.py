@@ -4,6 +4,9 @@ from .system import (
     get_system_usage,
     get_jwt_secret_key,
     get_tls_certificate,
+    get_ssh_pin_hash,
+    set_ssh_pin_hash,
+    clear_ssh_pin_hash,
 )
 from .host import (
     add_default_hosts,
@@ -72,6 +75,8 @@ from .node_filtering import (
     get_ssh_credentials,
     save_ssh_credentials,
     delete_ssh_credentials,
+    has_any_ssh_credentials,
+    delete_all_ssh_credentials,
 )
 
 __all__ = [
@@ -136,4 +141,9 @@ __all__ = [
     "get_ssh_credentials",
     "save_ssh_credentials",
     "delete_ssh_credentials",
+    "has_any_ssh_credentials",
+    "delete_all_ssh_credentials",
+    "get_ssh_pin_hash",
+    "set_ssh_pin_hash",
+    "clear_ssh_pin_hash",
 ]

@@ -22,7 +22,6 @@ from app.models.node_filtering import (
 from app.utils.crypto import (
     encrypt_credentials,
     decrypt_credentials,
-    hash_pin,
     verify_pin,
 )
 from app.utils.xray_config_patcher import patch_config_enable, patch_config_disable
@@ -134,6 +133,12 @@ def store_ssh_creds(
     if not body.ssh_password and not body.ssh_key:
         raise HTTPException(400, "Either ssh_password or ssh_key is required")
 
+    pin_hash = crud.get_ssh_pin_hash(db)
+    if not pin_hash:
+        raise HTTPException(400, "Global SSH PIN is not configured. Set it in system settings first.")
+    if not verify_pin(body.pin, pin_hash):
+        raise HTTPException(403, "Invalid PIN")
+
     secret = get_secret_key()
     payload = {
         "ssh_user": body.ssh_user,
@@ -142,8 +147,7 @@ def store_ssh_creds(
         "ssh_key": body.ssh_key,
     }
     encrypted_data, salt = encrypt_credentials(payload, body.pin, secret)
-    pin_h = hash_pin(body.pin)
-    crud.save_ssh_credentials(db, node_id, encrypted_data, salt, pin_h)
+    crud.save_ssh_credentials(db, node_id, encrypted_data, salt)
     return SSHCredentialsInfo(
         exists=True, ssh_user=body.ssh_user, ssh_port=body.ssh_port
     )
@@ -177,7 +181,10 @@ async def install_adguard(
     if not creds_row:
         raise HTTPException(400, "No stored SSH credentials for this node")
 
-    if not verify_pin(body.pin, creds_row.pin_hash):
+    pin_hash = crud.get_ssh_pin_hash(db)
+    if not pin_hash:
+        raise HTTPException(400, "Global SSH PIN is not configured")
+    if not verify_pin(body.pin, pin_hash):
         raise HTTPException(403, "Invalid PIN")
 
     secret = get_secret_key()

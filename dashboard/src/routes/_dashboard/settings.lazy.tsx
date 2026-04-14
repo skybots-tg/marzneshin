@@ -1,5 +1,5 @@
 import { Page, VStack } from '@marzneshin/common/components'
-import { CertificateWidget } from '@marzneshin/modules/settings'
+import { CertificateWidget, SSHPinWidget } from '@marzneshin/modules/settings'
 import { SubscriptionSettingsWidget } from '@marzneshin/modules/settings/subscription'
 import { DatabaseSettingsWidget } from '@marzneshin/modules/settings/database'
 import { createLazyFileRoute } from '@tanstack/react-router'
@@ -19,6 +19,7 @@ export const Settings = () => {
       </VStack>
       <VStack className="gap-3">
         <DatabaseSettingsWidget />
+        <SSHPinWidget />
       </VStack>
     </Page>
   )
