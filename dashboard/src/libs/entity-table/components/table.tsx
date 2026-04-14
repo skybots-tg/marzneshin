@@ -18,6 +18,7 @@ import { type FC } from "react";
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     onRowClick?: (object: TData) => void
+    getRowClassName?: (original: TData) => string | undefined
 }
 
 const Headers = () => {
@@ -37,7 +38,8 @@ const Headers = () => {
 
 const Rows: FC<Readonly<DataTableProps<any, any>>> = ({
     columns,
-    onRowClick
+    onRowClick,
+    getRowClassName,
 }) => {
     const { table } = useEntityTableContext();
     const { t } = useTranslation();
@@ -49,6 +51,7 @@ const Rows: FC<Readonly<DataTableProps<any, any>>> = ({
                 data-state={row.getIsSelected() ? "selected" : undefined}
                 data-testid="entity-table-row"
                 onClick={() => onRowClick?.(row.original)}
+                className={getRowClassName?.(row.original)}
             >
                 {row.getVisibleCells().map(cell => (
                     <TableCell key={cell.id}>
@@ -93,6 +96,7 @@ const Loading = () => (
 export function EntityDataTable<TData, TValue>({
     columns,
     onRowClick,
+    getRowClassName,
 }: Readonly<DataTableProps<TData, TValue>>) {
     const { isLoading } = useEntityTableContext();
 
@@ -100,7 +104,7 @@ export function EntityDataTable<TData, TValue>({
         <Table className="w-full">
             <TableHeader> <Headers /> </TableHeader>
             <TableBody>
-                {isLoading ? <Loading /> : <Rows onRowClick={onRowClick} columns={columns} />}
+                {isLoading ? <Loading /> : <Rows onRowClick={onRowClick} columns={columns} getRowClassName={getRowClassName} />}
             </TableBody>
         </Table>
     );
