@@ -114,7 +114,7 @@ export const ArrayItemBlock: FC<ArrayItemBlockProps> = ({
 
                                 <div className="ml-auto shrink-0">
                                     <BlockActions
-                                        onCopy={onDuplicate}
+                                        onDuplicate={onDuplicate}
                                         onDelete={onRemove}
                                     />
                                 </div>
