@@ -103,6 +103,20 @@
         "copy": "复制证书",
         "error": "证书不可用",
         "copied": "证书已复制"
+      },
+      "ssh_pin": {
+        "title": "SSH PIN码",
+        "configured": "PIN码已配置并激活",
+        "not_configured": "PIN码未配置",
+        "has_credentials_warning": "存储SSH凭据时无法删除PIN码。请先删除凭据。",
+        "enter_pin": "输入4位PIN码",
+        "pin_desc": "PIN码保护存储在服务器上的SSH凭据",
+        "setup": "设置PIN码",
+        "setup_success": "SSH PIN码设置成功",
+        "setup_error": "SSH PIN码设置失败",
+        "delete": "删除PIN码",
+        "delete_success": "SSH PIN码已成功删除",
+        "delete_error": "SSH PIN码删除失败"
       }
     },
     "nodes": {

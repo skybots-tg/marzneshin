@@ -34,6 +34,20 @@
         "copy": "Copy Certificate",
         "error": "Certificate Unavailable",
         "copied": "Certificate Copied"
+      },
+      "ssh_pin": {
+        "title": "SSH PIN",
+        "configured": "PIN is configured and active",
+        "not_configured": "PIN is not configured",
+        "has_credentials_warning": "Cannot delete PIN while SSH credentials are stored.",
+        "enter_pin": "Enter 4-digit PIN",
+        "pin_desc": "PIN protects SSH credentials stored on the server",
+        "setup": "Set PIN",
+        "setup_success": "SSH PIN set successfully",
+        "setup_error": "Failed to set SSH PIN",
+        "delete": "Remove PIN",
+        "delete_success": "SSH PIN removed successfully",
+        "delete_error": "Failed to remove SSH PIN"
       }
     },
     "login": {
