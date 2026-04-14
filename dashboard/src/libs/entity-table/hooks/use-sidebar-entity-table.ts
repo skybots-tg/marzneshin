@@ -98,7 +98,7 @@ export const useSidebarEntityTable = <T, S>({
         { filters: filters.columnsFilter }
     ];
 
-    const { data, isFetching } = useQuery({
+    const { data, isFetching, isError, refetch } = useQuery({
         queryFn: fetchEntity,
         queryKey: query,
         initialData: { entities: [], pageCount: 1 },
@@ -117,8 +117,8 @@ export const useSidebarEntityTable = <T, S>({
     });
 
     const entityTableContextValue = useMemo(
-        () => ({ entityKey, table, data: data.entities, primaryFilter, filters, isLoading: isFetching }),
-        [entityKey, table, data.entities, filters, primaryFilter, isFetching],
+        () => ({ entityKey, table, data: data.entities, primaryFilter, filters, isLoading: isFetching, isError, refetch }),
+        [entityKey, table, data.entities, filters, primaryFilter, isFetching, isError, refetch],
     );
 
     const sidebarEntityTableContextValue = useMemo(

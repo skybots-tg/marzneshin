@@ -158,7 +158,7 @@ export const InlineEditableCell = ({
         )
     }
 
-    const display = displayValue ?? getFieldValue(host, field) || emptyFallback
+    const display = displayValue ?? (getFieldValue(host, field) || emptyFallback)
 
     return (
         <span
