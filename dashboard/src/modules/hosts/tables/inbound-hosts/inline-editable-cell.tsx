@@ -43,24 +43,22 @@ export function useInlineEdit({ host, field, emptyFallback = "" }: UseInlineEdit
         }
     }, [isEditing])
 
-    const handleStartEdit = useCallback(async (e: React.MouseEvent) => {
+    const handleStartEdit = useCallback((e: React.MouseEvent) => {
         e.stopPropagation()
         if (!host.id) return
-        const result = await refetchHost()
-        if (result.data) {
-            setValue(getFieldValue(result.data as Record<string, any>, field))
-            setIsEditing(true)
-        }
-    }, [host.id, refetchHost, field])
+        setValue(getFieldValue(host, field))
+        setIsEditing(true)
+        refetchHost()
+    }, [host, field, refetchHost])
 
     const handleSave = useCallback(async () => {
-        if (!host.id || !fullHost) {
+        if (!host.id) {
             setIsEditing(false)
             return
         }
 
         const trimmedValue = value.trim()
-        const currentValue = getFieldValue(fullHost as Record<string, any>, field)
+        const currentValue = getFieldValue(host, field)
 
         if (trimmedValue === currentValue) {
             setIsEditing(false)
@@ -96,14 +94,23 @@ export function useInlineEdit({ host, field, emptyFallback = "" }: UseInlineEdit
         )
 
         try {
+            let hostData = fullHost
+            if (!hostData) {
+                const result = await refetchHost()
+                hostData = result.data
+            }
+            if (!hostData) {
+                queryClient.invalidateQueries({ queryKey: ["inbounds"] })
+                return
+            }
             await updateMutation.mutateAsync({
                 hostId: host.id,
-                host: { ...fullHost, [field]: parsedValue },
+                host: { ...hostData, [field]: parsedValue },
             })
         } catch {
             queryClient.invalidateQueries({ queryKey: ["inbounds"] })
         }
-    }, [host.id, fullHost, value, field, emptyFallback, updateMutation, queryClient])
+    }, [host, fullHost, value, field, emptyFallback, updateMutation, queryClient, refetchHost])
 
     const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter") {
