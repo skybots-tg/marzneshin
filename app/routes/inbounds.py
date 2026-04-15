@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi import HTTPException
+from fastapi_pagination.customization import CustomizedPage, UseParamsFields
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
 from pydantic import BaseModel
@@ -8,6 +9,12 @@ from app.db import crud
 from app.db.models import InboundHost as DBInboundHost, Inbound as DBInbound
 from app.dependencies import DBDep, sudo_admin
 from app.models.proxy import Inbound, InboundHost, InboundHostResponse
+
+
+LargePage = CustomizedPage[
+    Page,
+    UseParamsFields(size=Query(50, ge=1, le=500)),
+]
 
 
 class HostWeightUpdate(BaseModel):
@@ -37,7 +44,7 @@ def get_inbounds(db: DBDep, tag: str = Query(None)):
     return paginate(db, query)
 
 
-@router.get("/hosts", response_model=Page[InboundHostResponse])
+@router.get("/hosts", response_model=LargePage[InboundHostResponse])
 def get_hosts(
     db: DBDep,
     remark: str | None = Query(None),
@@ -131,7 +138,7 @@ def get_inbound(id: int, db: DBDep):
     return inbound
 
 
-@router.get("/{id}/hosts", response_model=Page[InboundHostResponse])
+@router.get("/{id}/hosts", response_model=LargePage[InboundHostResponse])
 def get_inbound_hosts(
     id: int,
     db: DBDep,
