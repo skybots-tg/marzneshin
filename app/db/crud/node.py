@@ -39,6 +39,12 @@ def get_nodes(
     return query.all()
 
 
+def _make_aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def get_node_usage(
     db: Session, start: datetime, end: datetime, node: Node
 ) -> TrafficUsageSeries:
@@ -46,6 +52,8 @@ def get_node_usage(
     cutoff = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ) - timedelta(days=settings.tasks.usage_retention_days)
+    start = _make_aware(start)
+    end = _make_aware(end)
 
     # Hourly data
     hourly_start = max(start, cutoff)

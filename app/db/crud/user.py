@@ -118,8 +118,15 @@ def get_users(
     return query.all()
 
 
+def _make_aware(dt: datetime) -> datetime:
+    """Ensure a datetime is timezone-aware (UTC)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _get_retention_cutoff() -> datetime:
-    """Boundary between hourly (recent) and daily (old) data."""
+    """Boundary between hourly (recent) and daily (old) data. Always aware."""
     return datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ) - timedelta(days=settings.tasks.usage_retention_days)
@@ -130,6 +137,8 @@ def get_user_total_usage(
 ):
     usages = defaultdict(int)
     cutoff = _get_retention_cutoff()
+    start = _make_aware(start)
+    end = _make_aware(end)
 
     # Hourly data (recent period)
     hourly_start = max(start, cutoff)
@@ -205,6 +214,8 @@ def get_total_usages(
 ) -> TrafficUsageSeries:
     usages = defaultdict(int)
     cutoff = _get_retention_cutoff()
+    start = _make_aware(start)
+    end = _make_aware(end)
 
     # Hourly data
     hourly_start = max(start, cutoff)
@@ -281,6 +292,8 @@ def get_user_usages(
 ) -> UserUsageSeriesResponse:
     usages = defaultdict(lambda: defaultdict(int))
     cutoff = _get_retention_cutoff()
+    start = _make_aware(start)
+    end = _make_aware(end)
 
     # Hourly data
     hourly_start = max(start, cutoff)
