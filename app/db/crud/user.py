@@ -120,7 +120,7 @@ def get_users(
 
 def _get_retention_cutoff() -> datetime:
     """Boundary between hourly (recent) and daily (old) data."""
-    return datetime.utcnow().replace(
+    return datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ) - timedelta(days=settings.tasks.usage_retention_days)
 

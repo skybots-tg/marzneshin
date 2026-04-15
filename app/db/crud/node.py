@@ -43,7 +43,7 @@ def get_node_usage(
     db: Session, start: datetime, end: datetime, node: Node
 ) -> TrafficUsageSeries:
     usages = defaultdict(int)
-    cutoff = datetime.utcnow().replace(
+    cutoff = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ) - timedelta(days=settings.tasks.usage_retention_days)
 
