@@ -33,7 +33,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
-    model: str = "gpt-4o"
+    model: str | None = None
     session_id: str | None = None
 
 
