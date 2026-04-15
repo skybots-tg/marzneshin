@@ -131,7 +131,6 @@ def get_admin_services(username: str, db: DBDep, admin: SudoAdminDep):
 
     eager = [
         selectinload(Service.inbounds).load_only(Inbound.id),
-        selectinload(Service.users).load_only(User.id, User.removed),
     ]
 
     if db_admin.is_sudo or db_admin.all_services_access:

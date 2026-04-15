@@ -34,6 +34,7 @@ class ServiceModify(Service):
 
 class ServiceResponse(Service):
     inbound_ids: list[int]
-    user_ids: list[int]
+    user_ids: list[int] = []
+    user_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)

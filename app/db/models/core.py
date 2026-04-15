@@ -103,7 +103,26 @@ class Service(Base):
 
     @property
     def user_ids(self):
+        from sqlalchemy.orm.attributes import instance_state
+        if "users" not in instance_state(self).dict:
+            return []
         return [user.id for user in self.users if not user.removed]
+
+    @classmethod
+    def __declare_last__(cls):
+        cls.user_count = column_property(
+            select(func.count(users_services.c.user_id))
+            .join(User, users_services.c.user_id == User.id)
+            .where(
+                and_(
+                    users_services.c.service_id == cls.id,
+                    User.removed != True,
+                )
+            )
+            .correlate(cls)
+            .scalar_subquery(),
+            deferred=False,
+        )
 
 
 class User(Base):

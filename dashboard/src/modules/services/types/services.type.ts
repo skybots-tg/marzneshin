@@ -4,4 +4,5 @@ export interface ServiceType {
     name: string;
     user_ids: number[];
     inbound_ids: number[];
+    user_count: number;
 }
