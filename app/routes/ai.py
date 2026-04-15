@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -10,6 +11,8 @@ from app.ai.models import (
     ChatRequest,
     ConfirmRequest,
     ConfirmAction,
+    ToolCall,
+    ToolResult,
 )
 from app.ai.openai_client import (
     build_instructions,
@@ -34,6 +37,22 @@ from app.models.settings import AISettings, AISettingsResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["AI Assistant"])
+
+_TOOL_KEEPALIVE_SEC = 10.0
+
+
+async def _stream_tool_with_keepalive(tc: ToolCall):
+    """Yield SSE comment lines while waiting; last value is the ToolResult."""
+    with GetDB() as tool_db:
+        task = asyncio.create_task(execute_tool(tc, tool_db))
+        while not task.done():
+            done, _ = await asyncio.wait(
+                {task}, timeout=_TOOL_KEEPALIVE_SEC
+            )
+            if task in done:
+                break
+            yield ": keepalive\n\n"
+        yield await task
 
 
 def _get_ai_settings(db: Session) -> AISettings:
@@ -183,9 +202,14 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
                         "requires_confirmation": False,
                     })
 
-                    with GetDB() as tool_db:
-                        result = await execute_tool(tc, tool_db)
+                    result: ToolResult | None = None
+                    async for _piece in _stream_tool_with_keepalive(tc):
+                        if isinstance(_piece, ToolResult):
+                            result = _piece
+                        else:
+                            yield _piece
 
+                    assert result is not None
                     result_str = json.dumps(
                         result.data if result.success else {"error": result.error},
                         default=str,
@@ -322,9 +346,14 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
                         "requires_confirmation": False,
                     })
 
-                    with GetDB() as tool_db:
-                        result = await execute_tool(tc_new, tool_db)
+                    result: ToolResult | None = None
+                    async for _piece in _stream_tool_with_keepalive(tc_new):
+                        if isinstance(_piece, ToolResult):
+                            result = _piece
+                        else:
+                            yield _piece
 
+                    assert result is not None
                     result_str = json.dumps(
                         result.data if result.success else {"error": result.error},
                         default=str,
