@@ -34,8 +34,8 @@ async def migrate_node(
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
     node_address = db_node.address
-
     tls_certificate = get_tls_certificate(db)
+    db.close()
 
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "migrate_skybots.sh")
     try:

@@ -130,6 +130,8 @@ def get_tools_list(admin: SudoAdminDep):
 async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
     ai_settings = _get_ai_settings(db)
     api_key = _require_api_key(ai_settings)
+    db.close()
+
     model = body.model or ai_settings.default_model
     session_id = body.session_id or create_session_id()
 
@@ -246,6 +248,7 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
 async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
     ai_settings = _get_ai_settings(db)
     api_key = _require_api_key(ai_settings)
+    db.close()
 
     pending = get_pending(body.session_id)
     if not pending:

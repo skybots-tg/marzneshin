@@ -33,6 +33,7 @@ async def update_node_xray(
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
     node_address = db_node.address
+    db.close()
 
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "update_xray.sh")
     try:
