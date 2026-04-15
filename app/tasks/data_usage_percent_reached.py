@@ -1,5 +1,3 @@
-import asyncio
-
 from sqlalchemy import case
 from sqlalchemy.orm import Session
 
@@ -8,6 +6,7 @@ from app.db.models import User
 from app.models.notification import UserNotification
 from app.models.user import UserResponse
 from app.notification.notifiers import notify
+from app.utils.async_utils import fire_and_forget
 
 
 async def data_usage_percent_reached(db: Session, users_usage: list) -> None:
@@ -48,7 +47,7 @@ async def data_usage_percent_reached(db: Session, users_usage: list) -> None:
     for user in exceeding_users:
         added_traffic = users_usage_dict[user.id]
         user.used_traffic += added_traffic
-        asyncio.ensure_future(
+        fire_and_forget(
             notify(
                 action=UserNotification.Action.reached_usage_percent,
                 user=UserResponse.model_validate(user),

@@ -31,6 +31,7 @@ class UvicornSettings(BaseSettings):
     ssl_certfile: Optional[str] = None
     ssl_keyfile: Optional[str] = None
     timeout_keep_alive: int = 5
+    workers: int = 1
 
 
 class TelegramSettings(BaseSettings):

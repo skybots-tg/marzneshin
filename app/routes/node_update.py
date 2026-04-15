@@ -29,11 +29,15 @@ async def update_node_xray(
     This endpoint connects via SSH, downloads the latest Xray binary from GitHub,
     mounts it into the marznode container, and restarts the service.
     """
-    db_node = crud.get_node_by_id(db, node_id)
-    if not db_node:
-        raise HTTPException(status_code=404, detail="Node not found")
-    node_address = db_node.address
-    db.close()
+    def _db_work():
+        db_node = crud.get_node_by_id(db, node_id)
+        if not db_node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        node_address = db_node.address
+        db.close()
+        return node_address
+
+    node_address = await asyncio.to_thread(_db_work)
 
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "update_xray.sh")
     try:

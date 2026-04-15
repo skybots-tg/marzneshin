@@ -14,6 +14,7 @@ from app.models.user import UserResponse
 from app.notification.notifiers import notify
 from app.tasks.data_usage_percent_reached import data_usage_percent_reached
 from app.config.env import DISABLE_RECORDING_NODE_USAGE
+from app.utils.async_utils import fire_and_forget
 from app.utils.device_tracker import track_user_connection
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,54 @@ logger = logging.getLogger(__name__)
 def _get_hour_bucket():
     return datetime.fromisoformat(
         datetime.utcnow().strftime("%Y-%m-%dT%H:00:00")
+    )
+
+
+def _do_record_usage_logs(db, params, node_id, consumption_factor, created_at):
+    """Core logic for recording usage logs into an existing session."""
+    select_stmt = select(NodeUserUsage.user_id).where(
+        and_(
+            NodeUserUsage.node_id == node_id,
+            NodeUserUsage.created_at == created_at,
+        )
+    )
+    existing_set = set(r[0] for r in db.execute(select_stmt).fetchall())
+    uids_to_insert = set()
+
+    for p in params:
+        uid = p["uid"]
+        if uid not in existing_set:
+            uids_to_insert.add(uid)
+
+    if uids_to_insert:
+        stmt = insert(NodeUserUsage).values(
+            user_id=bindparam("uid"),
+            created_at=created_at,
+            node_id=node_id,
+            used_traffic=0,
+        )
+        db.execute(stmt, [{"uid": uid} for uid in uids_to_insert])
+
+    stmt = (
+        update(NodeUserUsage)
+        .values(
+            used_traffic=NodeUserUsage.used_traffic + bindparam("value")
+        )
+        .where(
+            and_(
+                NodeUserUsage.user_id == bindparam("uid"),
+                NodeUserUsage.node_id == node_id,
+                NodeUserUsage.created_at == created_at,
+            )
+        )
+    )
+    db.connection().execute(
+        stmt,
+        [
+            {**usage, "value": int(usage["value"] * consumption_factor)}
+            for usage in params
+        ],
+        execution_options={"synchronize_session": None},
     )
 
 
@@ -34,63 +83,12 @@ def record_user_usage_logs(
 
     created_at = _get_hour_bucket()
 
-    should_close = db is None
-    if should_close:
-        from app.db import GetDB
-        ctx = GetDB()
-        db = ctx.__enter__()
-    
-    try:
-        select_stmt = select(NodeUserUsage.user_id).where(
-            and_(
-                NodeUserUsage.node_id == node_id,
-                NodeUserUsage.created_at == created_at,
-            )
-        )
-        existing_set = set(r[0] for r in db.execute(select_stmt).fetchall())
-        uids_to_insert = set()
-
-        for p in params:
-            uid = p["uid"]
-            if uid not in existing_set:
-                uids_to_insert.add(uid)
-
-        if uids_to_insert:
-            stmt = insert(NodeUserUsage).values(
-                user_id=bindparam("uid"),
-                created_at=created_at,
-                node_id=node_id,
-                used_traffic=0,
-            )
-            db.execute(stmt, [{"uid": uid} for uid in uids_to_insert])
-
-        stmt = (
-            update(NodeUserUsage)
-            .values(
-                used_traffic=NodeUserUsage.used_traffic + bindparam("value")
-            )
-            .where(
-                and_(
-                    NodeUserUsage.user_id == bindparam("uid"),
-                    NodeUserUsage.node_id == node_id,
-                    NodeUserUsage.created_at == created_at,
-                )
-            )
-        )
-        db.connection().execute(
-            stmt,
-            [
-                {**usage, "value": int(usage["value"] * consumption_factor)}
-                for usage in params
-            ],
-            execution_options={"synchronize_session": None},
-        )
-        
-        if should_close:
-            db.commit()
-    finally:
-        if should_close:
-            ctx.__exit__(None, None, None)
+    if db is not None:
+        _do_record_usage_logs(db, params, node_id, consumption_factor, created_at)
+    else:
+        with GetDB() as own_db:
+            _do_record_usage_logs(own_db, params, node_id, consumption_factor, created_at)
+            own_db.commit()
 
 
 def record_all_node_stats(node_usages: dict[int, int], db):
@@ -293,7 +291,7 @@ async def record_user_usages():
             db.refresh(user)
             if user.data_limit_reached:
                 marznode.operations.update_user(user, db=db)
-                asyncio.ensure_future(
+                fire_and_forget(
                     notify(
                         action=UserNotification.Action.data_limit_exhausted,
                         user=UserResponse.model_validate(user),

@@ -30,12 +30,16 @@ async def migrate_node(
     Each event contains JSON data with the migration status and logs.
     Uses paramiko for SSH connections (no system ssh/sshpass required).
     """
-    db_node = crud.get_node_by_id(db, node_id)
-    if not db_node:
-        raise HTTPException(status_code=404, detail="Node not found")
-    node_address = db_node.address
-    tls_certificate = get_tls_certificate(db)
-    db.close()
+    def _db_work():
+        db_node = crud.get_node_by_id(db, node_id)
+        if not db_node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        node_address = db_node.address
+        tls_certificate = get_tls_certificate(db)
+        db.close()
+        return node_address, tls_certificate
+
+    node_address, tls_certificate = await asyncio.to_thread(_db_work)
 
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "migrate_skybots.sh")
     try:

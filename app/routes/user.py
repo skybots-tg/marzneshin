@@ -99,20 +99,20 @@ def get_users(
 
 
 @router.post("", response_model=UserResponse)
-async def add_user(new_user: UserCreate, db: DBDep, admin: AdminDep):
+def add_user(new_user: UserCreate, db: DBDep, admin: AdminDep):
     db_user = user_service.create_user(db, new_user, admin)
     return UserResponse.model_validate(db_user)
 
 
 @router.post("/reset")
-async def reset_users_data_usage(db: DBDep, admin: SudoAdminDep):
+def reset_users_data_usage(db: DBDep, admin: SudoAdminDep):
     dbadmin = crud.get_admin(db, admin.username)
     crud.reset_all_users_data_usage(db=db, admin=dbadmin)
     return {}
 
 
 @router.delete("/expired")
-async def delete_expired(
+def delete_expired(
     passed_time: int,
     db: DBDep,
     admin: AdminDep,
@@ -128,7 +128,7 @@ def get_user(db_user: UserDep):
 
 
 @router.put("/{username}", response_model=UserResponse)
-async def modify_user(
+def modify_user(
     db_user: UserDep,
     modifications: UserModify,
     db: DBDep,
@@ -139,7 +139,7 @@ async def modify_user(
 
 
 @router.delete("/{username}")
-async def remove_user(
+def remove_user(
     db_user: UserDep,
     db: DBDep,
     admin: AdminDep,
@@ -166,7 +166,7 @@ def get_user_services(user: UserDep, db: DBDep, admin: AdminDep):
 
 
 @router.post("/{username}/reset", response_model=UserResponse)
-async def reset_user_data_usage(
+def reset_user_data_usage(
     db_user: UserDep,
     db: DBDep,
     admin: AdminDep,
@@ -176,7 +176,7 @@ async def reset_user_data_usage(
 
 
 @router.post("/{username}/enable", response_model=UserResponse)
-async def enable_user(
+def enable_user(
     db_user: UserDep,
     db: DBDep,
     admin: AdminDep,
@@ -186,7 +186,7 @@ async def enable_user(
 
 
 @router.post("/{username}/disable", response_model=UserResponse)
-async def disable_user(
+def disable_user(
     db_user: UserDep,
     db: DBDep,
     admin: AdminDep,
@@ -196,7 +196,7 @@ async def disable_user(
 
 
 @router.post("/{username}/revoke_sub", response_model=UserResponse)
-async def revoke_user_subscription(
+def revoke_user_subscription(
     db_user: UserDep,
     db: DBDep,
     admin: AdminDep,

@@ -5,6 +5,7 @@ and re-exports commonly used symbols for backward compatibility.
 """
 
 import logging
+import time
 
 from sqlalchemy.exc import SQLAlchemyError, TimeoutError as SATimeoutError
 from sqlalchemy.orm import Session  # noqa: F401
@@ -16,6 +17,8 @@ from . import device_crud  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+_SESSION_WARN_SECONDS = 30
+
 
 class _DBSession:
     """Unified context manager for database sessions."""
@@ -24,10 +27,12 @@ class _DBSession:
         self._pool_name = pool_name
         self._session_factory = session_factory
         self.db = None
+        self._opened_at = None
 
     def __enter__(self):
         try:
             self.db = self._session_factory()
+            self._opened_at = time.monotonic()
             return self.db
         except SATimeoutError:
             logger.error(
@@ -42,6 +47,15 @@ class _DBSession:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.db is None:
             return
+
+        if self._opened_at is not None:
+            held = time.monotonic() - self._opened_at
+            if held > _SESSION_WARN_SECONDS:
+                logger.warning(
+                    "[%s] Session held for %.1fs (threshold %ds)",
+                    self._pool_name, held, _SESSION_WARN_SECONDS,
+                )
+
         try:
             if exc_value is not None:
                 self.db.rollback()

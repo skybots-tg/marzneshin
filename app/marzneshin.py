@@ -31,6 +31,9 @@ scheduler = create_scheduler()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    from app.utils.async_utils import init_event_loop
+
+    init_event_loop()
     await nodes_startup()
     yield
     scheduler.shutdown()
@@ -102,7 +105,7 @@ async def main():
         uds=(None if settings.debug else settings.uvicorn.uds),
         ssl_certfile=settings.uvicorn.ssl_certfile,
         ssl_keyfile=settings.uvicorn.ssl_keyfile,
-        workers=1,
+        workers=settings.uvicorn.workers,
         reload=settings.debug,
         log_level=logging.DEBUG if settings.debug else logging.INFO,
         timeout_keep_alive=settings.uvicorn.timeout_keep_alive,
