@@ -1,6 +1,7 @@
-import { FC, useCallback, useRef, useState, useEffect, KeyboardEvent } from 'react'
+import { FC, useCallback, useEffect, useRef, useState, KeyboardEvent, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Send, Loader2, Settings2, Trash2 } from 'lucide-react'
+import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@marzneshin/common/components/ui'
 import { Textarea } from '@marzneshin/common/components/ui'
 import { useAISettingsQuery } from '../api'
@@ -10,33 +11,74 @@ import { MessageBubble } from './message-bubble'
 import { ConfirmationDialog } from './confirmation-dialog'
 import type {
     ChatMessage,
+    ChatPersistenceSnapshot,
     UIMessage,
     PendingConfirmation,
     SSEToolCall,
     SSEToolResult,
 } from '../types'
 
+function maxAssistantCounter(messages: UIMessage[]): number {
+    let max = 0
+    for (const m of messages) {
+        const match = /^assistant-(\d+)$/.exec(m.id)
+        if (match) max = Math.max(max, Number(match[1]))
+    }
+    return max
+}
+
 interface ChatInterfaceProps {
+    persistChatId: string
+    initialSnapshot: ChatPersistenceSnapshot
+    onPersist: (chatId: string, snapshot: ChatPersistenceSnapshot) => void
     onOpenSettings: () => void
 }
 
-export const ChatInterface: FC<ChatInterfaceProps> = ({ onOpenSettings }) => {
+export const ChatInterface: FC<ChatInterfaceProps> = ({
+    persistChatId,
+    initialSnapshot,
+    onPersist,
+    onOpenSettings,
+}) => {
     const { t } = useTranslation()
     const { data: settings } = useAISettingsQuery()
     const configured = settings?.configured ?? false
 
-    const [messages, setMessages] = useState<UIMessage[]>([])
-    const [apiMessages, setApiMessages] = useState<ChatMessage[]>([])
+    const [messages, setMessages] = useState<UIMessage[]>(() => initialSnapshot.messages)
+    const [apiMessages, setApiMessages] = useState<ChatMessage[]>(() => initialSnapshot.apiMessages)
     const [input, setInput] = useState('')
-    const [model, setModel] = useState('')
-    const [sessionId, setSessionId] = useState<string | null>(null)
+    const [model, setModel] = useState(() => initialSnapshot.model)
+    const [sessionId, setSessionId] = useState<string | null>(() => initialSnapshot.sessionId)
     const [isStreaming, setIsStreaming] = useState(false)
     const [pending, setPending] = useState<PendingConfirmation | null>(null)
     const [confirmLoading, setConfirmLoading] = useState(false)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const abortRef = useRef<AbortController | null>(null)
-    const assistantIdRef = useRef(0)
+    const assistantIdRef = useRef(maxAssistantCounter(initialSnapshot.messages))
+
+    const debouncedPersist = useDebouncedCallback(
+        (snap: ChatPersistenceSnapshot, chatId: string) => onPersist(chatId, snap),
+        400,
+    )
+
+    useEffect(() => {
+        debouncedPersist(
+            {
+                messages,
+                apiMessages,
+                sessionId,
+                model,
+            },
+            persistChatId,
+        )
+    }, [messages, apiMessages, sessionId, model, persistChatId, debouncedPersist])
+
+    useEffect(() => {
+        return () => {
+            debouncedPersist.flush()
+        }
+    }, [debouncedPersist])
 
     useEffect(() => {
         if (settings?.default_model && !model) {
@@ -50,68 +92,71 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ onOpenSettings }) => {
 
     useEffect(scrollToBottom, [messages, scrollToBottom])
 
-    const makeCallbacks = (assistantMsgId: string) => ({
-        onContent: (text: string) => {
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.id === assistantMsgId
-                        ? { ...m, content: (m.content || '') + text, isStreaming: true }
-                        : m
+    const makeCallbacks = useMemo(
+        () => (assistantMsgId: string) => ({
+            onContent: (text: string) => {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantMsgId
+                            ? { ...m, content: (m.content || '') + text, isStreaming: true }
+                            : m,
+                    ),
                 )
-            )
-        },
-        onToolCall: (data: SSEToolCall) => {
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.id === assistantMsgId
-                        ? {
-                              ...m,
-                              toolCalls: [...(m.toolCalls || []), data],
-                          }
-                        : m
+            },
+            onToolCall: (data: SSEToolCall) => {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantMsgId
+                            ? {
+                                  ...m,
+                                  toolCalls: [...(m.toolCalls || []), data],
+                              }
+                            : m,
+                    ),
                 )
-            )
-        },
-        onToolResult: (data: SSEToolResult) => {
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.id === assistantMsgId
-                        ? {
-                              ...m,
-                              toolResults: [...(m.toolResults || []), data],
-                          }
-                        : m
+            },
+            onToolResult: (data: SSEToolResult) => {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantMsgId
+                            ? {
+                                  ...m,
+                                  toolResults: [...(m.toolResults || []), data],
+                              }
+                            : m,
+                    ),
                 )
-            )
-        },
-        onPendingConfirmation: (data: PendingConfirmation) => {
-            setPending(data)
-            setSessionId(data.session_id)
-        },
-        onDone: (data: { session_id: string }) => {
-            setSessionId(data.session_id)
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.id === assistantMsgId ? { ...m, isStreaming: false } : m
+            },
+            onPendingConfirmation: (data: PendingConfirmation) => {
+                setPending(data)
+                setSessionId(data.session_id)
+            },
+            onDone: (data: { session_id: string }) => {
+                setSessionId(data.session_id)
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantMsgId ? { ...m, isStreaming: false } : m,
+                    ),
                 )
-            )
-            setIsStreaming(false)
-        },
-        onError: (message: string) => {
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.id === assistantMsgId
-                        ? {
-                              ...m,
-                              content: (m.content || '') + `\n\n❌ ${message}`,
-                              isStreaming: false,
-                          }
-                        : m
+                setIsStreaming(false)
+            },
+            onError: (message: string) => {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantMsgId
+                            ? {
+                                  ...m,
+                                  content: (m.content || '') + `\n\n❌ ${message}`,
+                                  isStreaming: false,
+                              }
+                            : m,
+                    ),
                 )
-            )
-            setIsStreaming(false)
-        },
-    })
+                setIsStreaming(false)
+            },
+        }),
+        [],
+    )
 
     const handleSend = useCallback(async () => {
         const trimmed = input.trim()
@@ -154,7 +199,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ onOpenSettings }) => {
             if (e instanceof DOMException && e.name === 'AbortError') return
             callbacks.onError(String(e))
         }
-    }, [input, isStreaming, configured, apiMessages, model, sessionId])
+    }, [input, isStreaming, configured, apiMessages, model, sessionId, makeCallbacks])
 
     const handleConfirm = useCallback(
         async (action: 'approve' | 'reject') => {
@@ -182,7 +227,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ onOpenSettings }) => {
                 setConfirmLoading(false)
             }
         },
-        [sessionId, pending],
+        [sessionId, pending, makeCallbacks],
     )
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -197,10 +242,11 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ onOpenSettings }) => {
         setApiMessages([])
         setSessionId(null)
         setPending(null)
+        assistantIdRef.current = 0
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full min-h-0">
             <div className="flex items-center gap-2 pb-3 border-b border-border/50">
                 <ModelSelector
                     value={model}
@@ -214,6 +260,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({ onOpenSettings }) => {
                     className="size-8"
                     onClick={handleClear}
                     disabled={isStreaming || messages.length === 0}
+                    title={t('ai.clear-chat')}
                 >
                     <Trash2 className="size-4" />
                 </Button>
