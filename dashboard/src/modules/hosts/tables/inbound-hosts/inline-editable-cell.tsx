@@ -80,16 +80,28 @@ export function useInlineEdit({ host, field, emptyFallback = "" }: UseInlineEdit
             parsedValue = trimmedValue === "" ? null : Number(trimmedValue)
         }
 
+        setIsEditing(false)
+
+        queryClient.setQueriesData<{ entities: HostType[], pageCount: number }>(
+            { queryKey: ["inbounds"] },
+            (old) => {
+                if (!old?.entities) return old
+                return {
+                    ...old,
+                    entities: old.entities.map((e) =>
+                        e.id === host.id ? { ...e, [field]: parsedValue } : e
+                    ),
+                }
+            }
+        )
+
         try {
             await updateMutation.mutateAsync({
                 hostId: host.id,
                 host: { ...fullHost, [field]: parsedValue },
             })
-            setIsEditing(false)
-            queryClient.invalidateQueries({ queryKey: ["inbounds"] })
         } catch {
-            setValue(currentValue || emptyFallback)
-            setIsEditing(false)
+            queryClient.invalidateQueries({ queryKey: ["inbounds"] })
         }
     }, [host.id, fullHost, value, field, emptyFallback, updateMutation, queryClient])
 

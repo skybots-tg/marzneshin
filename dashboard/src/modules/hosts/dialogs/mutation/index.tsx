@@ -18,6 +18,7 @@ import {
     useHostsUpdateMutation,
 } from "@marzneshin/modules/hosts";
 import { type MutationDialogProps, useDialog } from "@marzneshin/common/hooks";
+import { queryClient } from "@marzneshin/common/utils";
 import { ProtocolType } from "@marzneshin/modules/inbounds";
 import { useProfileStrategy } from "./profiles";
 import {
@@ -79,7 +80,9 @@ export const HostsMutationDialog: FC<HostMutationDialogProps> = ({
     const submit = (values: HostWithProfileSchemaType) => {
         const host = transformFormValueHttpHeaders(transformFormValue(values));
         if (entity && entity.id !== undefined) {
-            updateMutation.mutate({ hostId: entity.id, host });
+            updateMutation.mutate({ hostId: entity.id, host }, {
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inbounds"] }),
+            });
             onOpenChange(false);
         } else if (inboundId !== undefined) {
             createMutation.mutate({ inboundId, host });
