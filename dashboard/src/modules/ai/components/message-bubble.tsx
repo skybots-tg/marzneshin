@@ -1,6 +1,7 @@
 import { FC } from 'react'
 import { Bot, User } from 'lucide-react'
 import { cn } from '@marzneshin/common/utils'
+import { MarkdownContent } from './markdown-content'
 import { ToolCallDisplay } from './tool-call-display'
 import type { UIMessage } from '../types'
 
@@ -45,11 +46,16 @@ export const MessageBubble: FC<MessageBubbleProps> = ({ message }) => {
                     />
                 ))}
 
-                {message.content && (
-                    <div className="whitespace-pre-wrap break-words">
-                        {message.content}
-                    </div>
-                )}
+                {message.content &&
+                    (isAssistant ? (
+                        <MarkdownContent className="break-words">
+                            {message.content}
+                        </MarkdownContent>
+                    ) : (
+                        <div className="whitespace-pre-wrap break-words">
+                            {message.content}
+                        </div>
+                    ))}
 
                 {message.isStreaming && !message.content && !message.toolCalls?.length && (
                     <div className="flex items-center gap-1.5">
