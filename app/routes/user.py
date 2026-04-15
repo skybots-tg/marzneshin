@@ -155,7 +155,6 @@ def get_user_services(user: UserDep, db: DBDep, admin: AdminDep):
         db.query(Service)
         .options(
             selectinload(Service.inbounds).load_only(Inbound.id),
-            selectinload(Service.users).load_only(User.id, User.removed),
         )
         .join(Service.users)
         .where(User.username == user.username)

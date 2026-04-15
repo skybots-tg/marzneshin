@@ -20,7 +20,6 @@ router = APIRouter(prefix="/services", tags=["Service"])
 def get_services(db: DBDep, admin: AdminDep, name: str = Query(None)):
     query = db.query(Service).options(
         selectinload(Service.inbounds).load_only(Inbound.id),
-        selectinload(Service.users).load_only(User.id, User.removed),
     )
 
     if name:

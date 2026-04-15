@@ -38,7 +38,7 @@ export const columns: ColumnDef<ServiceType>[] = [
     {
         accessorKey: 'users',
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('users')} column={column} />,
-        cell: ({ row }) => row.original.user_ids.length
+        cell: ({ row }) => row.original.user_count
     },
     {
         accessorKey: 'inbounds',
