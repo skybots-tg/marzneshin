@@ -2,6 +2,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.settings import settings
 from app.tasks import (
+    aggregate_old_usages,
     check_pool_health,
     record_user_usages,
     reset_user_data_usage,
@@ -45,6 +46,14 @@ def create_scheduler() -> AsyncIOScheduler:
         check_pool_health,
         "interval",
         seconds=15,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        aggregate_old_usages,
+        "cron",
+        hour=3,
+        minute=0,
         coalesce=True,
         max_instances=1,
     )

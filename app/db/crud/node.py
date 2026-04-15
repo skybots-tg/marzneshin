@@ -6,6 +6,8 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.db.models import Node, NodeUserUsage
+from app.db.models.proxy import NodeUserUsageDaily
+from app.core.settings import settings
 from app.models.node import NodeCreate, NodeModify, NodeStatus
 from app.models.system import TrafficUsageSeries
 
@@ -41,25 +43,53 @@ def get_node_usage(
     db: Session, start: datetime, end: datetime, node: Node
 ) -> TrafficUsageSeries:
     usages = defaultdict(int)
+    cutoff = datetime.utcnow().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) - timedelta(days=settings.tasks.usage_retention_days)
 
-    query = (
-        db.query(
-            NodeUserUsage.created_at, func.sum(NodeUserUsage.used_traffic)
-        )
-        .group_by(NodeUserUsage.created_at)
-        .filter(
-            and_(
-                NodeUserUsage.node_id == node.id,
-                NodeUserUsage.created_at >= start,
-                NodeUserUsage.created_at <= end,
+    # Hourly data
+    hourly_start = max(start, cutoff)
+    if hourly_start < end:
+        query = (
+            db.query(
+                NodeUserUsage.created_at, func.sum(NodeUserUsage.used_traffic)
+            )
+            .group_by(NodeUserUsage.created_at)
+            .filter(
+                and_(
+                    NodeUserUsage.node_id == node.id,
+                    NodeUserUsage.created_at >= hourly_start,
+                    NodeUserUsage.created_at <= end,
+                )
             )
         )
-    )
+        for created_at, used_traffic in query.all():
+            usages[created_at.replace(tzinfo=timezone.utc).timestamp()] += int(
+                used_traffic
+            )
 
-    for created_at, used_traffic in query.all():
-        usages[created_at.replace(tzinfo=timezone.utc).timestamp()] += int(
-            used_traffic
+    # Daily data
+    if start < cutoff:
+        daily_end = min(end, cutoff - timedelta(seconds=1))
+        daily_query = (
+            db.query(
+                NodeUserUsageDaily.date,
+                func.sum(NodeUserUsageDaily.used_traffic),
+            )
+            .group_by(NodeUserUsageDaily.date)
+            .filter(
+                and_(
+                    NodeUserUsageDaily.node_id == node.id,
+                    NodeUserUsageDaily.date >= start.date(),
+                    NodeUserUsageDaily.date <= daily_end.date(),
+                )
+            )
         )
+        for date, used_traffic in daily_query.all():
+            timestamp = datetime(
+                date.year, date.month, date.day, tzinfo=timezone.utc
+            ).timestamp()
+            usages[timestamp] += int(used_traffic)
 
     result = TrafficUsageSeries(usages=[], total=0)
     current = start.astimezone(timezone.utc).replace(
