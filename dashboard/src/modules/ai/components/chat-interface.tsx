@@ -130,6 +130,12 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
             onPendingConfirmation: (data: PendingConfirmation) => {
                 setPending(data)
                 setSessionId(data.session_id)
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantMsgId ? { ...m, isStreaming: false } : m,
+                    ),
+                )
+                setIsStreaming(false)
             },
             onDone: (data: { session_id: string }) => {
                 setSessionId(data.session_id)
@@ -196,8 +202,23 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 abortRef.current.signal,
             )
         } catch (e: unknown) {
-            if (e instanceof DOMException && e.name === 'AbortError') return
+            if (e instanceof DOMException && e.name === 'AbortError') {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantId ? { ...m, isStreaming: false } : m,
+                    ),
+                )
+                setIsStreaming(false)
+                return
+            }
             callbacks.onError(String(e))
+        } finally {
+            setIsStreaming(false)
+            setMessages((prev) =>
+                prev.map((m) =>
+                    m.id === assistantId ? { ...m, isStreaming: false } : m,
+                ),
+            )
         }
     }, [input, isStreaming, configured, apiMessages, model, sessionId, makeCallbacks])
 
@@ -225,6 +246,12 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 callbacks.onError(String(e))
             } finally {
                 setConfirmLoading(false)
+                setIsStreaming(false)
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === assistantId ? { ...m, isStreaming: false } : m,
+                    ),
+                )
             }
         },
         [sessionId, pending, makeCallbacks],

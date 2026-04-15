@@ -29,6 +29,8 @@ async function consumeSseStream(
 ): Promise<void> {
     const decoder = new TextDecoder()
     let buffer = ''
+    let currentEvent = ''
+    let streamTerminated = false
 
     while (true) {
         let chunk: ReadableStreamReadResult<Uint8Array>
@@ -49,7 +51,6 @@ async function consumeSseStream(
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
-        let currentEvent = ''
         for (const line of lines) {
             if (line.startsWith('event: ')) {
                 currentEvent = line.slice(7).trim()
@@ -67,12 +68,15 @@ async function consumeSseStream(
                             callbacks.onToolResult(data)
                             break
                         case 'pending_confirmation':
+                            streamTerminated = true
                             callbacks.onPendingConfirmation(data)
                             break
                         case 'done':
+                            streamTerminated = true
                             callbacks.onDone(data)
                             break
                         case 'error':
+                            streamTerminated = true
                             callbacks.onError(data.message)
                             break
                     }
@@ -82,6 +86,13 @@ async function consumeSseStream(
                 currentEvent = ''
             }
         }
+    }
+
+    if (!streamTerminated) {
+        callbacks.onError(
+            'Поток ответа завершился неожиданно. ' +
+                'Возможная причина — ошибка на сервере или таймаут прокси.',
+        )
     }
 }
 

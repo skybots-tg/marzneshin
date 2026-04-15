@@ -177,58 +177,61 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
 
             input_items.extend(output_items)
 
-            all_auto = True
             for tc in tool_calls_result:
-                if requires_confirmation(tc):
-                    all_auto = False
-                    yield _sse("tool_call", {
-                        "tool_call_id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                        "requires_confirmation": True,
-                    })
+                yield _sse("tool_call", {
+                    "tool_call_id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                    "requires_confirmation": requires_confirmation(tc),
+                })
 
-                    store_pending(session_id, tc, input_items, model)
+            try:
+                all_auto = True
+                for tc in tool_calls_result:
+                    if requires_confirmation(tc):
+                        all_auto = False
+                        store_pending(session_id, tc, input_items, model)
 
-                    yield _sse("pending_confirmation", {
-                        "session_id": session_id,
-                        "tool_name": tc.function.name,
-                        "tool_args": json.loads(tc.function.arguments),
-                    })
+                        yield _sse("pending_confirmation", {
+                            "session_id": session_id,
+                            "tool_name": tc.function.name,
+                            "tool_args": json.loads(tc.function.arguments),
+                        })
+                        return
+                    else:
+                        result: ToolResult | None = None
+                        async for _piece in _stream_tool_with_keepalive(tc):
+                            if isinstance(_piece, ToolResult):
+                                result = _piece
+                            else:
+                                yield _piece
+
+                        if result is None:
+                            result = ToolResult(
+                                success=False,
+                                error="Tool did not return a result",
+                            )
+                        result_str = json.dumps(
+                            result.data if result.success else {"error": result.error},
+                            default=str,
+                        )
+                        yield _sse("tool_result", {
+                            "tool_call_id": tc.id,
+                            "name": tc.function.name,
+                            "result": result_str,
+                        })
+
+                        input_items.append({
+                            "type": "function_call_output",
+                            "call_id": tc.id,
+                            "output": result_str,
+                        })
+
+                if not all_auto:
                     return
-                else:
-                    yield _sse("tool_call", {
-                        "tool_call_id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                        "requires_confirmation": False,
-                    })
-
-                    result: ToolResult | None = None
-                    async for _piece in _stream_tool_with_keepalive(tc):
-                        if isinstance(_piece, ToolResult):
-                            result = _piece
-                        else:
-                            yield _piece
-
-                    assert result is not None
-                    result_str = json.dumps(
-                        result.data if result.success else {"error": result.error},
-                        default=str,
-                    )
-                    yield _sse("tool_result", {
-                        "tool_call_id": tc.id,
-                        "name": tc.function.name,
-                        "result": result_str,
-                    })
-
-                    input_items.append({
-                        "type": "function_call_output",
-                        "call_id": tc.id,
-                        "output": result_str,
-                    })
-
-            if not all_auto:
+            except Exception as e:
+                logger.exception("Tool processing error")
+                yield _sse("error", {"message": f"Tool error: {str(e)}"})
                 return
 
         yield _sse("done", {"session_id": session_id})
@@ -325,53 +328,62 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
             input_items.extend(output_items)
 
             for tc_new in tool_calls_result:
-                if requires_confirmation(tc_new):
-                    yield _sse("tool_call", {
-                        "tool_call_id": tc_new.id,
-                        "name": tc_new.function.name,
-                        "arguments": tc_new.function.arguments,
-                        "requires_confirmation": True,
-                    })
-                    store_pending(
-                        body.session_id, tc_new, input_items, model
-                    )
-                    yield _sse("pending_confirmation", {
-                        "session_id": body.session_id,
-                        "tool_name": tc_new.function.name,
-                        "tool_args": json.loads(tc_new.function.arguments),
-                    })
+                yield _sse("tool_call", {
+                    "tool_call_id": tc_new.id,
+                    "name": tc_new.function.name,
+                    "arguments": tc_new.function.arguments,
+                    "requires_confirmation": requires_confirmation(tc_new),
+                })
+
+            try:
+                all_auto = True
+                for tc_new in tool_calls_result:
+                    if requires_confirmation(tc_new):
+                        all_auto = False
+                        store_pending(
+                            body.session_id, tc_new, input_items, model
+                        )
+                        yield _sse("pending_confirmation", {
+                            "session_id": body.session_id,
+                            "tool_name": tc_new.function.name,
+                            "tool_args": json.loads(tc_new.function.arguments),
+                        })
+                        return
+                    else:
+                        result: ToolResult | None = None
+                        async for _piece in _stream_tool_with_keepalive(tc_new):
+                            if isinstance(_piece, ToolResult):
+                                result = _piece
+                            else:
+                                yield _piece
+
+                        if result is None:
+                            result = ToolResult(
+                                success=False,
+                                error="Tool did not return a result",
+                            )
+                        result_str = json.dumps(
+                            result.data if result.success else {"error": result.error},
+                            default=str,
+                        )
+                        yield _sse("tool_result", {
+                            "tool_call_id": tc_new.id,
+                            "name": tc_new.function.name,
+                            "result": result_str,
+                        })
+
+                        input_items.append({
+                            "type": "function_call_output",
+                            "call_id": tc_new.id,
+                            "output": result_str,
+                        })
+
+                if not all_auto:
                     return
-                else:
-                    yield _sse("tool_call", {
-                        "tool_call_id": tc_new.id,
-                        "name": tc_new.function.name,
-                        "arguments": tc_new.function.arguments,
-                        "requires_confirmation": False,
-                    })
-
-                    result: ToolResult | None = None
-                    async for _piece in _stream_tool_with_keepalive(tc_new):
-                        if isinstance(_piece, ToolResult):
-                            result = _piece
-                        else:
-                            yield _piece
-
-                    assert result is not None
-                    result_str = json.dumps(
-                        result.data if result.success else {"error": result.error},
-                        default=str,
-                    )
-                    yield _sse("tool_result", {
-                        "tool_call_id": tc_new.id,
-                        "name": tc_new.function.name,
-                        "result": result_str,
-                    })
-
-                    input_items.append({
-                        "type": "function_call_output",
-                        "call_id": tc_new.id,
-                        "output": result_str,
-                    })
+            except Exception as e:
+                logger.exception("Tool processing error on confirm")
+                yield _sse("error", {"message": f"Tool error: {str(e)}"})
+                return
 
         yield _sse("done", {"session_id": body.session_id})
 
