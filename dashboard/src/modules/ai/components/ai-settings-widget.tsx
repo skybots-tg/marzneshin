@@ -76,6 +76,9 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                         <Label className="text-xs">{t('ai.api-key')}</Label>
                         <Input
                             type="password"
+                            autoComplete="one-time-code"
+                            data-1p-ignore
+                            data-lpignore="true"
                             placeholder={t('ai.api-key-placeholder')}
                             value={form.api_key}
                             onChange={(e) =>
