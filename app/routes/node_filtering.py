@@ -56,15 +56,19 @@ async def update_filtering(
     if not marznode_ref:
         return NodeFilteringConfigResponse.model_validate(cfg)
 
-    for backend_obj in node.backends:
+    backend_names = [b.name for b in node.backends]
+    response = NodeFilteringConfigResponse.model_validate(cfg)
+    db.close()
+
+    for backend_name in backend_names:
         try:
             config_str, config_format = await marznode_ref.get_backend_config(
-                name=backend_obj.name
+                name=backend_name
             )
         except Exception:
             logger.warning(
                 "Could not fetch config for backend %s on node %d",
-                backend_obj.name,
+                backend_name,
                 node_id,
             )
             continue
@@ -85,7 +89,7 @@ async def update_filtering(
 
             await asyncio.wait_for(
                 marznode_ref.restart_backend(
-                    name=backend_obj.name,
+                    name=backend_name,
                     config=patched,
                     config_format=config_format,
                 ),
@@ -93,18 +97,18 @@ async def update_filtering(
             )
             logger.info(
                 "Patched backend '%s' on node %d (adblock=%s)",
-                backend_obj.name,
+                backend_name,
                 node_id,
                 cfg.adblock_enabled,
             )
         except Exception:
             logger.exception(
                 "Failed to patch backend '%s' on node %d",
-                backend_obj.name,
+                backend_name,
                 node_id,
             )
 
-    return NodeFilteringConfigResponse.model_validate(cfg)
+    return response
 
 
 # --- SSH Credentials ---
@@ -198,6 +202,7 @@ async def install_adguard(
     cfg = crud.get_or_create_filtering_config(db, node_id)
     adguard_port = cfg.adguard_home_port
     node_address = node.address
+    db.close()
 
     script_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
