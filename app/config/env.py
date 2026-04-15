@@ -73,3 +73,4 @@ TASKS_REVIEW_USERS_INTERVAL = _s.tasks.review_users_interval
 TASKS_EXPIRE_DAYS_REACHED_INTERVAL = _s.tasks.expire_days_reached_interval
 TASKS_RESET_USER_DATA_USAGE = _s.tasks.reset_user_data_usage
 TASKS_USAGE_RETENTION_DAYS = _s.tasks.usage_retention_days
+TASKS_USAGE_MAX_RETENTION_DAYS = _s.tasks.usage_max_retention_days

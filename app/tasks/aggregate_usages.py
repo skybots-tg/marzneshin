@@ -1,11 +1,9 @@
-"""Aggregate old hourly traffic records into daily summaries.
+"""Aggregate old hourly traffic records into daily summaries and purge expired data.
 
-Runs once a day. For each complete day older than USAGE_RETENTION_DAYS:
-  1. SUM hourly rows into a single daily row (per user/node)
+Runs once a day:
+  1. SUM hourly rows older than USAGE_RETENTION_DAYS into daily rows (per user/node)
   2. DELETE the hourly originals
-
-This keeps node_user_usages and node_usages small while preserving
-all historical data in the *_daily tables.
+  3. DELETE daily rows older than USAGE_MAX_RETENTION_DAYS (default 180 days)
 """
 
 import logging
@@ -139,20 +137,39 @@ def _aggregate_node_usages(db, cutoff: datetime) -> int:
     return deleted
 
 
+def _purge_old_daily_data(db, max_cutoff_date) -> tuple[int, int]:
+    """Delete daily records older than max_cutoff_date."""
+    user_purged = db.execute(
+        delete(NodeUserUsageDaily).where(NodeUserUsageDaily.date < max_cutoff_date)
+    ).rowcount
+
+    node_purged = db.execute(
+        delete(NodeUsageDaily).where(NodeUsageDaily.date < max_cutoff_date)
+    ).rowcount
+
+    return user_purged, node_purged
+
+
 async def aggregate_old_usages():
     """Main entry point called by the scheduler."""
     retention_days = settings.tasks.usage_retention_days
+    max_retention_days = settings.tasks.usage_max_retention_days
+
     if retention_days <= 0:
         logger.info("Usage aggregation disabled (retention_days <= 0)")
         return
 
-    cutoff = datetime.utcnow().replace(
+    today = datetime.utcnow().replace(
         hour=0, minute=0, second=0, microsecond=0
-    ) - timedelta(days=retention_days)
+    )
+    cutoff = today - timedelta(days=retention_days)
+    max_cutoff = (today - timedelta(days=max_retention_days)).date()
 
     logger.info(
-        f"Aggregating usage records older than {cutoff.date()} "
-        f"(retention={retention_days} days)"
+        f"Aggregating hourly records older than {cutoff.date()} "
+        f"(retention={retention_days}d), "
+        f"purging daily records older than {max_cutoff} "
+        f"(max_retention={max_retention_days}d)"
     )
 
     with GetDB() as db:
@@ -162,7 +179,11 @@ async def aggregate_old_usages():
         node_deleted = _aggregate_node_usages(db, cutoff)
         db.commit()
 
+        user_purged, node_purged = _purge_old_daily_data(db, max_cutoff)
+        db.commit()
+
     logger.info(
         f"Aggregation complete: {user_deleted} node_user_usages + "
-        f"{node_deleted} node_usages rows compressed into daily summaries"
+        f"{node_deleted} node_usages rows compressed into daily summaries; "
+        f"purged {user_purged} + {node_purged} daily rows older than {max_cutoff}"
     )

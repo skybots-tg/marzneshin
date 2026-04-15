@@ -68,6 +68,7 @@ class TasksSettings(BaseSettings):
     expire_days_reached_interval: int = 30
     reset_user_data_usage: int = 3600
     usage_retention_days: int = 30
+    usage_max_retention_days: int = 180
 
 
 class NotificationSettings(BaseSettings):
