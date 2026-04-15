@@ -1,7 +1,17 @@
 import { FC, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button, Input, Label, Textarea } from '@marzneshin/common/components/ui'
-import { useAISettingsQuery, useAISettingsUpdateMutation } from '../api'
+import {
+    Button,
+    Input,
+    Label,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Textarea,
+} from '@marzneshin/common/components/ui'
+import { useAISettingsQuery, useAISettingsUpdateMutation, useAIModelsQuery } from '../api'
 import type { AISettings } from '../types'
 
 interface AISettingsWidgetProps {
@@ -13,6 +23,10 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
     const { t } = useTranslation()
     const { data: settings } = useAISettingsQuery()
     const mutation = useAISettingsUpdateMutation()
+    const { data: modelsData, isLoading: modelsLoading } = useAIModelsQuery(!!settings?.configured)
+    const models = modelsData?.models || []
+    const reasoningModels = models.filter((m) => m.reasoning)
+    const allModels = models
 
     const [form, setForm] = useState<AISettings>({
         api_key: '',
@@ -71,23 +85,41 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <Label className="text-xs">{t('ai.default-model')}</Label>
-                            <Input
+                            <Select
                                 value={form.default_model}
-                                onChange={(e) =>
-                                    setForm({ ...form, default_model: e.target.value })
-                                }
-                                className="mt-1"
-                            />
+                                onValueChange={(v) => setForm({ ...form, default_model: v })}
+                                disabled={!settings?.configured}
+                            >
+                                <SelectTrigger className="mt-1 h-9 text-xs">
+                                    <SelectValue placeholder={modelsLoading ? t('ai.loading-models') : form.default_model} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {allModels.map((m) => (
+                                        <SelectItem key={m.id} value={m.id} className="text-xs">
+                                            {m.id}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div>
                             <Label className="text-xs">{t('ai.thinking-model')}</Label>
-                            <Input
+                            <Select
                                 value={form.thinking_model}
-                                onChange={(e) =>
-                                    setForm({ ...form, thinking_model: e.target.value })
-                                }
-                                className="mt-1"
-                            />
+                                onValueChange={(v) => setForm({ ...form, thinking_model: v })}
+                                disabled={!settings?.configured}
+                            >
+                                <SelectTrigger className="mt-1 h-9 text-xs">
+                                    <SelectValue placeholder={modelsLoading ? t('ai.loading-models') : form.thinking_model} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {reasoningModels.map((m) => (
+                                        <SelectItem key={m.id} value={m.id} className="text-xs">
+                                            {m.id}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
 

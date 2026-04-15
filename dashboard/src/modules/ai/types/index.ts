@@ -40,6 +40,7 @@ export interface AISettingsResponse {
 export interface AIModelInfo {
     id: string
     owned_by: string
+    reasoning: boolean
 }
 
 export interface ToolDefinition {

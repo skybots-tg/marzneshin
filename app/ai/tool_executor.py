@@ -7,8 +7,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ai.models import (
-    ChatMessage,
-    ConfirmAction,
     PendingConfirmation,
     ToolCall,
     ToolResult,
@@ -68,7 +66,7 @@ def requires_confirmation(tool_call: ToolCall) -> bool:
 def store_pending(
     session_id: str,
     tool_call: ToolCall,
-    messages: list[ChatMessage],
+    input_items: list[dict],
     model: str,
 ) -> PendingConfirmation:
     _cleanup_expired()
@@ -87,7 +85,7 @@ def store_pending(
         tool_name=tool_call.function.name,
         tool_args=args,
         description=description,
-        messages_snapshot=messages,
+        input_snapshot=input_items,
         model=model,
     )
     _pending_confirmations[session_id] = pending

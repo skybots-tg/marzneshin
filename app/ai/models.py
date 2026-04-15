@@ -9,6 +9,7 @@ class MessageRole(StrEnum):
     assistant = "assistant"
     tool = "tool"
     system = "system"
+    developer = "developer"
 
 
 class ToolCallFunction(BaseModel):
@@ -42,7 +43,7 @@ class PendingConfirmation(BaseModel):
     tool_name: str
     tool_args: dict[str, Any]
     description: str
-    messages_snapshot: list[ChatMessage]
+    input_snapshot: list[dict[str, Any]]
     model: str
 
 
@@ -77,3 +78,4 @@ class SSEEvent(BaseModel):
 class AIModelInfo(BaseModel):
     id: str
     owned_by: str = ""
+    reasoning: bool = False
