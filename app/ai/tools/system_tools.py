@@ -40,7 +40,11 @@ async def get_system_info(db: Session) -> dict:
 
 @register_tool(
     name="list_services",
-    description="List all available services with their IDs and names",
+    description=(
+        "List all services with their IDs, names, inbound tags, and user count. "
+        "Users are attached to services, and services contain inbounds (which have hosts). "
+        "Relationship: User → Service → Inbound → Host."
+    ),
     requires_confirmation=False,
 )
 async def list_services(db: Session) -> dict:
@@ -48,7 +52,21 @@ async def list_services(db: Session) -> dict:
     services = db.query(Service).all()
     return {
         "services": [
-            {"id": s.id, "name": s.name}
+            {
+                "id": s.id,
+                "name": s.name,
+                "user_count": len(s.users) if s.users else 0,
+                "inbounds": [
+                    {
+                        "id": i.id,
+                        "tag": i.tag,
+                        "protocol": str(i.protocol),
+                        "node_id": i.node_id,
+                        "host_count": len(i.hosts) if i.hosts else 0,
+                    }
+                    for i in s.inbounds
+                ] if s.inbounds else [],
+            }
             for s in services
         ],
         "total": len(services),
