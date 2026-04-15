@@ -82,3 +82,10 @@ export type UIMessage = {
     pending?: PendingConfirmation
     isStreaming?: boolean
 }
+
+export interface ChatPersistenceSnapshot {
+    messages: UIMessage[]
+    apiMessages: ChatMessage[]
+    sessionId: string | null
+    model: string
+}

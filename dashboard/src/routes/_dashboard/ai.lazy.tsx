@@ -1,5 +1,5 @@
 import { Page } from '@marzneshin/common/components'
-import { ChatInterface, AISettingsWidget } from '@marzneshin/modules/ai'
+import { ChatWorkspace, AISettingsWidget } from '@marzneshin/modules/ai'
 import { createLazyFileRoute } from '@tanstack/react-router'
 import { useState, type FC } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +11,7 @@ const AIAssistantPage: FC = () => {
 
     return (
         <Page title={t('ai.title')} className="h-[calc(100vh-10rem)]">
-            <ChatInterface onOpenSettings={() => setSettingsOpen(true)} />
+            <ChatWorkspace onOpenSettings={() => setSettingsOpen(true)} />
             <AISettingsWidget
                 open={settingsOpen}
                 onClose={() => setSettingsOpen(false)}

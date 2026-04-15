@@ -657,6 +657,11 @@
     "thinking": "Thinking...",
     "error": "An error occurred",
     "configured": "Configured",
-    "model": "Model"
+    "model": "Model",
+    "chats": "Chats",
+    "new-chat": "New chat",
+    "delete-chat": "Delete chat",
+    "delete-chat-confirm": "This chat and its messages will be removed from this browser.",
+    "clear-chat": "Clear messages in this chat"
   }
 }
