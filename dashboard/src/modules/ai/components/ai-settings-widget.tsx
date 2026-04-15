@@ -12,12 +12,18 @@ import {
     Textarea,
 } from '@marzneshin/common/components/ui'
 import { useAISettingsQuery, useAISettingsUpdateMutation, useAIModelsQuery } from '../api'
-import type { AISettings } from '../types'
+import type { AISettings, ReasoningEffort } from '../types'
 
 interface AISettingsWidgetProps {
     open: boolean
     onClose: () => void
 }
+
+const REASONING_EFFORTS: { value: ReasoningEffort; label: string }[] = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+]
 
 export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) => {
     const { t } = useTranslation()
@@ -30,10 +36,11 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
 
     const [form, setForm] = useState<AISettings>({
         api_key: '',
-        default_model: 'gpt-4o',
-        thinking_model: 'o3',
+        default_model: 'gpt-4.1-nano',
+        thinking_model: 'gpt-5-nano',
         max_tokens: 16384,
         temperature: 0.7,
+        reasoning_effort: 'medium',
         system_prompt: '',
     })
 
@@ -45,6 +52,7 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                 thinking_model: settings.thinking_model,
                 max_tokens: settings.max_tokens,
                 temperature: settings.temperature,
+                reasoning_effort: settings.reasoning_effort,
                 system_prompt: settings.system_prompt,
             }))
         }
@@ -101,6 +109,9 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t('ai.default-model-hint')}
+                            </p>
                         </div>
                         <div>
                             <Label className="text-xs">{t('ai.thinking-model')}</Label>
@@ -120,10 +131,13 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t('ai.thinking-model-hint')}
+                            </p>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-3">
                         <div>
                             <Label className="text-xs">{t('ai.max-tokens')}</Label>
                             <Input
@@ -154,6 +168,32 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                                 }
                                 className="mt-1"
                             />
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t('ai.temperature-hint')}
+                            </p>
+                        </div>
+                        <div>
+                            <Label className="text-xs">{t('ai.reasoning-effort')}</Label>
+                            <Select
+                                value={form.reasoning_effort}
+                                onValueChange={(v) =>
+                                    setForm({ ...form, reasoning_effort: v as ReasoningEffort })
+                                }
+                            >
+                                <SelectTrigger className="mt-1 h-9 text-xs">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {REASONING_EFFORTS.map((e) => (
+                                        <SelectItem key={e.value} value={e.value} className="text-xs">
+                                            {e.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t('ai.reasoning-effort-hint')}
+                            </p>
                         </div>
                     </div>
 

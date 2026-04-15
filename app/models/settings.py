@@ -75,17 +75,19 @@ class DatabasePoolStats(BaseModel):
 
 class AISettings(BaseModel):
     api_key: str = ""
-    default_model: str = "gpt-4o"
-    thinking_model: str = "o3"
+    default_model: str = "gpt-4.1-nano"
+    thinking_model: str = "gpt-5-nano"
     max_tokens: int = 16384
     temperature: float = 0.7
+    reasoning_effort: str = "medium"
     system_prompt: str = ""
 
 
 class AISettingsResponse(BaseModel):
     configured: bool = False
-    default_model: str = "gpt-4o"
-    thinking_model: str = "o3"
+    default_model: str = "gpt-4.1-nano"
+    thinking_model: str = "gpt-5-nano"
     max_tokens: int = 16384
     temperature: float = 0.7
+    reasoning_effort: str = "medium"
     system_prompt: str = ""

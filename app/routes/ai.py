@@ -61,6 +61,7 @@ def get_ai_settings(db: DBDep, admin: SudoAdminDep):
         thinking_model=s.thinking_model,
         max_tokens=s.max_tokens,
         temperature=s.temperature,
+        reasoning_effort=s.reasoning_effort,
         system_prompt=s.system_prompt,
     )
 
@@ -78,6 +79,7 @@ def update_ai_settings(db: DBDep, body: AISettings, admin: SudoAdminDep):
         thinking_model=body.thinking_model,
         max_tokens=body.max_tokens,
         temperature=body.temperature,
+        reasoning_effort=body.reasoning_effort,
         system_prompt=body.system_prompt,
     )
 
@@ -134,6 +136,7 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
                     tools=tools,
                     max_tokens=ai_settings.max_tokens,
                     temperature=ai_settings.temperature,
+                    reasoning_effort=ai_settings.reasoning_effort,
                 ):
                     if chunk["type"] == "content":
                         yield _sse("content", {"text": chunk["content"]})
@@ -274,6 +277,7 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
                     tools=tools,
                     max_tokens=ai_settings.max_tokens,
                     temperature=ai_settings.temperature,
+                    reasoning_effort=ai_settings.reasoning_effort,
                 ):
                     if chunk["type"] == "content":
                         yield _sse("content", {"text": chunk["content"]})

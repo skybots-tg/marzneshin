@@ -19,12 +19,15 @@ export interface ChatMessage {
     name?: string
 }
 
+export type ReasoningEffort = 'low' | 'medium' | 'high'
+
 export interface AISettings {
     api_key: string
     default_model: string
     thinking_model: string
     max_tokens: number
     temperature: number
+    reasoning_effort: ReasoningEffort
     system_prompt: string
 }
 
@@ -34,6 +37,7 @@ export interface AISettingsResponse {
     thinking_model: string
     max_tokens: number
     temperature: number
+    reasoning_effort: ReasoningEffort
     system_prompt: string
 }
 

@@ -113,10 +113,11 @@ async def stream_response(
     api_key: str,
     input_items: list[dict[str, Any]],
     instructions: str,
-    model: str = "gpt-4o",
+    model: str = "gpt-4.1-nano",
     tools: list[dict] | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
+    reasoning_effort: str = "medium",
 ) -> AsyncGenerator[dict, None]:
     """Stream a response using the Responses API.
 
@@ -138,7 +139,7 @@ async def stream_response(
         params["tools"] = tools
 
     if is_reasoning_model(model):
-        params["reasoning"] = {"effort": "medium"}
+        params["reasoning"] = {"effort": reasoning_effort}
     else:
         params["temperature"] = temperature
 
