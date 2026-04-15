@@ -233,9 +233,21 @@ def get_hosts_for_user(
     return unique_hosts
 
 
+_node_coefficients_cache: dict = {"data": None, "expires": 0}
+
+
 def get_node_coefficients(db: Session) -> dict[int, float]:
-    """Get mapping of node_id -> usage_coefficient for all nodes."""
-    return dict(db.query(Node.id, Node.usage_coefficient).all())
+    """Get mapping of node_id -> usage_coefficient for all nodes (cached 60s)."""
+    import time
+
+    now = time.time()
+    if _node_coefficients_cache["data"] is not None and now < _node_coefficients_cache["expires"]:
+        return _node_coefficients_cache["data"]
+
+    result = dict(db.query(Node.id, Node.usage_coefficient).all())
+    _node_coefficients_cache["data"] = result
+    _node_coefficients_cache["expires"] = now + 60
+    return result
 
 
 def get_all_inbounds(db: Session):

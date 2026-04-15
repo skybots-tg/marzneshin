@@ -92,7 +92,7 @@ def get_service_inbounds(service: ServiceDep, db: DBDep, admin: SudoAdminDep):
 
 
 @router.put("/{id}", response_model=ServiceResponse)
-async def modify_service(
+def modify_service(
     service: ServiceDep,
     modification: ServiceModify,
     db: DBDep,

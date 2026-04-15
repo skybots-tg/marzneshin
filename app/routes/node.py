@@ -61,16 +61,19 @@ def get_nodes(
 
 @router.post("", response_model=NodeResponse)
 async def add_node(new_node: NodeCreate, db: DBDep, admin: SudoAdminDep):
-    try:
-        db_node = crud.create_node(db, new_node)
-    except sqlalchemy.exc.IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409, detail=f'Node "{new_node.name}" already exists'
-        )
-    certificate = get_tls_certificate(db)
-    db.close()
+    def _db_work():
+        try:
+            db_node = crud.create_node(db, new_node)
+        except sqlalchemy.exc.IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409, detail=f'Node "{new_node.name}" already exists'
+            )
+        certificate = get_tls_certificate(db)
+        db.close()
+        return db_node, certificate
 
+    db_node, certificate = await asyncio.to_thread(_db_work)
     await marznode.operations.add_node(db_node, certificate)
 
     logger.info("New node `%s` added", db_node.name)
@@ -132,13 +135,16 @@ async def node_logs(
 async def modify_node(
     node_id: int, modified_node: NodeModify, db: DBDep, admin: SudoAdminDep
 ):
-    db_node = crud.get_node_by_id(db, node_id)
-    if not db_node:
-        raise HTTPException(status_code=404, detail="Node not found")
+    def _db_work():
+        db_node = crud.get_node_by_id(db, node_id)
+        if not db_node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        db_node = crud.update_node(db, db_node, modified_node)
+        certificate = get_tls_certificate(db) if db_node.status != NodeStatus.disabled else None
+        db.close()
+        return db_node, certificate
 
-    db_node = crud.update_node(db, db_node, modified_node)
-    certificate = get_tls_certificate(db) if db_node.status != NodeStatus.disabled else None
-    db.close()
+    db_node, certificate = await asyncio.to_thread(_db_work)
 
     await marznode.operations.remove_node(db_node.id)
     if certificate:
@@ -150,15 +156,17 @@ async def modify_node(
 
 @router.delete("/{node_id}")
 async def remove_node(node_id: int, db: DBDep, admin: SudoAdminDep):
-    db_node = crud.get_node_by_id(db, node_id)
-    if not db_node:
-        raise HTTPException(status_code=404, detail="Node not found")
+    def _db_work():
+        db_node = crud.get_node_by_id(db, node_id)
+        if not db_node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        node_name = db_node.name
+        removed_id = db_node.id
+        crud.remove_node(db, db_node)
+        db.close()
+        return node_name, removed_id
 
-    node_name = db_node.name
-    removed_id = db_node.id
-    crud.remove_node(db, db_node)
-    db.close()
-
+    node_name, removed_id = await asyncio.to_thread(_db_work)
     await marznode.operations.remove_node(removed_id)
 
     logger.info("Node `%s` deleted", node_name)

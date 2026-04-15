@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -14,6 +13,7 @@ from app.models.user import (
     UserExpireStrategy,
 )
 from app.notification import notify
+from app.utils.async_utils import fire_and_forget
 
 if TYPE_CHECKING:
     pass
@@ -41,7 +41,7 @@ async def review_users():
             db.commit()
             db.refresh(user)
 
-            asyncio.ensure_future(
+            fire_and_forget(
                 notify(
                     action=UserNotification.Action.user_deactivated,
                     user=UserResponse.model_validate(user),

@@ -1,10 +1,12 @@
-import asyncio
+import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from app.marznode.registry import node_registry
-from ..models.node import NodeConnectionBackend
+from app.utils.async_utils import fire_and_forget
 from ..models.user import User
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session as _Session
@@ -39,9 +41,10 @@ def update_user(
     allowed_fingerprints = _get_allowed_fingerprints(user.id, db=db)
 
     for node_id, tags in node_inbounds.items():
-        if node_registry.get(node_id):
-            asyncio.ensure_future(
-                node_registry.get(node_id).update_user(
+        node = node_registry.get(node_id)
+        if node:
+            fire_and_forget(
+                node.update_user(
                     user=User.model_validate(user),
                     inbounds=tags,
                     device_limit=user.device_limit,
@@ -68,17 +71,18 @@ def _get_allowed_fingerprints(user_id: int, db=None) -> list[str]:
                 db, user_id, is_blocked=False, limit=1000
             )
             return [d.fingerprint for d in devices]
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to get fingerprints for user %d: %s", user_id, e)
         return []
 
 
-async def remove_user(user: "DBUser"):
+def remove_user_from_nodes(user: "DBUser"):
     node_ids = set(inb.node_id for inb in user.inbounds)
 
     for node_id in node_ids:
         node = node_registry.get(node_id)
         if node:
-            asyncio.ensure_future(
+            fire_and_forget(
                 node.update_user(user=user, inbounds=[])
             )
 
@@ -93,4 +97,4 @@ async def add_node(db_node, certificate):
     await _add(db_node, certificate)
 
 
-__all__ = ["update_user", "add_node", "remove_node"]
+__all__ = ["update_user", "remove_user_from_nodes", "add_node", "remove_node"]

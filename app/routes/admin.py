@@ -162,7 +162,7 @@ def get_admin_users(username: str, db: DBDep, admin: SudoAdminDep):
 
 
 @router.post("/{username}/disable_users", response_model=AdminResponse)
-async def disable_users(username: str, db: DBDep, admin: SudoAdminDep):
+def disable_users(username: str, db: DBDep, admin: SudoAdminDep):
     db_admin = crud.get_admin(db, username)
     if not db_admin:
         raise HTTPException(status_code=404, detail="Admin not found")
@@ -184,7 +184,7 @@ async def disable_users(username: str, db: DBDep, admin: SudoAdminDep):
 
 
 @router.post("/{username}/enable_users", response_model=AdminResponse)
-async def enable_users(username: str, db: DBDep, admin: SudoAdminDep):
+def enable_users(username: str, db: DBDep, admin: SudoAdminDep):
     db_admin = crud.get_admin(db, username)
     if not db_admin:
         raise HTTPException(status_code=404, detail="Admin not found")

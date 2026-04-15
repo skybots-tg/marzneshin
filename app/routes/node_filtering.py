@@ -46,19 +46,23 @@ async def update_filtering(
     admin: SudoAdminDep,
     db: DBDep,
 ):
-    node = crud.get_node_by_id(db, node_id)
-    if not node:
-        raise HTTPException(404, "Node not found")
+    def _db_work():
+        node = crud.get_node_by_id(db, node_id)
+        if not node:
+            raise HTTPException(404, "Node not found")
+        cfg = crud.update_filtering_config(db, node_id, update)
+        marznode_ref = marznode.nodes.get(node_id)
+        if not marznode_ref:
+            return NodeFilteringConfigResponse.model_validate(cfg), None, None
+        backend_names = [b.name for b in node.backends]
+        response = NodeFilteringConfigResponse.model_validate(cfg)
+        db.close()
+        return response, marznode_ref, backend_names
 
-    cfg = crud.update_filtering_config(db, node_id, update)
-
-    marznode_ref = marznode.nodes.get(node_id)
-    if not marznode_ref:
-        return NodeFilteringConfigResponse.model_validate(cfg)
-
-    backend_names = [b.name for b in node.backends]
-    response = NodeFilteringConfigResponse.model_validate(cfg)
-    db.close()
+    response, marznode_ref, backend_names = await asyncio.to_thread(_db_work)
+    if marznode_ref is None:
+        return response
+    cfg = response
 
     for backend_name in backend_names:
         try:
@@ -177,32 +181,36 @@ async def install_adguard(
     admin: SudoAdminDep,
     db: DBDep,
 ):
-    node = crud.get_node_by_id(db, node_id)
-    if not node:
-        raise HTTPException(404, "Node not found")
+    def _db_work():
+        node = crud.get_node_by_id(db, node_id)
+        if not node:
+            raise HTTPException(404, "Node not found")
 
-    creds_row = crud.get_ssh_credentials(db, node_id)
-    if not creds_row:
-        raise HTTPException(400, "No stored SSH credentials for this node")
+        creds_row = crud.get_ssh_credentials(db, node_id)
+        if not creds_row:
+            raise HTTPException(400, "No stored SSH credentials for this node")
 
-    pin_hash = crud.get_ssh_pin_hash(db)
-    if not pin_hash:
-        raise HTTPException(400, "Global SSH PIN is not configured")
-    if not verify_pin(body.pin, pin_hash):
-        raise HTTPException(403, "Invalid PIN")
+        pin_hash = crud.get_ssh_pin_hash(db)
+        if not pin_hash:
+            raise HTTPException(400, "Global SSH PIN is not configured")
+        if not verify_pin(body.pin, pin_hash):
+            raise HTTPException(403, "Invalid PIN")
 
-    secret = get_secret_key()
-    try:
-        creds = decrypt_credentials(
-            creds_row.encrypted_data, creds_row.encryption_salt, body.pin, secret
-        )
-    except ValueError:
-        raise HTTPException(403, "Decryption failed — invalid PIN")
+        secret = get_secret_key()
+        try:
+            creds = decrypt_credentials(
+                creds_row.encrypted_data, creds_row.encryption_salt, body.pin, secret
+            )
+        except ValueError:
+            raise HTTPException(403, "Decryption failed — invalid PIN")
 
-    cfg = crud.get_or_create_filtering_config(db, node_id)
-    adguard_port = cfg.adguard_home_port
-    node_address = node.address
-    db.close()
+        cfg = crud.get_or_create_filtering_config(db, node_id)
+        adguard_port = cfg.adguard_home_port
+        node_address = node.address
+        db.close()
+        return creds, adguard_port, node_address
+
+    creds, adguard_port, node_address = await asyncio.to_thread(_db_work)
 
     script_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))),

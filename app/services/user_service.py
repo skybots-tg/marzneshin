@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -13,6 +12,7 @@ from app.models.notification import UserNotification
 from app.models.user import UserCreate, UserModify, UserResponse
 from app.marznode import operations as node_ops
 from app.notification.notifiers import notify
+from app.utils.async_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def create_user(db: Session, new_user: UserCreate, admin: Admin) -> User:
 
     node_ops.update_user(user=db_user, db=db)
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.user_created,
             user=UserResponse.model_validate(db_user),
@@ -70,7 +70,7 @@ def modify_user(
         db_user.activated = db_user.is_active
         db.commit()
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.user_updated,
             user=UserResponse.model_validate(db_user),
@@ -85,7 +85,7 @@ def modify_user(
             if active_after
             else UserNotification.Action.user_deactivated
         )
-        asyncio.ensure_future(
+        fire_and_forget(
             notify(
                 action=action,
                 user=UserResponse.model_validate(db_user),
@@ -110,7 +110,7 @@ def remove_user(db: Session, db_user: User, admin: Admin) -> UserResponse:
     user = UserResponse.model_validate(db_user)
     db.expunge(db_user)
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.user_deleted, user=user, by=admin
         )
@@ -155,7 +155,7 @@ def reset_data_usage(db: Session, db_user: User, admin: Admin) -> User:
         db_user.activated = True
         db.commit()
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.data_usage_reset,
             user=UserResponse.model_validate(db_user),
@@ -176,7 +176,7 @@ def enable_user(db: Session, db_user: User, admin: Admin) -> User:
         node_ops.update_user(db_user, db=db)
     db.commit()
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.user_enabled,
             user=UserResponse.model_validate(db_user),
@@ -196,7 +196,7 @@ def disable_user(db: Session, db_user: User, admin: Admin) -> User:
     db.commit()
     node_ops.update_user(db_user, remove=True, db=db)
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.user_disabled,
             user=UserResponse.model_validate(db_user),
@@ -214,7 +214,7 @@ def revoke_subscription(db: Session, db_user: User, admin: Admin) -> User:
         node_ops.update_user(db_user, remove=True, db=db)
         node_ops.update_user(db_user, db=db)
 
-    asyncio.ensure_future(
+    fire_and_forget(
         notify(
             action=UserNotification.Action.subscription_revoked,
             user=UserResponse.model_validate(db_user),
