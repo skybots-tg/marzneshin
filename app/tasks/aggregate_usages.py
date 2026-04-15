@@ -1,0 +1,168 @@
+"""Aggregate old hourly traffic records into daily summaries.
+
+Runs once a day. For each complete day older than USAGE_RETENTION_DAYS:
+  1. SUM hourly rows into a single daily row (per user/node)
+  2. DELETE the hourly originals
+
+This keeps node_user_usages and node_usages small while preserving
+all historical data in the *_daily tables.
+"""
+
+import logging
+from datetime import datetime, timedelta
+
+from sqlalchemy import and_, cast, Date, delete, func, insert, select
+
+from app.db import GetDB
+from app.db.models import (
+    NodeUsage,
+    NodeUserUsage,
+)
+from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
+from app.core.settings import settings
+
+logger = logging.getLogger(__name__)
+
+BATCH_SIZE = 5000
+
+
+def _aggregate_node_user_usages(db, cutoff: datetime) -> int:
+    """Aggregate node_user_usages rows older than cutoff into daily table."""
+    agg_query = (
+        select(
+            cast(NodeUserUsage.created_at, Date).label("date"),
+            NodeUserUsage.user_id,
+            NodeUserUsage.node_id,
+            func.sum(NodeUserUsage.used_traffic).label("used_traffic"),
+        )
+        .where(NodeUserUsage.created_at < cutoff)
+        .group_by(
+            cast(NodeUserUsage.created_at, Date),
+            NodeUserUsage.user_id,
+            NodeUserUsage.node_id,
+        )
+    )
+
+    rows = db.execute(agg_query).fetchall()
+    if not rows:
+        return 0
+
+    for row in rows:
+        existing = db.execute(
+            select(NodeUserUsageDaily.id).where(
+                and_(
+                    NodeUserUsageDaily.date == row.date,
+                    NodeUserUsageDaily.user_id == row.user_id,
+                    NodeUserUsageDaily.node_id == row.node_id,
+                )
+            )
+        ).first()
+
+        if existing:
+            db.execute(
+                NodeUserUsageDaily.__table__.update()
+                .where(NodeUserUsageDaily.id == existing.id)
+                .values(
+                    used_traffic=NodeUserUsageDaily.used_traffic + row.used_traffic
+                )
+            )
+        else:
+            db.execute(
+                insert(NodeUserUsageDaily).values(
+                    date=row.date,
+                    user_id=row.user_id,
+                    node_id=row.node_id,
+                    used_traffic=row.used_traffic,
+                )
+            )
+
+    deleted = db.execute(
+        delete(NodeUserUsage).where(NodeUserUsage.created_at < cutoff)
+    ).rowcount
+
+    return deleted
+
+
+def _aggregate_node_usages(db, cutoff: datetime) -> int:
+    """Aggregate node_usages rows older than cutoff into daily table."""
+    agg_query = (
+        select(
+            cast(NodeUsage.created_at, Date).label("date"),
+            NodeUsage.node_id,
+            func.sum(NodeUsage.uplink).label("uplink"),
+            func.sum(NodeUsage.downlink).label("downlink"),
+        )
+        .where(NodeUsage.created_at < cutoff)
+        .group_by(
+            cast(NodeUsage.created_at, Date),
+            NodeUsage.node_id,
+        )
+    )
+
+    rows = db.execute(agg_query).fetchall()
+    if not rows:
+        return 0
+
+    for row in rows:
+        existing = db.execute(
+            select(NodeUsageDaily.id).where(
+                and_(
+                    NodeUsageDaily.date == row.date,
+                    NodeUsageDaily.node_id == row.node_id,
+                )
+            )
+        ).first()
+
+        if existing:
+            db.execute(
+                NodeUsageDaily.__table__.update()
+                .where(NodeUsageDaily.id == existing.id)
+                .values(
+                    uplink=NodeUsageDaily.uplink + row.uplink,
+                    downlink=NodeUsageDaily.downlink + row.downlink,
+                )
+            )
+        else:
+            db.execute(
+                insert(NodeUsageDaily).values(
+                    date=row.date,
+                    node_id=row.node_id,
+                    uplink=row.uplink,
+                    downlink=row.downlink,
+                )
+            )
+
+    deleted = db.execute(
+        delete(NodeUsage).where(NodeUsage.created_at < cutoff)
+    ).rowcount
+
+    return deleted
+
+
+async def aggregate_old_usages():
+    """Main entry point called by the scheduler."""
+    retention_days = settings.tasks.usage_retention_days
+    if retention_days <= 0:
+        logger.info("Usage aggregation disabled (retention_days <= 0)")
+        return
+
+    cutoff = datetime.utcnow().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) - timedelta(days=retention_days)
+
+    logger.info(
+        f"Aggregating usage records older than {cutoff.date()} "
+        f"(retention={retention_days} days)"
+    )
+
+    with GetDB() as db:
+        user_deleted = _aggregate_node_user_usages(db, cutoff)
+        db.commit()
+
+        node_deleted = _aggregate_node_usages(db, cutoff)
+        db.commit()
+
+    logger.info(
+        f"Aggregation complete: {user_deleted} node_user_usages + "
+        f"{node_deleted} node_usages rows compressed into daily summaries"
+    )

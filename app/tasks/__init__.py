@@ -1,3 +1,4 @@
+from .aggregate_usages import aggregate_old_usages
 from .nodes import nodes_startup
 from .pool_monitor import check_pool_health
 from .record_usages import record_user_usages
@@ -6,6 +7,7 @@ from .review_users import review_users
 from .expire_days_reached import expire_days_reached
 
 __all__ = [
+    "aggregate_old_usages",
     "nodes_startup",
     "check_pool_health",
     "record_user_usages",

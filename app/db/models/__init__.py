@@ -12,7 +12,9 @@ from .proxy import (
     InboundHost,
     Node,
     NodeUsage,
+    NodeUsageDaily,
     NodeUserUsage,
+    NodeUserUsageDaily,
 )
 from .system import JWT, Settings, System, TLS
 from .device import UserDevice, UserDeviceIP, UserDeviceTraffic
@@ -32,7 +34,9 @@ __all__ = [
     "InboundHost",
     "Node",
     "NodeUsage",
+    "NodeUsageDaily",
     "NodeUserUsage",
+    "NodeUserUsageDaily",
     "JWT",
     "Settings",
     "System",

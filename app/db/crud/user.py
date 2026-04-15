@@ -8,6 +8,8 @@ from sqlalchemy import and_, update, func, cast, Date
 from sqlalchemy.orm import Session
 
 from app.db.models import Admin, Node, NodeUserUsage, Service, User
+from app.db.models.proxy import NodeUserUsageDaily
+from app.core.settings import settings
 from app.models.system import TrafficUsageSeries
 from app.models.user import (
     UserCreate,
@@ -116,40 +118,69 @@ def get_users(
     return query.all()
 
 
+def _get_retention_cutoff() -> datetime:
+    """Boundary between hourly (recent) and daily (old) data."""
+    return datetime.utcnow().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) - timedelta(days=settings.tasks.usage_retention_days)
+
+
 def get_user_total_usage(
     db: Session, user: User, start: datetime, end: datetime, per_day=False
 ):
     usages = defaultdict(int)
+    cutoff = _get_retention_cutoff()
 
-    query = db.query(
-        (
-            cast(NodeUserUsage.created_at, Date).label("day")
-            if per_day
-            else NodeUserUsage.created_at
-        ),
-        func.sum(NodeUserUsage.used_traffic),
-    ).filter(
-        and_(
-            NodeUserUsage.user_id == user.id,
-            NodeUserUsage.created_at >= start,
-            NodeUserUsage.created_at <= end,
+    # Hourly data (recent period)
+    hourly_start = max(start, cutoff)
+    if hourly_start < end:
+        query = db.query(
+            (
+                cast(NodeUserUsage.created_at, Date).label("day")
+                if per_day
+                else NodeUserUsage.created_at
+            ),
+            func.sum(NodeUserUsage.used_traffic),
+        ).filter(
+            and_(
+                NodeUserUsage.user_id == user.id,
+                NodeUserUsage.created_at >= hourly_start,
+                NodeUserUsage.created_at <= end,
+            )
         )
-    )
-    if per_day:
-        query = query.group_by(cast(NodeUserUsage.created_at, Date))
-    else:
-        query = query.group_by(NodeUserUsage.created_at)
-
-    for date, used_traffic in query:
         if per_day:
+            query = query.group_by(cast(NodeUserUsage.created_at, Date))
+        else:
+            query = query.group_by(NodeUserUsage.created_at)
+
+        for date, used_traffic in query:
+            if per_day:
+                timestamp = datetime(
+                    date.year, date.month, date.day, tzinfo=timezone.utc
+                ).timestamp()
+            else:
+                timestamp = date.replace(tzinfo=timezone.utc).timestamp()
+            usages[timestamp] += int(used_traffic)
+
+    # Daily data (older period)
+    if start < cutoff:
+        daily_end = min(end, cutoff - timedelta(seconds=1))
+        daily_query = db.query(
+            NodeUserUsageDaily.date,
+            func.sum(NodeUserUsageDaily.used_traffic),
+        ).filter(
+            and_(
+                NodeUserUsageDaily.user_id == user.id,
+                NodeUserUsageDaily.date >= start.date(),
+                NodeUserUsageDaily.date <= daily_end.date(),
+            )
+        ).group_by(NodeUserUsageDaily.date)
+
+        for date, used_traffic in daily_query:
             timestamp = datetime(
                 date.year, date.month, date.day, tzinfo=timezone.utc
             ).timestamp()
             usages[timestamp] += int(used_traffic)
-        else:
-            usages[date.replace(tzinfo=timezone.utc).timestamp()] += int(
-                used_traffic
-            )
 
     result = TrafficUsageSeries(usages=[])
     current = start.astimezone(timezone.utc).replace(
@@ -173,32 +204,60 @@ def get_total_usages(
     db: Session, admin: Admin, start: datetime, end: datetime
 ) -> TrafficUsageSeries:
     usages = defaultdict(int)
+    cutoff = _get_retention_cutoff()
 
-    query = (
-        db.query(
-            NodeUserUsage.created_at, func.sum(NodeUserUsage.used_traffic)
-        )
-        .group_by(NodeUserUsage.created_at)
-        .filter(
-            and_(
-                NodeUserUsage.created_at >= start,
-                NodeUserUsage.created_at <= end,
-            )
-        )
-    )
-
-    if not admin.is_sudo:
+    # Hourly data
+    hourly_start = max(start, cutoff)
+    if hourly_start < end:
         query = (
-            query.filter(
-                Admin.id == admin.id,
+            db.query(
+                NodeUserUsage.created_at, func.sum(NodeUserUsage.used_traffic)
             )
-            .join(User, NodeUserUsage.user_id == User.id)
-            .join(Admin, User.admin_id == Admin.id)
+            .group_by(NodeUserUsage.created_at)
+            .filter(
+                and_(
+                    NodeUserUsage.created_at >= hourly_start,
+                    NodeUserUsage.created_at <= end,
+                )
+            )
         )
+        if not admin.is_sudo:
+            query = (
+                query.filter(Admin.id == admin.id)
+                .join(User, NodeUserUsage.user_id == User.id)
+                .join(Admin, User.admin_id == Admin.id)
+            )
+        for created_at, used_traffic in query.all():
+            timestamp = created_at.replace(tzinfo=timezone.utc).timestamp()
+            usages[timestamp] += int(used_traffic)
 
-    for created_at, used_traffic in query.all():
-        timestamp = created_at.replace(tzinfo=timezone.utc).timestamp()
-        usages[timestamp] += int(used_traffic)
+    # Daily data
+    if start < cutoff:
+        daily_end = min(end, cutoff - timedelta(seconds=1))
+        daily_query = (
+            db.query(
+                NodeUserUsageDaily.date,
+                func.sum(NodeUserUsageDaily.used_traffic),
+            )
+            .group_by(NodeUserUsageDaily.date)
+            .filter(
+                and_(
+                    NodeUserUsageDaily.date >= start.date(),
+                    NodeUserUsageDaily.date <= daily_end.date(),
+                )
+            )
+        )
+        if not admin.is_sudo:
+            daily_query = (
+                daily_query.filter(Admin.id == admin.id)
+                .join(User, NodeUserUsageDaily.user_id == User.id)
+                .join(Admin, User.admin_id == Admin.id)
+            )
+        for date, used_traffic in daily_query.all():
+            timestamp = datetime(
+                date.year, date.month, date.day, tzinfo=timezone.utc
+            ).timestamp()
+            usages[timestamp] += int(used_traffic)
 
     result = TrafficUsageSeries(usages=[], total=0)
     current = start.astimezone(timezone.utc).replace(
@@ -220,20 +279,37 @@ def get_user_usages(
     start: datetime,
     end: datetime,
 ) -> UserUsageSeriesResponse:
-    usages = defaultdict(dict)
+    usages = defaultdict(lambda: defaultdict(int))
+    cutoff = _get_retention_cutoff()
 
-    cond = and_(
-        NodeUserUsage.user_id == db_user.id,
-        NodeUserUsage.created_at >= start,
-        NodeUserUsage.created_at <= end,
-    )
+    # Hourly data
+    hourly_start = max(start, cutoff)
+    if hourly_start < end:
+        cond = and_(
+            NodeUserUsage.user_id == db_user.id,
+            NodeUserUsage.created_at >= hourly_start,
+            NodeUserUsage.created_at <= end,
+        )
+        for v in db.query(NodeUserUsage).filter(cond):
+            timestamp = v.created_at.replace(tzinfo=timezone.utc).timestamp()
+            usages[v.node_id][timestamp] += v.used_traffic
 
-    for v in db.query(NodeUserUsage).filter(cond):
-        timestamp = v.created_at.replace(tzinfo=timezone.utc).timestamp()
-        usages[v.node_id][timestamp] = v.used_traffic
+    # Daily data
+    if start < cutoff:
+        daily_end = min(end, cutoff - timedelta(seconds=1))
+        daily_cond = and_(
+            NodeUserUsageDaily.user_id == db_user.id,
+            NodeUserUsageDaily.date >= start.date(),
+            NodeUserUsageDaily.date <= daily_end.date(),
+        )
+        for v in db.query(NodeUserUsageDaily).filter(daily_cond):
+            timestamp = datetime(
+                v.date.year, v.date.month, v.date.day, tzinfo=timezone.utc
+            ).timestamp()
+            usages[v.node_id][timestamp] += v.used_traffic
 
     node_ids = list(usages.keys())
-    nodes = db.query(Node).where(Node.id.in_(node_ids))
+    nodes = db.query(Node).where(Node.id.in_(node_ids)) if node_ids else []
     node_id_names = {node.id: node.name for node in nodes}
 
     result = UserUsageSeriesResponse(

@@ -5,6 +5,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -241,6 +242,18 @@ class NodeUserUsage(Base):
     used_traffic = Column(BigInteger, default=0)
 
 
+class NodeUserUsageDaily(Base):
+    """Aggregated daily traffic per user per node (compressed from hourly records)."""
+    __tablename__ = "node_user_usages_daily"
+    __table_args__ = (UniqueConstraint("date", "user_id", "node_id"),)
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    node_id = Column(Integer, ForeignKey("nodes.id"), index=True)
+    used_traffic = Column(BigInteger, default=0)
+
+
 class NodeUsage(Base):
     __tablename__ = "node_usages"
     __table_args__ = (UniqueConstraint("created_at", "node_id"),)
@@ -249,5 +262,17 @@ class NodeUsage(Base):
     created_at = Column(DateTime, nullable=False)  # one hour per record
     node_id = Column(Integer, ForeignKey("nodes.id"))
     node = relationship("Node", back_populates="usages")
+    uplink = Column(BigInteger, default=0)
+    downlink = Column(BigInteger, default=0)
+
+
+class NodeUsageDaily(Base):
+    """Aggregated daily traffic per node (compressed from hourly records)."""
+    __tablename__ = "node_usages_daily"
+    __table_args__ = (UniqueConstraint("date", "node_id"),)
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False, index=True)
+    node_id = Column(Integer, ForeignKey("nodes.id"), index=True)
     uplink = Column(BigInteger, default=0)
     downlink = Column(BigInteger, default=0)
