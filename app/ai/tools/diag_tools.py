@@ -21,11 +21,25 @@ async def get_node_logs(db: Session, node_id: int, backend: str = "xray", max_li
         return {"error": f"Node {node_id} is not connected"}
 
     lines = []
-    try:
+
+    async def _collect():
         async for line in node.get_logs(name=backend, include_buffer=True):
             lines.append(line)
             if len(lines) >= max_lines:
                 break
+
+    try:
+        await asyncio.wait_for(_collect(), timeout=30.0)
+    except asyncio.TimeoutError:
+        return {
+            "error": (
+                "Timed out after 30s while reading log stream. "
+                "The node may be overloaded or the gRPC stream stalled."
+            ),
+            "partial_lines": lines,
+            "node_id": node_id,
+            "backend": backend,
+        }
     except asyncio.CancelledError:
         pass
     except Exception as e:
