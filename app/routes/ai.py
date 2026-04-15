@@ -7,17 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.ai import tools as _tools_import  # noqa: F401 — register all tools
 from app.ai.models import (
-    ChatMessage,
     ChatRequest,
     ConfirmRequest,
     ConfirmAction,
-    MessageRole,
-    ToolCall,
 )
 from app.ai.openai_client import (
-    chat_completion,
+    build_instructions,
+    convert_messages_to_input,
     list_models,
-    stream_chat_completion,
+    stream_response,
 )
 from app.ai.tool_executor import (
     create_session_id,
@@ -93,7 +91,9 @@ async def get_models(db: DBDep, admin: SudoAdminDep):
         models = await list_models(api_key)
         return {"models": [m.model_dump() for m in models]}
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"OpenAI API error: {str(e)}")
+        raise HTTPException(
+            status_code=502, detail=f"OpenAI API error: {str(e)}"
+        )
 
 
 @router.get("/tools")
@@ -112,23 +112,28 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
     model = body.model or ai_settings.default_model
     session_id = body.session_id or create_session_id()
 
+    instructions = build_instructions(ai_settings.system_prompt)
+    tools = get_openai_tools_schema()
+    input_items = convert_messages_to_input(body.messages)
+
     async def event_stream():
-        messages = list(body.messages)
+        nonlocal input_items
         max_iterations = 10
 
         for iteration in range(max_iterations):
-            accumulated_content = ""
             tool_calls_result = []
             has_tool_calls = False
+            output_items = []
 
             try:
-                async for chunk in stream_chat_completion(
+                async for chunk in stream_response(
                     api_key=api_key,
-                    messages=messages,
+                    input_items=input_items,
+                    instructions=instructions,
                     model=model,
+                    tools=tools,
                     max_tokens=ai_settings.max_tokens,
                     temperature=ai_settings.temperature,
-                    custom_system_prompt=ai_settings.system_prompt,
                 ):
                     if chunk["type"] == "content":
                         yield _sse("content", {"text": chunk["content"]})
@@ -136,7 +141,7 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
                         tool_calls_result = chunk["tool_calls"]
                         has_tool_calls = True
                     elif chunk["type"] == "done":
-                        accumulated_content = chunk.get("content", "")
+                        output_items = chunk.get("output_items", [])
             except Exception as e:
                 logger.exception("OpenAI streaming error")
                 yield _sse("error", {"message": f"OpenAI error: {str(e)}"})
@@ -146,17 +151,12 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
                 yield _sse("done", {"session_id": session_id})
                 return
 
-            assistant_msg = ChatMessage(
-                role=MessageRole.assistant,
-                content=accumulated_content if accumulated_content else None,
-                tool_calls=tool_calls_result,
-            )
-            messages.append(assistant_msg)
+            input_items.extend(output_items)
 
-            all_read = True
+            all_auto = True
             for tc in tool_calls_result:
                 if requires_confirmation(tc):
-                    all_read = False
+                    all_auto = False
                     yield _sse("tool_call", {
                         "tool_call_id": tc.id,
                         "name": tc.function.name,
@@ -164,7 +164,7 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
                         "requires_confirmation": True,
                     })
 
-                    store_pending(session_id, tc, messages, model)
+                    store_pending(session_id, tc, input_items, model)
 
                     yield _sse("pending_confirmation", {
                         "session_id": session_id,
@@ -193,13 +193,13 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
                         "result": result_str,
                     })
 
-                    messages.append(ChatMessage(
-                        role=MessageRole.tool,
-                        content=result_str,
-                        tool_call_id=tc.id,
-                    ))
+                    input_items.append({
+                        "type": "function_call_output",
+                        "call_id": tc.id,
+                        "output": result_str,
+                    })
 
-            if not all_read:
+            if not all_auto:
                 return
 
         yield _sse("done", {"session_id": session_id})
@@ -222,20 +222,26 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
 
     pending = get_pending(body.session_id)
     if not pending:
-        raise HTTPException(status_code=404, detail="No pending confirmation found for this session")
+        raise HTTPException(
+            status_code=404,
+            detail="No pending confirmation found for this session",
+        )
 
-    messages = list(pending.messages_snapshot)
+    input_items = list(pending.input_snapshot)
     model = pending.model
     tc = pending.tool_call
     remove_pending(body.session_id)
 
+    instructions = build_instructions(ai_settings.system_prompt)
+    tools = get_openai_tools_schema()
+
     if body.action == ConfirmAction.reject:
         rejection = build_rejection_message(pending)
-        messages.append(ChatMessage(
-            role=MessageRole.tool,
-            content=json.dumps({"rejected": True, "message": rejection}),
-            tool_call_id=tc.id,
-        ))
+        input_items.append({
+            "type": "function_call_output",
+            "call_id": tc.id,
+            "output": json.dumps({"rejected": True, "message": rejection}),
+        })
     else:
         with GetDB() as tool_db:
             result = await execute_tool(tc, tool_db)
@@ -244,29 +250,30 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
             result.data if result.success else {"error": result.error},
             default=str,
         )
-        messages.append(ChatMessage(
-            role=MessageRole.tool,
-            content=result_str,
-            tool_call_id=tc.id,
-        ))
+        input_items.append({
+            "type": "function_call_output",
+            "call_id": tc.id,
+            "output": result_str,
+        })
 
     async def event_stream():
-        nonlocal messages
-
+        nonlocal input_items
         max_iterations = 10
+
         for iteration in range(max_iterations):
-            accumulated_content = ""
             tool_calls_result = []
             has_tool_calls = False
+            output_items = []
 
             try:
-                async for chunk in stream_chat_completion(
+                async for chunk in stream_response(
                     api_key=api_key,
-                    messages=messages,
+                    input_items=input_items,
+                    instructions=instructions,
                     model=model,
+                    tools=tools,
                     max_tokens=ai_settings.max_tokens,
                     temperature=ai_settings.temperature,
-                    custom_system_prompt=ai_settings.system_prompt,
                 ):
                     if chunk["type"] == "content":
                         yield _sse("content", {"text": chunk["content"]})
@@ -274,7 +281,7 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
                         tool_calls_result = chunk["tool_calls"]
                         has_tool_calls = True
                     elif chunk["type"] == "done":
-                        accumulated_content = chunk.get("content", "")
+                        output_items = chunk.get("output_items", [])
             except Exception as e:
                 logger.exception("OpenAI streaming error on confirm")
                 yield _sse("error", {"message": f"OpenAI error: {str(e)}"})
@@ -284,12 +291,7 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
                 yield _sse("done", {"session_id": body.session_id})
                 return
 
-            assistant_msg = ChatMessage(
-                role=MessageRole.assistant,
-                content=accumulated_content if accumulated_content else None,
-                tool_calls=tool_calls_result,
-            )
-            messages.append(assistant_msg)
+            input_items.extend(output_items)
 
             for tc_new in tool_calls_result:
                 if requires_confirmation(tc_new):
@@ -299,7 +301,9 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
                         "arguments": tc_new.function.arguments,
                         "requires_confirmation": True,
                     })
-                    store_pending(body.session_id, tc_new, messages, model)
+                    store_pending(
+                        body.session_id, tc_new, input_items, model
+                    )
                     yield _sse("pending_confirmation", {
                         "session_id": body.session_id,
                         "tool_name": tc_new.function.name,
@@ -327,11 +331,11 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
                         "result": result_str,
                     })
 
-                    messages.append(ChatMessage(
-                        role=MessageRole.tool,
-                        content=result_str,
-                        tool_call_id=tc_new.id,
-                    ))
+                    input_items.append({
+                        "type": "function_call_output",
+                        "call_id": tc_new.id,
+                        "output": result_str,
+                    })
 
         yield _sse("done", {"session_id": body.session_id})
 

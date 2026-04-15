@@ -81,16 +81,15 @@ def get_all_tools() -> list[ToolDefinition]:
 
 
 def get_openai_tools_schema() -> list[dict[str, Any]]:
+    """Return tool schemas in the Responses API format (flat, internally tagged)."""
     result = []
     for entry in _registry.values():
         td = entry["definition"]
         result.append({
             "type": "function",
-            "function": {
-                "name": td.name,
-                "description": td.description,
-                "parameters": td.parameters,
-                "strict": False,
-            },
+            "name": td.name,
+            "description": td.description,
+            "parameters": td.parameters,
+            "strict": False,
         })
     return result
