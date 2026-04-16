@@ -119,14 +119,15 @@ export const BackupDialog: FC<BackupDialogProps> = ({ open, onClose }) => {
     }
 
     const handleDownload = async () => {
-        if (!jobId) return
+        if (!job) return
         try {
             setIsDownloading(true)
-            await downloadBackupJobArtefact(jobId)
+            await downloadBackupJobArtefact(job)
         } catch (err) {
-            toast.error(
-                err instanceof Error ? err.message : String(err),
-            )
+            const detail =
+                (err as { data?: { detail?: string } })?.data?.detail ||
+                (err instanceof Error ? err.message : String(err))
+            toast.error(detail)
         } finally {
             setIsDownloading(false)
         }
@@ -407,7 +408,7 @@ export const BackupDialog: FC<BackupDialogProps> = ({ open, onClose }) => {
 
                     {(isDone || isFailed || isCancelled) && (
                         <>
-                            {isDone && jobId && (
+                            {isDone && job && (
                                 <Button
                                     onClick={handleDownload}
                                     disabled={isDownloading}
