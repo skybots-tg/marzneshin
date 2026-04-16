@@ -1,7 +1,8 @@
 import asyncio
+import json
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Optional
 
 import sqlalchemy
 from fastapi import APIRouter, Body, Depends, Query
@@ -9,6 +10,7 @@ from fastapi import HTTPException, WebSocket
 from fastapi_pagination import Params
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
+from starlette.responses import StreamingResponse
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from grpclib.exceptions import StreamTerminatedError, GRPCError
 
@@ -173,6 +175,199 @@ async def remove_node(node_id: int, db: DBDep, admin: SudoAdminDep):
 
     logger.info("Node `%s` deleted", node_name)
     return {}
+
+
+# Порядок и человекочитаемые имена шагов для SSE-удаления.
+# Ключи id совпадают с tablename в crud.remove_node + два виртуальных шага.
+_DELETE_STEPS: list[dict] = [
+    {"id": "node_user_usages_daily", "name": "Per-user daily usage"},
+    {"id": "node_usages_daily", "name": "Node daily usage"},
+    {"id": "node_user_usages", "name": "Per-user hourly usage"},
+    {"id": "node_usages", "name": "Node hourly usage"},
+    {"id": "nodes", "name": "Node record"},
+    {"id": "marznode_detach", "name": "Detach from marznode"},
+]
+
+
+@router.post("/{node_id}/delete-stream")
+async def remove_node_stream(node_id: int, db: DBDep, admin: SudoAdminDep):
+    """Delete a node while streaming per-step progress over SSE.
+
+    Удаление связанных usage-таблиц выполняется батчами (см. crud.remove_node),
+    и для каждой таблицы генерируются события step_start / progress / step_done,
+    что позволяет UI показывать поэтапный прогресс вместо «висящего» запроса.
+    """
+
+    def _preload():
+        db_node = crud.get_node_by_id(db, node_id)
+        return db_node.name if db_node else None
+
+    node_name = await asyncio.to_thread(_preload)
+    if node_name is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    def _send(event_type: str, data: dict) -> str:
+        return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    async def event_generator():
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def put(evt: dict) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, evt)
+
+        steps = [
+            {**step, "status": "pending", "done": 0, "total": 0}
+            for step in _DELETE_STEPS
+        ]
+        yield _send("steps", {"steps": steps})
+
+        def _db_work():
+            try:
+                db_node = crud.get_node_by_id(db, node_id)
+                if not db_node:
+                    put({"kind": "fatal", "message": "Node not found"})
+                    return
+                crud.remove_node(db, db_node, on_progress=put)
+            except Exception as exc:
+                logger.exception("Failed to remove node %s from DB", node_id)
+                put({"kind": "fatal", "message": str(exc)})
+            finally:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+                put(None)
+
+        task = asyncio.create_task(asyncio.to_thread(_db_work))
+
+        db_success = True
+        failed_step: Optional[str] = None
+
+        try:
+            while True:
+                evt = await queue.get()
+                if evt is None:
+                    break
+
+                kind = evt.get("kind")
+                if kind == "step_start":
+                    yield _send(
+                        "step_update",
+                        {
+                            "step": {
+                                "id": evt["table"],
+                                "status": "in_progress",
+                                "done": 0,
+                                "total": evt.get("total", 0),
+                            }
+                        },
+                    )
+                elif kind == "progress":
+                    yield _send(
+                        "step_update",
+                        {
+                            "step": {
+                                "id": evt["table"],
+                                "status": "in_progress",
+                                "done": evt.get("done", 0),
+                                "total": evt.get("total", 0),
+                            }
+                        },
+                    )
+                elif kind == "step_done":
+                    yield _send(
+                        "step_update",
+                        {
+                            "step": {
+                                "id": evt["table"],
+                                "status": "success",
+                                "done": evt.get("done", 0),
+                                "total": evt.get("total", 0),
+                            }
+                        },
+                    )
+                elif kind == "step_error":
+                    db_success = False
+                    failed_step = evt.get("table")
+                    yield _send(
+                        "step_update",
+                        {
+                            "step": {
+                                "id": evt["table"],
+                                "status": "error",
+                            }
+                        },
+                    )
+                elif kind == "fatal":
+                    db_success = False
+                    yield _send("error", {"message": evt.get("message", "")})
+
+            await task
+        except Exception:
+            task.cancel()
+            raise
+
+        if not db_success:
+            if failed_step:
+                yield _send(
+                    "step_update",
+                    {"step": {"id": "marznode_detach", "status": "pending"}},
+                )
+            yield _send(
+                "complete",
+                {
+                    "success": False,
+                    "message": f"Failed to delete node {node_name}",
+                },
+            )
+            return
+
+        yield _send(
+            "step_update",
+            {"step": {"id": "marznode_detach", "status": "in_progress"}},
+        )
+        try:
+            await marznode.operations.remove_node(node_id)
+            yield _send(
+                "step_update",
+                {"step": {"id": "marznode_detach", "status": "success"}},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Node %s removed from DB but marznode detach failed: %s",
+                node_id,
+                exc,
+            )
+            yield _send(
+                "step_update",
+                {"step": {"id": "marznode_detach", "status": "error"}},
+            )
+            yield _send(
+                "log",
+                {"message": f"marznode detach failed: {exc}"},
+            )
+
+        logger.info("Node `%s` deleted", node_name)
+        yield _send(
+            "complete",
+            {
+                "success": True,
+                "message": f"Node {node_name} deleted",
+                "node_id": node_id,
+                "node_name": node_name,
+            },
+        )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{node_id}/resync")
