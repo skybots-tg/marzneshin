@@ -24,6 +24,10 @@ from app.ai.models import (
     MessageRole,
 )
 from app.ai.openai_client import list_models
+from app.ai.session_context import (
+    reset_current_session_id,
+    set_current_session_id,
+)
 from app.ai.state_store import (
     create_session_id,
     get_pending,
@@ -286,19 +290,23 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
     input_items = _messages_to_input_items(body.messages)
 
     async def event_stream():
+        token = set_current_session_id(session_id)
         try:
-            result = Runner.run_streamed(
-                agent,
-                input=input_items,
-                max_turns=MAX_TURNS,
-            )
-        except Exception as e:
-            logger.exception("Failed to start agent run")
-            yield _sse("error", {"message": f"Agent error: {str(e)}"})
-            return
+            try:
+                result = Runner.run_streamed(
+                    agent,
+                    input=input_items,
+                    max_turns=MAX_TURNS,
+                )
+            except Exception as e:
+                logger.exception("Failed to start agent run")
+                yield _sse("error", {"message": f"Agent error: {str(e)}"})
+                return
 
-        async for chunk in _stream_run(result, session_id, agent):
-            yield chunk
+            async for chunk in _stream_run(result, session_id, agent):
+                yield chunk
+        finally:
+            reset_current_session_id(token)
 
     return StreamingResponse(
         event_stream(),
@@ -329,34 +337,38 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
     remove_pending(body.session_id)
 
     async def event_stream():
+        token = set_current_session_id(body.session_id)
         try:
-            state = await RunState.from_json(agent, state_json)
-        except Exception as e:
-            logger.exception("Failed to deserialize paused run state")
-            yield _sse(
-                "error",
-                {"message": f"Failed to resume paused run: {str(e)}"},
-            )
-            return
+            try:
+                state = await RunState.from_json(agent, state_json)
+            except Exception as e:
+                logger.exception("Failed to deserialize paused run state")
+                yield _sse(
+                    "error",
+                    {"message": f"Failed to resume paused run: {str(e)}"},
+                )
+                return
 
-        interruptions = state.get_interruptions()
-        for interruption in interruptions:
-            if not isinstance(interruption, ToolApprovalItem):
-                continue
-            if body.action == ConfirmAction.approve:
-                state.approve(interruption)
-            else:
-                state.reject(interruption)
+            interruptions = state.get_interruptions()
+            for interruption in interruptions:
+                if not isinstance(interruption, ToolApprovalItem):
+                    continue
+                if body.action == ConfirmAction.approve:
+                    state.approve(interruption)
+                else:
+                    state.reject(interruption)
 
-        try:
-            result = Runner.run_streamed(agent, state, max_turns=MAX_TURNS)
-        except Exception as e:
-            logger.exception("Failed to resume agent run")
-            yield _sse("error", {"message": f"Agent error: {str(e)}"})
-            return
+            try:
+                result = Runner.run_streamed(agent, state, max_turns=MAX_TURNS)
+            except Exception as e:
+                logger.exception("Failed to resume agent run")
+                yield _sse("error", {"message": f"Agent error: {str(e)}"})
+                return
 
-        async for chunk in _stream_run(result, body.session_id, agent):
-            yield chunk
+            async for chunk in _stream_run(result, body.session_id, agent):
+                yield chunk
+        finally:
+            reset_current_session_id(token)
 
     return StreamingResponse(
         event_stream(),
