@@ -50,7 +50,7 @@ COPY requirements.txt /build/requirements.txt
 #   берутся готовые wheels с PyPI вместо компиляции из исходников.
 # BuildKit cache mount: повторные сборки не качают пакеты заново.
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    python -m pip install --upgrade pip setuptools wheel \
+    python -m pip install --upgrade 'pip<26' setuptools wheel \
  && pip wheel --wheel-dir=/wheels --prefer-binary -r /build/requirements.txt
 
 
