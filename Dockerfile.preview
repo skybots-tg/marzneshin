@@ -15,19 +15,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # pnpm без глобальной установки
 RUN corepack enable
 
-# Сначала только манифесты — чтобы слой с pnpm install кешировался,
-# пока не меняются package.json / pnpm-lock.yaml.
-COPY Makefile /app/Makefile
-COPY dashboard/package.json dashboard/pnpm-lock.yaml /app/dashboard/
-
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
-    make dashboard-deps
-
-# Теперь исходники и сборка.
-# node_modules исключён через .dockerignore, поэтому COPY не затрёт зависимости.
 COPY . .
 
-RUN make dashboard-build
+# pnpm store кешируется между сборками.
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
+    make dashboard-deps && make dashboard-build
 
 
 ########################
