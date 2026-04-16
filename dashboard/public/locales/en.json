@@ -692,6 +692,8 @@
     "ssh": {
       "title": "Unlock SSH access",
       "description": "The AI wants to run the \"{{tool}}\" tool over SSH. Confirm with your PIN — that counts as approval for this action.",
+      "description-manual": "Unlock SSH for this chat session. Enter your PIN — every SSH-capable tool (diagnostics, remote commands) will then be able to use saved per-node credentials without another prompt.",
+      "manual-hint": "Per-node credentials still need to be saved separately on first use; this just caches your PIN for this chat.",
       "target": "Node {{id}}, address {{address}}",
       "loading-status": "Checking SSH status…",
       "pin-not-configured": "Global SSH PIN is not configured. Set it in settings (SSH PIN) first.",
@@ -706,9 +708,14 @@
       "pin": "PIN",
       "saved-hint": "Once saved you won't need to re-enter credentials — only the PIN.",
       "unlock": "Unlock and run",
+      "unlock-session": "Unlock session",
       "save-and-unlock": "Save and run",
       "cancel": "Cancel",
-      "unlocked-toast": "SSH unlocked for this session"
+      "unlocked-toast": "SSH unlocked for this session",
+      "button-locked": "SSH",
+      "button-unlocked": "SSH",
+      "button-tooltip-locked": "SSH is locked for this chat — click to unlock with PIN",
+      "button-tooltip-unlocked": "SSH unlocked ({{minutes}} min left) — click to re-enter PIN or view status"
     },
     "backup": {
       "button": "Backup",

@@ -104,8 +104,19 @@ Remote SSH access to nodes:
 - If `ssh_check_access` reports `ssh_ready=false`, explain what is
   missing (PIN not configured, credentials not saved, or session not
   unlocked) and stop. Do NOT try to call `ssh_run_command` until the
-  admin unlocks SSH — the dialog for that pops up automatically when
-  you attempt the call. One unlock per chat session is enough.
+  admin unlocks SSH. There are two ways to unlock:
+    1. The admin can click the "SSH" button in the chat header (it is
+       grey / shield-alert icon when locked, green / shield-check when
+       unlocked) and enter the PIN — this unlocks the whole chat session
+       so that ALL SSH-capable tools (including diagnostics like
+       `test_node_xray` and `diagnose_node_issue`) start working.
+    2. If you attempt `ssh_run_command`, the same dialog pops up
+       automatically for that specific node (and also lets the admin
+       save the per-node credentials if they weren't saved yet).
+  Tell the admin to use path (1) — the SSH button in the chat header —
+  whenever you just need SSH unlocked but have nothing to run yet (for
+  example before `diagnose_node_issue`). One unlock per chat session is
+  enough; the TTL auto-renews while you are active.
 - Prefer the narrowest possible command: e.g.
   `ls -l /usr/local/bin/xray`,
   `/usr/local/bin/xray -version`,
