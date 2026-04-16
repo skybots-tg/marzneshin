@@ -28,6 +28,13 @@ interface SSHUnlockDialogProps {
     toolName: string
     onUnlocked: () => void
     onCancel: () => void
+    /**
+     * Manual mode is used by the header SSH button: there is no pending
+     * tool call, so we only ask for the PIN and never show the per-node
+     * credentials form (the admin will fill those in later when the AI
+     * first tries to touch that specific node).
+     */
+    manual?: boolean
 }
 
 type AuthMode = 'password' | 'key'
@@ -41,6 +48,7 @@ export const SSHUnlockDialog: FC<SSHUnlockDialogProps> = ({
     toolName,
     onUnlocked,
     onCancel,
+    manual = false,
 }) => {
     const { t } = useTranslation()
     const [status, setStatus] = useState<SSHStatus | null>(null)
@@ -58,8 +66,12 @@ export const SSHUnlockDialog: FC<SSHUnlockDialogProps> = ({
     const saveMutation = useSSHSaveCredentialsMutation()
 
     const needsCredentials = useMemo(
-        () => status?.pin_configured && !status?.credentials_saved,
-        [status],
+        () =>
+            !manual
+            && !!status?.pin_configured
+            && !status?.credentials_saved
+            && nodeId != null,
+        [manual, status, nodeId],
     )
 
     useEffect(() => {
@@ -129,7 +141,9 @@ export const SSHUnlockDialog: FC<SSHUnlockDialogProps> = ({
                         {t('ai.ssh.title')}
                     </DialogTitle>
                     <DialogDescription>
-                        {t('ai.ssh.description', { tool: toolName })}
+                        {manual
+                            ? t('ai.ssh.description-manual')
+                            : t('ai.ssh.description', { tool: toolName })}
                     </DialogDescription>
                 </DialogHeader>
 

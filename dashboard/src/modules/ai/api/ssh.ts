@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetch } from '@marzneshin/common/utils/fetch'
 
 export interface SSHStatus {
@@ -66,4 +66,23 @@ export const useSSHLockMutation = () => {
                 body: { session_id: sessionId },
             }),
     })
+}
+
+export const sshStatusQueryKey = (sessionId: string | null) =>
+    ['ai-ssh-status', sessionId] as const
+
+export const useSSHStatusQuery = (sessionId: string | null) =>
+    useQuery({
+        queryKey: sshStatusQueryKey(sessionId),
+        queryFn: () => fetchSSHStatus(sessionId as string),
+        enabled: !!sessionId,
+        refetchInterval: 30_000,
+        staleTime: 15_000,
+        retry: 1,
+    })
+
+export const useInvalidateSSHStatus = () => {
+    const qc = useQueryClient()
+    return (sessionId: string | null) =>
+        qc.invalidateQueries({ queryKey: sshStatusQueryKey(sessionId) })
 }
