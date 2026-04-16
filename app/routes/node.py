@@ -70,14 +70,15 @@ async def add_node(new_node: NodeCreate, db: DBDep, admin: SudoAdminDep):
                 status_code=409, detail=f'Node "{new_node.name}" already exists'
             )
         certificate = get_tls_certificate(db)
+        response = NodeResponse.model_validate(db_node)
         db.close()
-        return db_node, certificate
+        return db_node, certificate, response
 
-    db_node, certificate = await asyncio.to_thread(_db_work)
+    db_node, certificate, response = await asyncio.to_thread(_db_work)
     await marznode.operations.add_node(db_node, certificate)
 
     logger.info("New node `%s` added", db_node.name)
-    return db_node
+    return response
 
 
 @router.get("/settings", response_model=NodeSettings)
@@ -141,17 +142,18 @@ async def modify_node(
             raise HTTPException(status_code=404, detail="Node not found")
         db_node = crud.update_node(db, db_node, modified_node)
         certificate = get_tls_certificate(db) if db_node.status != NodeStatus.disabled else None
+        response = NodeResponse.model_validate(db_node)
         db.close()
-        return db_node, certificate
+        return db_node, certificate, response
 
-    db_node, certificate = await asyncio.to_thread(_db_work)
+    db_node, certificate, response = await asyncio.to_thread(_db_work)
 
     await marznode.operations.remove_node(db_node.id)
     if certificate:
         await marznode.operations.add_node(db_node, certificate)
 
     logger.info("Node `%s` modified", db_node.name)
-    return db_node
+    return response
 
 
 @router.delete("/{node_id}")
