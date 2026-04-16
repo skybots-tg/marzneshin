@@ -1,11 +1,13 @@
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from sqlalchemy import and_, func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+
+ProgressCallback = Optional[Callable[[dict], None]]
 
 from app.db.models import Node, NodeUsage, NodeUserUsage
 from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
@@ -133,7 +135,21 @@ def create_node(db: Session, node: NodeCreate):
     return dbnode
 
 
-def _batched_delete_usage(db: Session, model, node_id: int) -> int:
+def _emit(on_progress: ProgressCallback, **event) -> None:
+    if on_progress is None:
+        return
+    try:
+        on_progress(event)
+    except Exception:
+        logger.debug("remove_node progress callback failed", exc_info=True)
+
+
+def _batched_delete_usage(
+    db: Session,
+    model,
+    node_id: int,
+    on_progress: ProgressCallback = None,
+) -> int:
     """Удаляет строки usage-таблицы, относящиеся к ноде, пакетами с коммитами.
 
     У таблиц *_usages(_daily) нет ON DELETE CASCADE на уровне БД, а ORM-cascade
@@ -141,8 +157,22 @@ def _batched_delete_usage(db: Session, model, node_id: int) -> int:
     выбивает `Lost connection to MySQL server during query (timed out)`
     (см. read_timeout / max_execution_time в app/db/base.py), поэтому удаляем
     чанками по `_NODE_USAGE_DELETE_BATCH` строк и коммитим между ними.
+
+    Если передан `on_progress`, для каждой таблицы генерируются события
+    step_start / progress / step_done, чтобы клиент мог показывать прогресс
+    в реальном времени (см. SSE-эндпоинт удаления ноды).
     """
-    total = 0
+    table = model.__tablename__
+
+    total = (
+        db.query(func.count(model.id))
+        .filter(model.node_id == node_id)
+        .scalar()
+        or 0
+    )
+    _emit(on_progress, kind="step_start", table=table, total=total)
+
+    done = 0
     while True:
         ids = [
             row[0]
@@ -157,31 +187,57 @@ def _batched_delete_usage(db: Session, model, node_id: int) -> int:
             synchronize_session=False
         )
         db.commit()
-        total += len(ids)
-    if total:
+        done += len(ids)
+        _emit(
+            on_progress,
+            kind="progress",
+            table=table,
+            done=done,
+            total=max(total, done),
+        )
+
+    if done:
         logger.info(
             "Deleted %d rows from %s for node_id=%s",
-            total,
-            model.__tablename__,
+            done,
+            table,
             node_id,
         )
-    return total
+    _emit(
+        on_progress,
+        kind="step_done",
+        table=table,
+        done=done,
+        total=max(total, done),
+    )
+    return done
 
 
-def remove_node(db: Session, dbnode: Node):
+def remove_node(
+    db: Session,
+    dbnode: Node,
+    on_progress: ProgressCallback = None,
+):
     node_id = dbnode.id
 
     # Порядок: сначала daily-агрегаты (обычно компактные), потом hourly-таблицы,
     # которые могут содержать миллионы строк на долгоживущей ноде.
     for model in (NodeUserUsageDaily, NodeUsageDaily, NodeUserUsage, NodeUsage):
         try:
-            _batched_delete_usage(db, model, node_id)
+            _batched_delete_usage(db, model, node_id, on_progress=on_progress)
         except OperationalError:
             db.rollback()
+            _emit(
+                on_progress,
+                kind="step_error",
+                table=model.__tablename__,
+            )
             raise
 
+    _emit(on_progress, kind="step_start", table="nodes", total=1)
     db.delete(dbnode)
     db.commit()
+    _emit(on_progress, kind="step_done", table="nodes", done=1, total=1)
     return dbnode
 
 

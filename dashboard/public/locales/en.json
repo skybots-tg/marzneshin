@@ -217,6 +217,25 @@
           "title": "Edit Node"
         }
       },
+      "deletion": {
+        "title": "Remove Node",
+        "description": "Delete node {{name}} and all associated usage statistics. This action cannot be undone.",
+        "confirm": "Delete node",
+        "start": "Delete",
+        "close": "Close",
+        "retry": "Retry",
+        "progress": "Progress",
+        "success": "Node {{name}} has been removed.",
+        "failed": "Failed to remove node. See steps for details.",
+        "steps": {
+          "node_user_usages_daily": "Remove per-user daily usage",
+          "node_usages_daily": "Remove node daily usage",
+          "node_user_usages": "Remove per-user hourly usage",
+          "node_usages": "Remove node hourly usage",
+          "nodes": "Remove node record",
+          "marznode_detach": "Detach from marznode"
+        }
+      },
       "migration": {
         "title": "Node Migration",
         "description": "Migrate node {{name}} to Skybots marznode",
