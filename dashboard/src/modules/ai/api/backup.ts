@@ -1,6 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { fetch, $fetch } from '@marzneshin/common/utils/fetch'
-import { useAuth } from '@marzneshin/modules/auth'
+import { fetch } from '@marzneshin/common/utils/fetch'
 
 export type BackupMode = 'full' | 'light' | 'config'
 
@@ -103,39 +102,37 @@ export const useBackupJobQuery = (jobId: string | null, enabled: boolean) =>
         },
     })
 
-export const buildBackupDownloadUrl = (jobId: string): string =>
-    `/api/ai/backup/jobs/${jobId}/download`
-
-const deriveBackupFilename = (job: BackupJob | null | undefined): string => {
-    if (job?.path) {
-        const base = job.path.split(/[\\/]/).pop()
-        if (base) return base
-    }
-    return `marzneshin-backup-${job?.id ?? 'artefact'}`
+export interface BackupDownloadTicket {
+    ticket: string
+    url: string
+    expires_in: number
 }
 
-// The download endpoint is protected by SudoAdminDep, so a plain <a href>
-// navigation cannot attach the bearer token and would receive 401. We route
-// the request through ofetch directly (the shared `fetch` wrapper is typed
-// as responseType: 'json', so we can't use it for a binary download) and
-// attach the bearer token manually — same convention as `fetcher`.
-export const downloadBackupJobArtefact = async (job: BackupJob): Promise<void> => {
-    const token = useAuth.getState().getAuthToken()
-    const blob = await $fetch<Blob, 'blob'>(`/ai/backup/jobs/${job.id}/download`, {
-        responseType: 'blob',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+// The plain /download endpoint is bearer-protected, so <a href> navigation
+// (which cannot attach an Authorization header) would fail with 401. We
+// exchange the admin's session for a one-shot ticket URL and let the
+// browser download it natively — that gives us real download progress,
+// correct filename from Content-Disposition, and no memory pressure from
+// buffering gigabyte dumps into a Blob.
+export const requestBackupDownloadTicket = (
+    jobId: string,
+): Promise<BackupDownloadTicket> =>
+    fetch<BackupDownloadTicket>(`/ai/backup/jobs/${jobId}/download-ticket`, {
+        method: 'POST',
     })
-    const filename = deriveBackupFilename(job)
-    const objectUrl = URL.createObjectURL(blob)
-    try {
-        const link = document.createElement('a')
-        link.href = objectUrl
-        link.download = filename
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-    } finally {
-        // Give the browser a tick to start the download before revoking.
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-    }
+
+export const downloadBackupJobArtefact = async (
+    job: BackupJob,
+): Promise<void> => {
+    const { url } = await requestBackupDownloadTicket(job.id)
+    const link = document.createElement('a')
+    link.href = url
+    // The server sets Content-Disposition so the filename is authoritative;
+    // empty `download` just tells the browser to treat this as a download
+    // rather than a navigation in case the server didn't.
+    link.download = ''
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
 }

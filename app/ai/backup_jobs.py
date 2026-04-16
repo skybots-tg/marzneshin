@@ -22,6 +22,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
 import time
 import traceback
@@ -36,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 MAX_JOB_HISTORY = 20
 _PROGRESS_MIN_INTERVAL_SEC = 0.25
+
+# Short-lived, one-shot tickets that let the browser download a finished
+# backup via plain <a href> navigation (which cannot carry the admin's
+# Bearer token). The UI exchanges its sudo session for a ticket via an
+# authenticated POST, then opens /jobs/{id}/download/{ticket}.
+DOWNLOAD_TICKET_TTL_SEC = 120.0
 
 
 @dataclass
@@ -265,3 +272,48 @@ class _BackupJobRegistry:
 
 
 registry = _BackupJobRegistry()
+
+
+class _DownloadTicketRegistry:
+    """One-shot, time-limited tickets for anonymous download URLs.
+
+    Tickets are consumed on use (pop) so a leaked URL cannot be reused.
+    We keep them in-process; there is only ever one admin actively
+    downloading a backup, and if the process restarts the UI can
+    transparently request a fresh ticket.
+    """
+
+    def __init__(self, ttl_sec: float = DOWNLOAD_TICKET_TTL_SEC) -> None:
+        self._ttl = ttl_sec
+        self._lock = threading.Lock()
+        # ticket -> (job_id, expires_at_monotonic)
+        self._tickets: dict[str, tuple[str, float]] = {}
+
+    def _prune_locked(self, now: float) -> None:
+        expired = [t for t, (_, exp) in self._tickets.items() if exp <= now]
+        for t in expired:
+            self._tickets.pop(t, None)
+
+    def issue(self, job_id: str) -> tuple[str, float]:
+        ticket = secrets.token_urlsafe(32)
+        now = time.monotonic()
+        expires_at = now + self._ttl
+        with self._lock:
+            self._prune_locked(now)
+            self._tickets[ticket] = (job_id, expires_at)
+        return ticket, self._ttl
+
+    def consume(self, ticket: str, job_id: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._tickets.pop(ticket, None)
+            self._prune_locked(now)
+        if not entry:
+            return False
+        tjob_id, expires_at = entry
+        if expires_at <= now:
+            return False
+        return tjob_id == job_id
+
+
+download_tickets = _DownloadTicketRegistry()
