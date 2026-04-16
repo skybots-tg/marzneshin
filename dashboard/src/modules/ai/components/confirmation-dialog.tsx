@@ -9,11 +9,13 @@ import {
     AlertDialogTitle,
     Button,
 } from '@marzneshin/common/components/ui'
+import { ShieldCheck } from 'lucide-react'
 import type { PendingConfirmation } from '../types'
 
 interface ConfirmationDialogProps {
     pending: PendingConfirmation | null
     onApprove: () => void
+    onApproveAll: () => void
     onReject: () => void
     loading: boolean
 }
@@ -21,6 +23,7 @@ interface ConfirmationDialogProps {
 export const ConfirmationDialog: FC<ConfirmationDialogProps> = ({
     pending,
     onApprove,
+    onApproveAll,
     onReject,
     loading,
 }) => {
@@ -45,13 +48,26 @@ export const ConfirmationDialog: FC<ConfirmationDialogProps> = ({
                     </pre>
                 </div>
 
-                <AlertDialogFooter>
+                <p className="text-xs text-muted-foreground -mt-1">
+                    {t('ai.approve-all-hint')}
+                </p>
+
+                <AlertDialogFooter className="gap-2">
                     <Button
                         variant="outline"
                         onClick={onReject}
                         disabled={loading}
                     >
                         {t('ai.reject')}
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={onApproveAll}
+                        disabled={loading}
+                        title={t('ai.approve-all-hint')}
+                    >
+                        <ShieldCheck className="size-4 mr-1" />
+                        {t('ai.approve-all')}
                     </Button>
                     <Button onClick={onApprove} disabled={loading}>
                         {t('ai.approve')}

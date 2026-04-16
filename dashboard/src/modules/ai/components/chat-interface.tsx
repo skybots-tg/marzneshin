@@ -1,6 +1,6 @@
 import { FC, useCallback, useEffect, useRef, useState, KeyboardEvent, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Send, Loader2, Settings2, Trash2 } from 'lucide-react'
+import { Send, Loader2, Settings2, Trash2, ShieldCheck, X } from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@marzneshin/common/components/ui'
 import { Textarea } from '@marzneshin/common/components/ui'
@@ -52,10 +52,12 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const [isStreaming, setIsStreaming] = useState(false)
     const [pending, setPending] = useState<PendingConfirmation | null>(null)
     const [confirmLoading, setConfirmLoading] = useState(false)
+    const [autoApprove, setAutoApprove] = useState(false)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const abortRef = useRef<AbortController | null>(null)
     const assistantIdRef = useRef(maxAssistantCounter(initialSnapshot.messages))
+    const autoApproveRef = useRef(false)
     const currentTurnRef = useRef<{
         content: string
         toolCalls: SSEToolCall[]
@@ -171,7 +173,6 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 )
             },
             onPendingConfirmation: (data: PendingConfirmation) => {
-                setPending(data)
                 setSessionId(data.session_id)
                 finalizeTurn()
                 setMessages((prev) =>
@@ -180,6 +181,9 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                     ),
                 )
                 setIsStreaming(false)
+                // In auto-approve mode we skip the dialog and let the
+                // useEffect below trigger the continuation.
+                setPending(data)
             },
             onDone: (data: { session_id: string }) => {
                 setSessionId(data.session_id)
@@ -271,7 +275,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
 
     const handleConfirm = useCallback(
         async (action: 'approve' | 'reject') => {
-            if (!sessionId || !pending) return
+            if (!sessionId) return
             setConfirmLoading(true)
             setPending(null)
 
@@ -302,8 +306,25 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 )
             }
         },
-        [sessionId, pending, makeCallbacks],
+        [sessionId, makeCallbacks],
     )
+
+    useEffect(() => {
+        if (pending && autoApproveRef.current) {
+            handleConfirm('approve')
+        }
+    }, [pending, handleConfirm])
+
+    const handleApproveAll = useCallback(() => {
+        autoApproveRef.current = true
+        setAutoApprove(true)
+        handleConfirm('approve')
+    }, [handleConfirm])
+
+    const disableAutoApprove = useCallback(() => {
+        autoApproveRef.current = false
+        setAutoApprove(false)
+    }, [])
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -317,6 +338,8 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         setApiMessages([])
         setSessionId(null)
         setPending(null)
+        autoApproveRef.current = false
+        setAutoApprove(false)
         assistantIdRef.current = 0
         currentTurnRef.current = { content: '', toolCalls: [], toolResults: [] }
     }
@@ -329,6 +352,18 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                     onChange={setModel}
                     configured={configured}
                 />
+                {autoApprove && (
+                    <button
+                        type="button"
+                        onClick={disableAutoApprove}
+                        className="inline-flex items-center gap-1.5 px-2 h-7 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-500/25 transition-colors"
+                        title={t('ai.auto-approve-disable')}
+                    >
+                        <ShieldCheck className="size-3.5" />
+                        {t('ai.auto-approve-on')}
+                        <X className="size-3" />
+                    </button>
+                )}
                 <div className="flex-1" />
                 <Button
                     variant="ghost"
@@ -396,8 +431,9 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
             </div>
 
             <ConfirmationDialog
-                pending={pending}
+                pending={autoApprove ? null : pending}
                 onApprove={() => handleConfirm('approve')}
+                onApproveAll={handleApproveAll}
                 onReject={() => handleConfirm('reject')}
                 loading={confirmLoading}
             />

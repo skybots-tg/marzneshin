@@ -42,31 +42,42 @@ async def get_system_info(db: Session) -> dict:
 @register_tool(
     name="list_services",
     description=(
-        "List all services with their IDs, names, inbound tags, and user count. "
-        "Users are attached to services, and services contain inbounds (which have hosts). "
+        "List all services with their IDs, names, inbound tags, and user counts. "
+        "User counts are computed via aggregate queries, not by loading all users, "
+        "so this is safe on large installs. "
         "Relationship: User → Service → Inbound → Host."
     ),
     requires_confirmation=False,
 )
 async def list_services(db: Session) -> dict:
+    from sqlalchemy import func
     from app.db.models.core import Service
+    from app.db.models.associations import users_services
+
     services = db.query(Service).all()
+
+    user_counts_rows = (
+        db.query(users_services.c.service_id, func.count(users_services.c.user_id))
+        .group_by(users_services.c.service_id)
+        .all()
+    )
+    user_counts = {row[0]: row[1] for row in user_counts_rows}
+
     return {
         "services": [
             {
                 "id": s.id,
                 "name": s.name,
-                "user_count": len(s.users) if s.users else 0,
+                "user_count": int(user_counts.get(s.id, 0)),
                 "inbounds": [
                     {
                         "id": i.id,
                         "tag": i.tag,
                         "protocol": str(i.protocol),
                         "node_id": i.node_id,
-                        "host_count": len(i.hosts) if i.hosts else 0,
                     }
-                    for i in s.inbounds
-                ] if s.inbounds else [],
+                    for i in (s.inbounds or [])
+                ],
             }
             for s in services
         ],
@@ -162,6 +173,82 @@ async def get_traffic_stats(
         "period": {"start": str(start), "end": str(end)},
         "data_points": len(result.usages),
     }
+
+
+@register_tool(
+    name="count_users",
+    description=(
+        "Count users matching optional filters WITHOUT loading their records. "
+        "Use this instead of list_users whenever you only need a number, e.g. "
+        "'how many users will be affected by this change?'. "
+        "Filters: "
+        "enabled (True/False), active (True = currently usable), expired, "
+        "data_limit_reached, service_id (>0 to restrict to one service), "
+        "admin_username (owner). "
+        "Returns the matching count only — safe on installs with 10k+ users."
+    ),
+    requires_confirmation=False,
+)
+async def count_users(
+    db: Session,
+    enabled: int = -1,
+    active: int = -1,
+    expired: int = -1,
+    data_limit_reached: int = -1,
+    service_id: int = 0,
+    admin_username: str = "",
+) -> dict:
+    from app.db.models.core import User, Admin
+    from app.db.models.associations import users_services
+
+    query = db.query(User).filter(User.removed == False)  # noqa: E712
+    if enabled in (0, 1):
+        query = query.filter(User.enabled == bool(enabled))
+    if active in (0, 1):
+        query = query.filter(User.is_active == bool(active))
+    if expired in (0, 1):
+        query = query.filter(User.expired == bool(expired))
+    if data_limit_reached in (0, 1):
+        query = query.filter(User.data_limit_reached == bool(data_limit_reached))
+    if service_id > 0:
+        query = query.join(users_services, users_services.c.user_id == User.id).filter(
+            users_services.c.service_id == service_id
+        )
+    if admin_username:
+        admin = db.query(Admin).filter(Admin.username == admin_username).first()
+        if not admin:
+            return {"error": f"Admin '{admin_username}' not found"}
+        query = query.filter(User.admin_id == admin.id)
+
+    return {"count": query.count()}
+
+
+@register_tool(
+    name="count_hosts",
+    description=(
+        "Count hosts matching optional filters WITHOUT loading the records. "
+        "Filters: inbound_id (>0 to restrict), universal_only, disabled. "
+        "Useful before bulk modifications to verify the scope."
+    ),
+    requires_confirmation=False,
+)
+async def count_hosts(
+    db: Session,
+    inbound_id: int = 0,
+    universal_only: bool = False,
+    disabled: int = -1,
+) -> dict:
+    from app.db.models import InboundHost
+
+    query = db.query(InboundHost)
+    if inbound_id > 0:
+        query = query.filter(InboundHost.inbound_id == inbound_id)
+    if universal_only:
+        query = query.filter(InboundHost.universal == True, InboundHost.inbound_id.is_(None))  # noqa: E712
+    if disabled in (0, 1):
+        query = query.filter(InboundHost.is_disabled == bool(disabled))
+
+    return {"count": query.count()}
 
 
 @register_tool(
