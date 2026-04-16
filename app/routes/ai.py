@@ -1,36 +1,36 @@
-import asyncio
 import json
 import logging
+from typing import Any, AsyncIterator
 
+from agents import RunState, Runner
+from agents.exceptions import MaxTurnsExceeded
+from agents.items import ToolApprovalItem
+from agents.result import RunResultStreaming
+from agents.stream_events import (
+    RawResponsesStreamEvent,
+    RunItemStreamEvent,
+)
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from openai.types.responses import ResponseTextDeltaEvent
 from sqlalchemy.orm import Session
 
-from app.ai import tools as _tools_import  # noqa: F401 — register all tools
+from app.ai.agent import build_agent
 from app.ai.models import (
+    ChatMessage,
     ChatRequest,
-    ConfirmRequest,
     ConfirmAction,
-    ToolCall,
-    ToolResult,
+    ConfirmRequest,
+    MessageRole,
 )
-from app.ai.openai_client import (
-    build_instructions,
-    convert_messages_to_input,
-    list_models,
-    stream_response,
-)
-from app.ai.tool_executor import (
+from app.ai.openai_client import list_models
+from app.ai.state_store import (
     create_session_id,
-    execute_tool,
     get_pending,
     remove_pending,
-    requires_confirmation,
     store_pending,
-    build_rejection_message,
 )
-from app.ai.tool_registry import get_all_tools, get_openai_tools_schema
-from app.db import GetDB
+from app.ai.tool_registry import get_all_tools
 from app.db.models import Settings
 from app.dependencies import DBDep, SudoAdminDep
 from app.models.settings import AISettings, AISettingsResponse
@@ -38,21 +38,7 @@ from app.models.settings import AISettings, AISettingsResponse
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["AI Assistant"])
 
-_TOOL_KEEPALIVE_SEC = 10.0
-
-
-async def _stream_tool_with_keepalive(tc: ToolCall):
-    """Yield SSE comment lines while waiting; last value is the ToolResult."""
-    with GetDB() as tool_db:
-        task = asyncio.create_task(execute_tool(tc, tool_db))
-        while not task.done():
-            done, _ = await asyncio.wait(
-                {task}, timeout=_TOOL_KEEPALIVE_SEC
-            )
-            if task in done:
-                break
-            yield ": keepalive\n\n"
-        yield await task
+MAX_TURNS = 20
 
 
 def _get_ai_settings(db: Session) -> AISettings:
@@ -126,6 +112,152 @@ def get_tools_list(admin: SudoAdminDep):
     }
 
 
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _messages_to_input_items(
+    messages: list[ChatMessage],
+) -> list[dict[str, Any]]:
+    """Convert frontend ChatMessage list to Responses API input items."""
+    items: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.role in (MessageRole.system, MessageRole.developer):
+            items.append({"role": "developer", "content": msg.content or ""})
+            continue
+        if msg.role == MessageRole.tool:
+            items.append({
+                "type": "function_call_output",
+                "call_id": msg.tool_call_id or "",
+                "output": msg.content or "",
+            })
+            continue
+        if msg.role == MessageRole.assistant:
+            if msg.content:
+                items.append({"role": "assistant", "content": msg.content})
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    items.append({
+                        "type": "function_call",
+                        "call_id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    })
+            continue
+        items.append({"role": "user", "content": msg.content or ""})
+    return items
+
+
+def _extract_tool_name(item: ToolApprovalItem) -> str:
+    raw = getattr(item, "raw_item", None)
+    if raw is None:
+        return "unknown"
+    return getattr(raw, "name", None) or "unknown"
+
+
+def _extract_tool_args(item: ToolApprovalItem) -> dict[str, Any]:
+    raw = getattr(item, "raw_item", None)
+    arguments = getattr(raw, "arguments", "") if raw else ""
+    if not arguments:
+        return {}
+    try:
+        return json.loads(arguments)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+async def _stream_run(
+    result: RunResultStreaming,
+    session_id: str,
+    agent_for_resume,
+) -> AsyncIterator[str]:
+    """Stream SDK events as SSE using the legacy protocol."""
+    try:
+        async for event in result.stream_events():
+            if isinstance(event, RawResponsesStreamEvent):
+                if isinstance(event.data, ResponseTextDeltaEvent):
+                    yield _sse("content", {"text": event.data.delta})
+                continue
+
+            if isinstance(event, RunItemStreamEvent):
+                item = event.item
+                name = event.name
+
+                if name == "tool_called":
+                    raw = getattr(item, "raw_item", None)
+                    tool_name = getattr(raw, "name", "") if raw else ""
+                    call_id = (
+                        getattr(raw, "call_id", "") if raw else ""
+                    ) or getattr(item, "id", "")
+                    arguments = getattr(raw, "arguments", "") if raw else ""
+                    yield _sse(
+                        "tool_call",
+                        {
+                            "tool_call_id": call_id or "",
+                            "name": tool_name or "",
+                            "arguments": arguments or "",
+                            "requires_confirmation": False,
+                        },
+                    )
+                elif name == "tool_output":
+                    raw = getattr(item, "raw_item", None)
+                    if isinstance(raw, dict):
+                        call_id = raw.get("call_id", "") or ""
+                    else:
+                        call_id = getattr(raw, "call_id", "") or ""
+                    output = getattr(item, "output", "")
+                    if not isinstance(output, str):
+                        output = json.dumps(output, default=str)
+                    yield _sse(
+                        "tool_result",
+                        {
+                            "tool_call_id": call_id,
+                            "name": "",
+                            "result": output,
+                        },
+                    )
+    except MaxTurnsExceeded:
+        yield _sse(
+            "error",
+            {
+                "message": (
+                    f"Run exceeded {MAX_TURNS} turns without producing a final "
+                    "answer. Try rephrasing your request more specifically."
+                )
+            },
+        )
+        return
+    except Exception as e:
+        logger.exception("Agent streaming error")
+        yield _sse("error", {"message": f"Agent error: {str(e)}"})
+        return
+
+    if result.interruptions:
+        interruption = result.interruptions[0]
+        if isinstance(interruption, ToolApprovalItem):
+            tool_name = _extract_tool_name(interruption)
+            tool_args = _extract_tool_args(interruption)
+            state = result.to_state()
+            store_pending(
+                session_id=session_id,
+                agent=agent_for_resume,
+                state_json=state.to_json(),
+                tool_name=tool_name,
+                tool_args=tool_args,
+            )
+            yield _sse(
+                "pending_confirmation",
+                {
+                    "session_id": session_id,
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                },
+            )
+            return
+
+    yield _sse("done", {"session_id": session_id})
+
+
 @router.post("/chat")
 async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
     ai_settings = _get_ai_settings(db)
@@ -135,106 +267,31 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
     model = body.model or ai_settings.default_model
     session_id = body.session_id or create_session_id()
 
-    instructions = build_instructions(ai_settings.system_prompt)
-    tools = get_openai_tools_schema()
-    input_items = convert_messages_to_input(body.messages)
+    agent = build_agent(
+        api_key=api_key,
+        model_name=model,
+        system_prompt=ai_settings.system_prompt,
+        max_tokens=ai_settings.max_tokens,
+        temperature=ai_settings.temperature,
+        reasoning_effort=ai_settings.reasoning_effort,
+    )
+
+    input_items = _messages_to_input_items(body.messages)
 
     async def event_stream():
-        nonlocal input_items
-        max_iterations = 10
+        try:
+            result = Runner.run_streamed(
+                agent,
+                input=input_items,
+                max_turns=MAX_TURNS,
+            )
+        except Exception as e:
+            logger.exception("Failed to start agent run")
+            yield _sse("error", {"message": f"Agent error: {str(e)}"})
+            return
 
-        for iteration in range(max_iterations):
-            tool_calls_result = []
-            has_tool_calls = False
-            output_items = []
-
-            try:
-                async for chunk in stream_response(
-                    api_key=api_key,
-                    input_items=input_items,
-                    instructions=instructions,
-                    model=model,
-                    tools=tools,
-                    max_tokens=ai_settings.max_tokens,
-                    temperature=ai_settings.temperature,
-                    reasoning_effort=ai_settings.reasoning_effort,
-                ):
-                    if chunk["type"] == "content":
-                        yield _sse("content", {"text": chunk["content"]})
-                    elif chunk["type"] == "tool_calls":
-                        tool_calls_result = chunk["tool_calls"]
-                        has_tool_calls = True
-                    elif chunk["type"] == "done":
-                        output_items = chunk.get("output_items", [])
-            except Exception as e:
-                logger.exception("OpenAI streaming error")
-                yield _sse("error", {"message": f"OpenAI error: {str(e)}"})
-                return
-
-            if not has_tool_calls:
-                yield _sse("done", {"session_id": session_id})
-                return
-
-            input_items.extend(output_items)
-
-            for tc in tool_calls_result:
-                yield _sse("tool_call", {
-                    "tool_call_id": tc.id,
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                    "requires_confirmation": requires_confirmation(tc),
-                })
-
-            try:
-                all_auto = True
-                for tc in tool_calls_result:
-                    if requires_confirmation(tc):
-                        all_auto = False
-                        store_pending(session_id, tc, input_items, model)
-
-                        yield _sse("pending_confirmation", {
-                            "session_id": session_id,
-                            "tool_name": tc.function.name,
-                            "tool_args": json.loads(tc.function.arguments),
-                        })
-                        return
-                    else:
-                        result: ToolResult | None = None
-                        async for _piece in _stream_tool_with_keepalive(tc):
-                            if isinstance(_piece, ToolResult):
-                                result = _piece
-                            else:
-                                yield _piece
-
-                        if result is None:
-                            result = ToolResult(
-                                success=False,
-                                error="Tool did not return a result",
-                            )
-                        result_str = json.dumps(
-                            result.data if result.success else {"error": result.error},
-                            default=str,
-                        )
-                        yield _sse("tool_result", {
-                            "tool_call_id": tc.id,
-                            "name": tc.function.name,
-                            "result": result_str,
-                        })
-
-                        input_items.append({
-                            "type": "function_call_output",
-                            "call_id": tc.id,
-                            "output": result_str,
-                        })
-
-                if not all_auto:
-                    return
-            except Exception as e:
-                logger.exception("Tool processing error")
-                yield _sse("error", {"message": f"Tool error: {str(e)}"})
-                return
-
-        yield _sse("done", {"session_id": session_id})
+        async for chunk in _stream_run(result, session_id, agent):
+            yield chunk
 
     return StreamingResponse(
         event_stream(),
@@ -250,7 +307,7 @@ async def chat(body: ChatRequest, db: DBDep, admin: SudoAdminDep):
 @router.post("/chat/confirm")
 async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
     ai_settings = _get_ai_settings(db)
-    api_key = _require_api_key(ai_settings)
+    _require_api_key(ai_settings)
     db.close()
 
     pending = get_pending(body.session_id)
@@ -260,132 +317,39 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
             detail="No pending confirmation found for this session",
         )
 
-    input_items = list(pending.input_snapshot)
-    model = pending.model
-    tc = pending.tool_call
+    agent = pending.agent
+    state_json = pending.state_json
     remove_pending(body.session_id)
 
-    instructions = build_instructions(ai_settings.system_prompt)
-    tools = get_openai_tools_schema()
-
-    if body.action == ConfirmAction.reject:
-        rejection = build_rejection_message(pending)
-        input_items.append({
-            "type": "function_call_output",
-            "call_id": tc.id,
-            "output": json.dumps({"rejected": True, "message": rejection}),
-        })
-    else:
-        with GetDB() as tool_db:
-            result = await execute_tool(tc, tool_db)
-
-        result_str = json.dumps(
-            result.data if result.success else {"error": result.error},
-            default=str,
-        )
-        input_items.append({
-            "type": "function_call_output",
-            "call_id": tc.id,
-            "output": result_str,
-        })
-
     async def event_stream():
-        nonlocal input_items
-        max_iterations = 10
+        try:
+            state = await RunState.from_json(agent, state_json)
+        except Exception as e:
+            logger.exception("Failed to deserialize paused run state")
+            yield _sse(
+                "error",
+                {"message": f"Failed to resume paused run: {str(e)}"},
+            )
+            return
 
-        for iteration in range(max_iterations):
-            tool_calls_result = []
-            has_tool_calls = False
-            output_items = []
+        interruptions = state.get_interruptions()
+        for interruption in interruptions:
+            if not isinstance(interruption, ToolApprovalItem):
+                continue
+            if body.action == ConfirmAction.approve:
+                state.approve(interruption)
+            else:
+                state.reject(interruption)
 
-            try:
-                async for chunk in stream_response(
-                    api_key=api_key,
-                    input_items=input_items,
-                    instructions=instructions,
-                    model=model,
-                    tools=tools,
-                    max_tokens=ai_settings.max_tokens,
-                    temperature=ai_settings.temperature,
-                    reasoning_effort=ai_settings.reasoning_effort,
-                ):
-                    if chunk["type"] == "content":
-                        yield _sse("content", {"text": chunk["content"]})
-                    elif chunk["type"] == "tool_calls":
-                        tool_calls_result = chunk["tool_calls"]
-                        has_tool_calls = True
-                    elif chunk["type"] == "done":
-                        output_items = chunk.get("output_items", [])
-            except Exception as e:
-                logger.exception("OpenAI streaming error on confirm")
-                yield _sse("error", {"message": f"OpenAI error: {str(e)}"})
-                return
+        try:
+            result = Runner.run_streamed(agent, state, max_turns=MAX_TURNS)
+        except Exception as e:
+            logger.exception("Failed to resume agent run")
+            yield _sse("error", {"message": f"Agent error: {str(e)}"})
+            return
 
-            if not has_tool_calls:
-                yield _sse("done", {"session_id": body.session_id})
-                return
-
-            input_items.extend(output_items)
-
-            for tc_new in tool_calls_result:
-                yield _sse("tool_call", {
-                    "tool_call_id": tc_new.id,
-                    "name": tc_new.function.name,
-                    "arguments": tc_new.function.arguments,
-                    "requires_confirmation": requires_confirmation(tc_new),
-                })
-
-            try:
-                all_auto = True
-                for tc_new in tool_calls_result:
-                    if requires_confirmation(tc_new):
-                        all_auto = False
-                        store_pending(
-                            body.session_id, tc_new, input_items, model
-                        )
-                        yield _sse("pending_confirmation", {
-                            "session_id": body.session_id,
-                            "tool_name": tc_new.function.name,
-                            "tool_args": json.loads(tc_new.function.arguments),
-                        })
-                        return
-                    else:
-                        result: ToolResult | None = None
-                        async for _piece in _stream_tool_with_keepalive(tc_new):
-                            if isinstance(_piece, ToolResult):
-                                result = _piece
-                            else:
-                                yield _piece
-
-                        if result is None:
-                            result = ToolResult(
-                                success=False,
-                                error="Tool did not return a result",
-                            )
-                        result_str = json.dumps(
-                            result.data if result.success else {"error": result.error},
-                            default=str,
-                        )
-                        yield _sse("tool_result", {
-                            "tool_call_id": tc_new.id,
-                            "name": tc_new.function.name,
-                            "result": result_str,
-                        })
-
-                        input_items.append({
-                            "type": "function_call_output",
-                            "call_id": tc_new.id,
-                            "output": result_str,
-                        })
-
-                if not all_auto:
-                    return
-            except Exception as e:
-                logger.exception("Tool processing error on confirm")
-                yield _sse("error", {"message": f"Tool error: {str(e)}"})
-                return
-
-        yield _sse("done", {"session_id": body.session_id})
+        async for chunk in _stream_run(result, body.session_id, agent):
+            yield chunk
 
     return StreamingResponse(
         event_stream(),
@@ -395,7 +359,3 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
             "Connection": "keep-alive",
         },
     )
-
-
-def _sse(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"

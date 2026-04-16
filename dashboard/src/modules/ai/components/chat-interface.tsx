@@ -56,6 +56,46 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const abortRef = useRef<AbortController | null>(null)
     const assistantIdRef = useRef(maxAssistantCounter(initialSnapshot.messages))
+    const currentTurnRef = useRef<{
+        content: string
+        toolCalls: SSEToolCall[]
+        toolResults: SSEToolResult[]
+    }>({ content: '', toolCalls: [], toolResults: [] })
+
+    const finalizeTurn = useCallback(() => {
+        const turn = currentTurnRef.current
+        const toAppend: ChatMessage[] = []
+        if (turn.content || turn.toolCalls.length > 0) {
+            const assistantMsg: ChatMessage = {
+                role: 'assistant',
+                content: turn.content || null,
+            }
+            if (turn.toolCalls.length > 0) {
+                assistantMsg.tool_calls = turn.toolCalls.map((tc) => ({
+                    id: tc.tool_call_id,
+                    type: 'function',
+                    function: { name: tc.name, arguments: tc.arguments },
+                }))
+            }
+            toAppend.push(assistantMsg)
+        }
+        for (const tr of turn.toolResults) {
+            toAppend.push({
+                role: 'tool',
+                content: tr.result,
+                tool_call_id: tr.tool_call_id,
+                name: tr.name,
+            })
+        }
+        if (toAppend.length > 0) {
+            setApiMessages((prev) => [...prev, ...toAppend])
+        }
+        currentTurnRef.current = {
+            content: '',
+            toolCalls: [],
+            toolResults: [],
+        }
+    }, [])
 
     const debouncedPersist = useDebouncedCallback(
         (snap: ChatPersistenceSnapshot, chatId: string) => onPersist(chatId, snap),
@@ -95,6 +135,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const makeCallbacks = useMemo(
         () => (assistantMsgId: string) => ({
             onContent: (text: string) => {
+                currentTurnRef.current.content += text
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === assistantMsgId
@@ -104,6 +145,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 )
             },
             onToolCall: (data: SSEToolCall) => {
+                currentTurnRef.current.toolCalls.push(data)
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === assistantMsgId
@@ -116,6 +158,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 )
             },
             onToolResult: (data: SSEToolResult) => {
+                currentTurnRef.current.toolResults.push(data)
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === assistantMsgId
@@ -130,6 +173,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
             onPendingConfirmation: (data: PendingConfirmation) => {
                 setPending(data)
                 setSessionId(data.session_id)
+                finalizeTurn()
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === assistantMsgId ? { ...m, isStreaming: false } : m,
@@ -139,6 +183,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
             },
             onDone: (data: { session_id: string }) => {
                 setSessionId(data.session_id)
+                finalizeTurn()
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === assistantMsgId ? { ...m, isStreaming: false } : m,
@@ -147,6 +192,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 setIsStreaming(false)
             },
             onError: (message: string) => {
+                finalizeTurn()
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === assistantMsgId
@@ -161,7 +207,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 setIsStreaming(false)
             },
         }),
-        [],
+        [finalizeTurn],
     )
 
     const handleSend = useCallback(async () => {
@@ -190,6 +236,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         setInput('')
         setIsStreaming(true)
 
+        currentTurnRef.current = { content: '', toolCalls: [], toolResults: [] }
         abortRef.current = new AbortController()
         const callbacks = makeCallbacks(assistantId)
 
@@ -238,6 +285,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
             setMessages((prev) => [...prev, assistantMsg])
             setIsStreaming(true)
 
+            currentTurnRef.current = { content: '', toolCalls: [], toolResults: [] }
             const callbacks = makeCallbacks(assistantId)
 
             try {
@@ -270,6 +318,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         setSessionId(null)
         setPending(null)
         assistantIdRef.current = 0
+        currentTurnRef.current = { content: '', toolCalls: [], toolResults: [] }
     }
 
     return (
