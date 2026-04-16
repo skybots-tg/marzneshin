@@ -167,7 +167,7 @@ Reading data in pages — you are NEVER locked out of information:
 - Every list-style tool (list_users, list_hosts, list_admins, list_nodes,
   list_inbounds, list_services, get_user_devices, search_devices,
   check_all_nodes_health, get_node_devices) is paginated with a uniform
-  envelope: `{total, offset, limit, truncated, next_offset}`. When
+  envelope: `{{total, offset, limit, truncated, next_offset}}`. When
   `truncated=true`, `next_offset` tells you the EXACT offset to pass on
   the next call — keep reading until `truncated=false` / `next_offset=null`.
 - This is the same pattern Cursor uses for paged tools: read a page,
