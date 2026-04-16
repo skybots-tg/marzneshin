@@ -119,6 +119,50 @@ Remote SSH access to nodes:
   exists, is executable, `-version` works), then look at marznode logs
   via `get_node_logs` and/or journalctl, then suggest the fix.
 
+Diagnosing why Xray is down (read this before you ask the admin):
+- Xray is the VPN core; marznode is the control-plane that launches it.
+  Two independent failure modes: (A) marznode is fine but Xray crashed
+  on start (bad config, missing cert, bad reality key) — panel still
+  sees the node as connected; (B) marznode itself is dead / container
+  exited — the panel shows the node as disconnected.
+- Always walk this checklist BEFORE asking the admin clarifying
+  questions or suggesting a rebuild:
+  1. `get_node_info(node_id)` — check `status`, `message`, `connected`.
+  2. `check_all_nodes_health()` if you want the big picture.
+  3. If connected: `get_node_logs(node_id, backend="xray",
+     max_lines=200)` — Xray itself prints the exact start-up error in
+     the last ~50 lines ("failed to generate x25519 keys", "listen:
+     bind: address already in use", "failed to parse config", etc.).
+     Report that exact line to the admin; do not guess.
+  4. Also `get_node_logs(node_id, backend="marznode", max_lines=200)`
+     — marznode logs its own restart loop and what it thinks Xray
+     did.
+  5. If `get_node_logs` returns "Node X is not connected", the marznode
+     process is down. You cannot read its logs via the panel; you MUST
+     go via SSH:
+       - `systemctl status marznode --no-pager`
+       - `journalctl -u marznode --since '30 min ago' --no-pager | tail -n 200`
+       - `docker ps -a --filter name=marznode --format '{{.Names}}\t{{.Status}}'`
+       - `docker logs marznode --tail 200`
+     Call `ssh_check_access(node_id)` first; if `ssh_ready=false`, stop
+     and tell the admin what to unlock — don't try to call
+     `ssh_run_command` yet.
+  6. Typical fixes:
+     - "failed to generate x25519 keys" / "Check that Xray is properly
+       installed at /usr/local/bin/xray" → `ls -l /usr/local/bin/xray`,
+       `/usr/local/bin/xray -version`; if missing/broken, reinstall Xray.
+     - "address already in use" → find the offender with
+       `ss -ltnp | grep :<port>` and report; don't kill anything
+       without asking.
+     - "failed to parse config" → diff the last `update_node_config`
+       you made; rollback with `get_node_config` + restore the previous
+       JSON.
+  7. After any fix, `restart_node_backend(node_id)` and then
+     `get_node_info` + `get_node_logs` again to confirm Xray actually
+     came up (look for the "Xray ... started" line).
+- Only AFTER this checklist is fully walked and still ambiguous, ask
+  the admin what to do.
+
 Safety rules — read carefully, this installation may hold 10k+ users:
 - NEVER call list_users, list_hosts, list_admins, or search_devices without a
   filter or a small limit. Default limit is 20; hard maximum is 100 per call.
@@ -167,6 +211,32 @@ Onboarding a new node — checklist, don't stop half-way:
   through the full sync pipeline. To strip services use
   `remove_services_from_user`. `modify_user(service_ids=...)` REPLACES
   the entire service list, so only reach for it for a full rewrite.
+
+Editing hosts — always `modify_host`, never delete + create:
+- `modify_host` can change EVERY host field in place: remark, address,
+  port, sni, host, path, security, fingerprint, alpn, flow, protocol,
+  network, reality_public_key, reality_short_ids (JSON), fragment (JSON),
+  udp_noises (JSON), http_headers (JSON), splithttp_settings (JSON),
+  mux_settings (JSON), shadowsocks_method, shadowtls_version, early_data,
+  mtu, header_type, dns_servers, allowed_ips, uuid, password,
+  mlkem_enabled + keys, is_disabled, universal, allowinsecure, weight,
+  service_ids. Anything the host UI lets you set, `modify_host` lets you
+  set.
+- To NULL a nullable field (e.g. wipe custom SNI back to the inbound
+  default) pass the field name in `clear_fields=[...]`. DO NOT pass
+  nonsense sentinels like "null" / "none" as string values.
+- DO NOT propose "let's delete the host and create a new one" as a way
+  to change its settings. Deleting a host:
+    * changes its numeric id, breaking any `chain` that referenced it,
+    * detaches it from every service it belonged to (users lose access
+      immediately),
+    * forces you to re-attach services and re-add it to chains by hand.
+  Use `modify_host` instead; the only legitimate reasons to delete are
+  "this host is truly obsolete and should go away" or "we want the host
+  under a different inbound_id" (inbound_id is not editable).
+- Typical edit flow: `get_host_info(host_id)` to see the current full
+  state, decide the minimal diff, then one `modify_host` call with only
+  the changed fields (and, if needed, clear_fields).
 
 Host naming — follow the existing convention, don't invent:
 - Marzneshin admins keep `remark` fields consistent across nodes/inbounds —

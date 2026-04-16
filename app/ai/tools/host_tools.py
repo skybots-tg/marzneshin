@@ -175,11 +175,30 @@ async def create_host(
 @register_tool(
     name="modify_host",
     description=(
-        "Modify a host's settings. Only fields whose values differ from the sentinel "
-        "are updated (empty strings and negative numbers are ignored). "
-        "To change toggles like is_disabled / universal / allowinsecure, pass 1 to "
-        "enable, 0 to disable, or leave at -1 to preserve the current value. "
-        "Pass service_ids to reassign the host to different services."
+        "Modify an existing host IN PLACE. PREFER THIS over delete_host + create_host "
+        "when you need to change any field — deleting and re-creating a host changes "
+        "its id, detaches it from services, and breaks any chain that references it. "
+        "Only fields whose values differ from the sentinel are updated:\n"
+        "- string fields: \"\" preserves the current value; pass the new string to set.\n"
+        "- int fields: -1 preserves; 0/positive sets (port/mtu/shadowtls_version/"
+        "early_data: 0 effectively clears since the column is nullable).\n"
+        "- bool toggles (is_disabled/universal/allowinsecure/mlkem_enabled): pass 1 to "
+        "enable, 0 to disable, -1 to preserve.\n"
+        "- list fields: [] preserves; a non-empty list replaces the value.\n"
+        "- JSON fields are passed as JSON strings (fragment_json, udp_noises_json, "
+        "http_headers_json, splithttp_settings_json, mux_settings_json, "
+        "reality_short_ids_json).\n"
+        "- To explicitly NULL any nullable field, add its name to `clear_fields`, e.g. "
+        "clear_fields=[\"sni\", \"reality_public_key\", \"fragment\"]. Allowed names: "
+        "sni, host, path, uuid, password, alpn, flow, header_type, dns_servers, "
+        "allowed_ips, reality_public_key, reality_short_ids, shadowsocks_method, "
+        "mlkem_public_key, mlkem_private_key, fragment, udp_noises, http_headers, "
+        "splithttp_settings, mux_settings, host_protocol, host_network, "
+        "shadowtls_version, early_data, mtu, port.\n"
+        "Enum values: security='inbound_default'|'none'|'tls'; "
+        "fingerprint='none'|'chrome'|'firefox'|'safari'|'ios'|'android'|'edge'|'360'|"
+        "'qq'|'random'|'randomized'. "
+        "Pass service_ids=[1,2] to replace the service list; [] preserves."
     ),
     requires_confirmation=True,
 )
@@ -193,48 +212,192 @@ async def modify_host(
     host: str = "",
     path: str = "",
     security: str = "",
+    protocol: str = "",
+    network: str = "",
+    fingerprint: str = "",
+    alpn: str = "",
+    flow: str = "",
+    header_type: str = "",
+    dns_servers: str = "",
+    allowed_ips: str = "",
+    reality_public_key: str = "",
+    reality_short_ids_json: str = "",
+    fragment_json: str = "",
+    udp_noises_json: str = "",
+    http_headers_json: str = "",
+    splithttp_settings_json: str = "",
+    mux_settings_json: str = "",
+    shadowsocks_method: str = "",
+    shadowtls_version: int = -1,
+    early_data: int = -1,
+    mtu: int = -1,
+    mlkem_enabled: int = -1,
+    mlkem_public_key: str = "",
+    mlkem_private_key: str = "",
+    uuid: str = "",
+    password: str = "",
     is_disabled: int = -1,
     universal: int = -1,
     allowinsecure: int = -1,
     weight: int = -1,
     service_ids: list = [],
+    clear_fields: list = [],
 ) -> dict:
+    import json
     from app.db.models import InboundHost, Service
+    from app.models.proxy import InboundHostSecurity
 
     db_host = db.query(InboundHost).filter(InboundHost.id == host_id).first()
     if not db_host:
         return {"error": f"Host {host_id} not found"}
 
-    if remark:
-        db_host.remark = remark
-    if address:
-        db_host.address = address
-    if port >= 0:
-        db_host.port = port or None
-    if sni:
-        db_host.sni = sni
-    if host:
-        db_host.host = host
-    if path:
-        db_host.path = path
-    if security:
-        db_host.security = security
-    if weight >= 0:
-        db_host.weight = weight
-    if is_disabled in (0, 1):
-        db_host.is_disabled = bool(is_disabled)
-    if universal in (0, 1):
-        db_host.universal = bool(universal)
-    if allowinsecure in (0, 1):
-        db_host.allowinsecure = bool(allowinsecure)
-    if service_ids:
-        db_host.services = (
-            db.query(Service).filter(Service.id.in_(service_ids)).all()
-        )
+    _CLEARABLE = {
+        "sni", "host", "path", "uuid", "password", "alpn", "flow",
+        "header_type", "dns_servers", "allowed_ips", "reality_public_key",
+        "reality_short_ids", "shadowsocks_method", "mlkem_public_key",
+        "mlkem_private_key", "fragment", "udp_noises", "http_headers",
+        "splithttp_settings", "mux_settings", "host_protocol",
+        "host_network", "shadowtls_version", "early_data", "mtu", "port",
+    }
+    clear_set = {f.strip() for f in (clear_fields or []) if f and f.strip()}
+    unknown_clear = sorted(clear_set - _CLEARABLE)
+    if unknown_clear:
+        return {
+            "error": (
+                f"clear_fields contains unsupported names: {unknown_clear}. "
+                f"Allowed: {sorted(_CLEARABLE)}"
+            )
+        }
+
+    def _set_str(col_attr: str, value: str, target_attr: str | None = None):
+        if value:
+            setattr(db_host, target_attr or col_attr, value)
+
+    def _parse_json(field_label: str, raw: str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"{field_label}: invalid JSON ({e})")
+
+    try:
+        if remark:
+            db_host.remark = remark
+        if address:
+            db_host.address = address
+        if port >= 0:
+            db_host.port = port or None
+        if sni:
+            db_host.sni = sni
+        if host:
+            db_host.host = host
+        if path:
+            db_host.path = path
+
+        if security:
+            try:
+                db_host.security = InboundHostSecurity(security)
+            except ValueError:
+                return {
+                    "error": (
+                        f"Invalid security '{security}'. "
+                        f"Allowed: inbound_default, none, tls."
+                    )
+                }
+
+        if protocol:
+            db_host.host_protocol = protocol
+        if network:
+            db_host.host_network = network
+
+        if fingerprint:
+            allowed_fp = {
+                "none", "chrome", "firefox", "safari", "ios", "android",
+                "edge", "360", "qq", "random", "randomized",
+            }
+            if fingerprint not in allowed_fp:
+                return {
+                    "error": (
+                        f"Invalid fingerprint '{fingerprint}'. "
+                        f"Allowed: {sorted(allowed_fp)}"
+                    )
+                }
+            db_host.fingerprint = fingerprint
+
+        _set_str("alpn", alpn)
+        _set_str("flow", flow)
+        _set_str("header_type", header_type)
+        _set_str("dns_servers", dns_servers)
+        _set_str("allowed_ips", allowed_ips)
+        _set_str("reality_public_key", reality_public_key)
+        _set_str("shadowsocks_method", shadowsocks_method)
+        _set_str("mlkem_public_key", mlkem_public_key)
+        _set_str("mlkem_private_key", mlkem_private_key)
+        _set_str("uuid", uuid)
+        _set_str("password", password)
+
+        if reality_short_ids_json:
+            parsed = _parse_json("reality_short_ids_json", reality_short_ids_json)
+            if not isinstance(parsed, list):
+                return {"error": "reality_short_ids_json must be a JSON list of strings"}
+            db_host.reality_short_ids = parsed
+        if fragment_json:
+            db_host.fragment = _parse_json("fragment_json", fragment_json)
+        if udp_noises_json:
+            parsed = _parse_json("udp_noises_json", udp_noises_json)
+            if not isinstance(parsed, list):
+                return {"error": "udp_noises_json must be a JSON list"}
+            db_host.udp_noises = parsed
+        if http_headers_json:
+            parsed = _parse_json("http_headers_json", http_headers_json)
+            if not isinstance(parsed, dict):
+                return {"error": "http_headers_json must be a JSON object"}
+            db_host.http_headers = parsed
+        if splithttp_settings_json:
+            db_host.splithttp_settings = _parse_json(
+                "splithttp_settings_json", splithttp_settings_json
+            )
+        if mux_settings_json:
+            db_host.mux_settings = _parse_json("mux_settings_json", mux_settings_json)
+
+        if shadowtls_version >= 0:
+            db_host.shadowtls_version = shadowtls_version or None
+        if early_data >= 0:
+            db_host.early_data = early_data or None
+        if mtu >= 0:
+            db_host.mtu = mtu or None
+
+        if weight >= 0:
+            db_host.weight = weight
+        if is_disabled in (0, 1):
+            db_host.is_disabled = bool(is_disabled)
+        if universal in (0, 1):
+            db_host.universal = bool(universal)
+        if allowinsecure in (0, 1):
+            db_host.allowinsecure = bool(allowinsecure)
+        if mlkem_enabled in (0, 1):
+            db_host.mlkem_enabled = bool(mlkem_enabled)
+
+        if service_ids:
+            db_host.services = (
+                db.query(Service).filter(Service.id.in_(service_ids)).all()
+            )
+
+        for f in clear_set:
+            setattr(db_host, f, None)
+    except ValueError as ve:
+        db.rollback()
+        return {"error": str(ve)}
+    except Exception as ex:
+        db.rollback()
+        return {"error": f"Failed to modify host: {ex}"}
 
     db.commit()
     db.refresh(db_host)
-    return {"success": True, "host": _serialize_host_short(db_host)}
+    return {
+        "success": True,
+        "host": _serialize_host_full(db_host),
+        "cleared_fields": sorted(clear_set),
+    }
 
 
 @register_tool(
