@@ -1,6 +1,16 @@
 import { FC, useCallback, useEffect, useRef, useState, KeyboardEvent, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Send, Loader2, Settings2, Trash2, ShieldCheck, X, Archive } from 'lucide-react'
+import {
+    Send,
+    Loader2,
+    Settings2,
+    Trash2,
+    ShieldCheck,
+    ShieldAlert,
+    X,
+    Archive,
+    Terminal,
+} from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@marzneshin/common/components/ui'
 import { Textarea } from '@marzneshin/common/components/ui'
@@ -11,7 +21,11 @@ import { MessageBubble } from './message-bubble'
 import { ConfirmationDialog } from './confirmation-dialog'
 import { SSHUnlockDialog } from './ssh-unlock-dialog'
 import { BackupDialog } from './backup-dialog'
-import { fetchSSHStatus } from '../api/ssh'
+import {
+    fetchSSHStatus,
+    useSSHStatusQuery,
+    useInvalidateSSHStatus,
+} from '../api/ssh'
 import type {
     ChatMessage,
     ChatPersistenceSnapshot,
@@ -51,7 +65,9 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const [apiMessages, setApiMessages] = useState<ChatMessage[]>(() => initialSnapshot.apiMessages)
     const [input, setInput] = useState('')
     const [model, setModel] = useState(() => initialSnapshot.model)
-    const [sessionId, setSessionId] = useState<string | null>(() => initialSnapshot.sessionId)
+    const [sessionId, setSessionId] = useState<string | null>(
+        () => initialSnapshot.sessionId ?? crypto.randomUUID(),
+    )
     const [isStreaming, setIsStreaming] = useState(false)
     const [pending, setPending] = useState<PendingConfirmation | null>(null)
     const [confirmLoading, setConfirmLoading] = useState(false)
@@ -64,6 +80,10 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     } | null>(null)
 
     const [backupOpen, setBackupOpen] = useState(false)
+    const [manualSSHOpen, setManualSSHOpen] = useState(false)
+
+    const { data: sshStatus } = useSSHStatusQuery(sessionId)
+    const invalidateSSHStatus = useInvalidateSSHStatus()
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const abortRef = useRef<AbortController | null>(null)
@@ -367,6 +387,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const handleSSHUnlocked = useCallback(() => {
         const prompt = sshPrompt
         setSSHPrompt(null)
+        invalidateSSHStatus(sessionId)
         if (!prompt) return
         // The admin has provided the PIN — treat that as approval and
         // push the held pending confirmation through as "approve".
@@ -377,7 +398,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         })
         // Defer the confirm call so React first updates `pending` state.
         queueMicrotask(() => handleConfirm('approve'))
-    }, [sshPrompt, handleConfirm])
+    }, [sshPrompt, handleConfirm, invalidateSSHStatus, sessionId])
 
     const handleSSHCancel = useCallback(() => {
         const prompt = sshPrompt
@@ -391,6 +412,11 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         })
         queueMicrotask(() => handleConfirm('reject'))
     }, [sshPrompt, handleConfirm])
+
+    const handleManualSSHUnlocked = useCallback(() => {
+        setManualSSHOpen(false)
+        invalidateSSHStatus(sessionId)
+    }, [invalidateSSHStatus, sessionId])
 
     const handleApproveAll = useCallback(() => {
         autoApproveRef.current = true
@@ -413,9 +439,12 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const handleClear = () => {
         setMessages([])
         setApiMessages([])
-        setSessionId(null)
+        // Generate a fresh client-side session id so the SSH unlock
+        // state (and its TTL) resets alongside the conversation.
+        setSessionId(crypto.randomUUID())
         setPending(null)
         setSSHPrompt(null)
+        setManualSSHOpen(false)
         autoApproveRef.current = false
         setAutoApprove(false)
         assistantIdRef.current = 0
@@ -443,6 +472,10 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                     </button>
                 )}
                 <div className="flex-1" />
+                {configured && <SSHStatusButton
+                    status={sshStatus}
+                    onClick={() => setManualSSHOpen(true)}
+                />}
                 <Button
                     variant="ghost"
                     size="sm"
@@ -535,10 +568,55 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 onCancel={handleSSHCancel}
             />
 
+            <SSHUnlockDialog
+                open={manualSSHOpen}
+                sessionId={sessionId}
+                nodeId={null}
+                toolName=""
+                manual
+                onUnlocked={handleManualSSHUnlocked}
+                onCancel={() => setManualSSHOpen(false)}
+            />
+
             <BackupDialog
                 open={backupOpen}
                 onClose={() => setBackupOpen(false)}
             />
         </div>
+    )
+}
+
+interface SSHStatusButtonProps {
+    status: { session_unlocked: boolean; unlock_ttl_seconds: number } | undefined
+    onClick: () => void
+}
+
+const SSHStatusButton: FC<SSHStatusButtonProps> = ({ status, onClick }) => {
+    const { t } = useTranslation()
+    const unlocked = !!status?.session_unlocked
+    const ttlMin = status ? Math.max(0, Math.floor(status.unlock_ttl_seconds / 60)) : 0
+    const title = unlocked
+        ? t('ai.ssh.button-tooltip-unlocked', { minutes: ttlMin })
+        : t('ai.ssh.button-tooltip-locked')
+    const label = unlocked ? t('ai.ssh.button-unlocked') : t('ai.ssh.button-locked')
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            title={title}
+            className={
+                unlocked
+                    ? 'inline-flex items-center gap-1.5 px-2 h-7 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-emerald-700 dark:text-emerald-400 text-xs font-medium hover:bg-emerald-500/25 transition-colors'
+                    : 'inline-flex items-center gap-1.5 px-2 h-7 rounded-md bg-secondary border border-border/60 text-muted-foreground text-xs font-medium hover:bg-secondary/80 transition-colors'
+            }
+        >
+            {unlocked ? (
+                <ShieldCheck className="size-3.5" />
+            ) : (
+                <ShieldAlert className="size-3.5" />
+            )}
+            <Terminal className="size-3.5" />
+            <span>{label}</span>
+        </button>
     )
 }

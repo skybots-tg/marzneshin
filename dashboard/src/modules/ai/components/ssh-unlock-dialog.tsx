@@ -263,10 +263,17 @@ export const SSHUnlockDialog: FC<SSHUnlockDialogProps> = ({
                                 </div>
                             )}
 
-                            {status.credentials_saved && (
+                            {!manual && status.credentials_saved && (
                                 <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
                                     <ShieldCheck className="size-3.5" />
                                     {t('ai.ssh.credentials-saved-hint')}
+                                </div>
+                            )}
+
+                            {manual && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <ShieldCheck className="size-3.5" />
+                                    {t('ai.ssh.manual-hint')}
                                 </div>
                             )}
 
@@ -300,7 +307,11 @@ export const SSHUnlockDialog: FC<SSHUnlockDialogProps> = ({
                         onClick={handleSubmit}
                         disabled={!canSubmit || loading || !status?.pin_configured}
                     >
-                        {needsCredentials ? t('ai.ssh.save-and-unlock') : t('ai.ssh.unlock')}
+                        {needsCredentials
+                            ? t('ai.ssh.save-and-unlock')
+                            : manual
+                              ? t('ai.ssh.unlock-session')
+                              : t('ai.ssh.unlock')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
