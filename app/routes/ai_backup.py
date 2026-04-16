@@ -13,8 +13,13 @@ Endpoints:
     GET    /api/ai/backup/jobs              — list recent jobs
     GET    /api/ai/backup/jobs/{id}         — poll one job
     DELETE /api/ai/backup/jobs/{id}         — cooperative cancel request
+    POST   /api/ai/backup/jobs/{id}/download-ticket
+                                           — exchange sudo-admin session
+                                             for a short-lived one-shot
+                                             download ticket
     GET    /api/ai/backup/jobs/{id}/download
                                            — stream the finished dump
+                                             (sudo-admin OR ticket auth)
 """
 from __future__ import annotations
 
@@ -27,7 +32,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.ai.backup import BACKUP_MODES, HEAVY_HISTORY_TABLES, list_backups
-from app.ai.backup_jobs import registry
+from app.ai.backup_jobs import download_tickets, registry
 from app.dependencies import SudoAdminDep
 
 logger = logging.getLogger(__name__)
@@ -107,10 +112,7 @@ def cancel_job(admin: SudoAdminDep, job_id: str = Path(..., min_length=1)):
     return {"cancel_requested": True}
 
 
-@router.get("/jobs/{job_id}/download")
-def download_job_artefact(
-    admin: SudoAdminDep, job_id: str = Path(..., min_length=1)
-):
+def _resolve_ready_job(job_id: str):
     job = registry.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
@@ -124,6 +126,10 @@ def download_job_artefact(
             status_code=410,
             detail="backup file is no longer available on disk",
         )
+    return job
+
+
+def _file_response_for(job) -> FileResponse:
     filename = os.path.basename(job.path)
     media_type = (
         "application/x-sqlite3"
@@ -135,3 +141,58 @@ def download_job_artefact(
         filename=filename,
         media_type=media_type,
     )
+
+
+@router.post("/jobs/{job_id}/download-ticket")
+def issue_download_ticket(
+    admin: SudoAdminDep, job_id: str = Path(..., min_length=1)
+):
+    """Mint a one-shot, short-lived URL the browser can open directly.
+
+    The bearer-protected GET /download endpoint cannot be opened from a
+    plain <a href> / new tab / download manager — browsers never attach
+    the Authorization header to navigational requests, so they get 401.
+    The UI exchanges its sudo session for a ticket here and navigates
+    to the returned URL (which is bearerless and authenticated purely
+    by the single-use ticket).
+    """
+    job = _resolve_ready_job(job_id)
+    ticket, ttl = download_tickets.issue(job.id)
+    return {
+        "ticket": ticket,
+        "url": f"/api/ai/backup/jobs/{job.id}/download/{ticket}",
+        "expires_in": int(ttl),
+    }
+
+
+@router.get("/jobs/{job_id}/download/{ticket}")
+def download_job_artefact_by_ticket(
+    job_id: str = Path(..., min_length=1),
+    ticket: str = Path(..., min_length=8),
+):
+    """Stream the finished dump using a one-shot download ticket.
+
+    Intentionally not protected by SudoAdminDep — the ticket itself is
+    the credential. Tickets are consumed on first use and expire after
+    a couple of minutes, so a leaked URL cannot be replayed.
+    """
+    if not download_tickets.consume(ticket, job_id):
+        raise HTTPException(
+            status_code=401,
+            detail="invalid or expired download ticket",
+        )
+    job = _resolve_ready_job(job_id)
+    return _file_response_for(job)
+
+
+@router.get("/jobs/{job_id}/download")
+def download_job_artefact(
+    admin: SudoAdminDep, job_id: str = Path(..., min_length=1)
+):
+    """Stream the finished dump (sudo-admin Bearer auth).
+
+    Kept for programmatic/API clients. The UI uses the ticket-based
+    endpoint above so that browser navigation works.
+    """
+    job = _resolve_ready_job(job_id)
+    return _file_response_for(job)
