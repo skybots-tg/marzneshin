@@ -3,6 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import clamp_limit
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,12 @@ async def search_devices(
     ip: str = "",
     client_type: str = "",
     node_id: int = 0,
-    limit: int = 50,
+    limit: int = 20,
 ) -> dict:
     from app.db import device_crud
     from app.db.models.core import User
 
+    limit = clamp_limit(limit)
     kwargs = {"offset": 0, "limit": limit}
     if ip:
         kwargs["ip"] = ip

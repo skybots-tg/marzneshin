@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import clamp_limit, clamp_offset
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,13 @@ def _serialize_user(u) -> dict:
 
 @register_tool(
     name="list_users",
-    description="List users with pagination and optional filters. Returns username, status, traffic usage, expiry, and services.",
+    description=(
+        "List users with pagination and optional filters. "
+        "ALWAYS pass a `username` filter (substring match) when looking for a "
+        "specific user — installs can hold 10k+ rows. "
+        "For aggregate questions ('how many users are active?') call count_users "
+        "instead. Default limit is 20; hard maximum is 100."
+    ),
     requires_confirmation=False,
 )
 async def list_users(
@@ -43,13 +50,18 @@ async def list_users(
     limit: int = 20,
     offset: int = 0,
     username: str = "",
-    enabled: bool = True,
+    enabled: int = -1,
 ) -> dict:
     from app.db.models.core import User
 
-    query = db.query(User).filter(User.removed == False)
+    limit = clamp_limit(limit)
+    offset = clamp_offset(offset)
+
+    query = db.query(User).filter(User.removed == False)  # noqa: E712
     if username:
         query = query.filter(User.username.ilike(f"%{username}%"))
+    if enabled in (0, 1):
+        query = query.filter(User.enabled == bool(enabled))
     total = query.count()
     users = query.offset(offset).limit(limit).all()
     return {
@@ -57,6 +69,7 @@ async def list_users(
         "total": total,
         "offset": offset,
         "limit": limit,
+        "truncated": total > offset + limit,
     }
 
 

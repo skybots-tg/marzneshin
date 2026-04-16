@@ -3,18 +3,24 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import clamp_limit, clamp_offset
 
 logger = logging.getLogger(__name__)
 
 
 @register_tool(
     name="list_admins",
-    description="List all admin accounts with their roles, service access, and user modification permissions.",
+    description=(
+        "List admin accounts with pagination. Default limit 20, hard maximum 100. "
+        "Returns roles, service access, and user modification permissions."
+    ),
     requires_confirmation=False,
 )
-async def list_admins(db: Session, limit: int = 50, offset: int = 0) -> dict:
+async def list_admins(db: Session, limit: int = 20, offset: int = 0) -> dict:
     from app.db import crud
 
+    limit = clamp_limit(limit)
+    offset = clamp_offset(offset)
     admins = crud.get_admins(db, offset=offset, limit=limit)
     return {
         "admins": [
@@ -115,9 +121,10 @@ async def create_admin(
 @register_tool(
     name="modify_admin",
     description=(
-        "Modify an admin's permissions or password. Only provided fields are updated. "
-        "Can change: is_sudo, enabled, password, all_services_access, "
-        "modify_users_access, service_ids."
+        "Modify an admin's permissions or password. Only fields whose values differ "
+        "from the sentinel are applied — empty strings, empty lists, and -1 are "
+        "ignored. For boolean flags (is_sudo, enabled, all_services_access, "
+        "modify_users_access) pass 1 to enable, 0 to disable, or -1 to keep unchanged."
     ),
     requires_confirmation=True,
 )
@@ -125,10 +132,10 @@ async def modify_admin(
     db: Session,
     username: str,
     password: str = "",
-    is_sudo: bool = False,
-    enabled: bool = True,
-    all_services_access: bool = False,
-    modify_users_access: bool = True,
+    is_sudo: int = -1,
+    enabled: int = -1,
+    all_services_access: int = -1,
+    modify_users_access: int = -1,
     service_ids: list = [],
 ) -> dict:
     from app.db import crud
@@ -141,10 +148,14 @@ async def modify_admin(
     kwargs = {}
     if password:
         kwargs["password"] = password
-    kwargs["is_sudo"] = is_sudo
-    kwargs["enabled"] = enabled
-    kwargs["all_services_access"] = all_services_access
-    kwargs["modify_users_access"] = modify_users_access
+    if is_sudo in (0, 1):
+        kwargs["is_sudo"] = bool(is_sudo)
+    if enabled in (0, 1):
+        kwargs["enabled"] = bool(enabled)
+    if all_services_access in (0, 1):
+        kwargs["all_services_access"] = bool(all_services_access)
+    if modify_users_access in (0, 1):
+        kwargs["modify_users_access"] = bool(modify_users_access)
     if service_ids:
         kwargs["service_ids"] = service_ids
 
