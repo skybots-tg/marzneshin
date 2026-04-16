@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { fetch } from '@marzneshin/common/utils/fetch'
+import { fetch, $fetch } from '@marzneshin/common/utils/fetch'
+import { useAuth } from '@marzneshin/modules/auth'
 
 export type BackupMode = 'full' | 'light' | 'config'
 
@@ -115,11 +116,14 @@ const deriveBackupFilename = (job: BackupJob | null | undefined): string => {
 
 // The download endpoint is protected by SudoAdminDep, so a plain <a href>
 // navigation cannot attach the bearer token and would receive 401. We route
-// the request through the shared fetch helper (which adds the token) and
-// trigger the download via an object URL instead.
+// the request through ofetch directly (the shared `fetch` wrapper is typed
+// as responseType: 'json', so we can't use it for a binary download) and
+// attach the bearer token manually — same convention as `fetcher`.
 export const downloadBackupJobArtefact = async (job: BackupJob): Promise<void> => {
-    const blob = await fetch<Blob>(`/ai/backup/jobs/${job.id}/download`, {
+    const token = useAuth.getState().getAuthToken()
+    const blob = await $fetch<Blob>(`/ai/backup/jobs/${job.id}/download`, {
         responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
     const filename = deriveBackupFilename(job)
     const objectUrl = URL.createObjectURL(blob)
