@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
-from app.ai.tools._common import clamp_limit, clamp_offset
+from app.ai.tools._common import clamp_limit, clamp_offset, paginated_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +95,7 @@ async def list_services(
             }
             for s in services
         ],
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "truncated": total > offset + limit,
+        **paginated_envelope(total, offset, limit),
     }
 
 
@@ -137,10 +134,7 @@ async def list_inbounds(
             }
             for i in inbounds
         ],
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "truncated": total > offset + limit,
+        **paginated_envelope(total, offset, limit),
     }
 
 

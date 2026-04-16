@@ -3,7 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
-from app.ai.tools._common import clamp_limit
+from app.ai.tools._common import clamp_limit, clamp_offset, paginated_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +18,20 @@ def _device_owner_username(db, user_id: int) -> str | None:
     name="get_user_devices",
     description=(
         "Get tracked devices for a specific user (from database, not live node data). "
-        "Shows client name, type, fingerprint, blocked status, last seen, and IPs."
+        "Shows client name, type, fingerprint, blocked status, last seen, and IPs. "
+        "Paginated — default limit 50, hard max 100. Filter with `is_blocked` "
+        "(-1 = any, 0 = only active, 1 = only blocked). Check `truncated` and "
+        "`next_offset` in the response to paginate further."
     ),
     requires_confirmation=False,
 )
-async def get_user_devices(db: Session, username: str) -> dict:
+async def get_user_devices(
+    db: Session,
+    username: str,
+    limit: int = 50,
+    offset: int = 0,
+    is_blocked: int = -1,
+) -> dict:
     from app.db.models.core import User
     from app.db import device_crud
 
@@ -30,12 +39,17 @@ async def get_user_devices(db: Session, username: str) -> dict:
     if not user:
         return {"error": f"User '{username}' not found"}
 
-    devices = device_crud.get_user_devices(db, user.id)
-    count = device_crud.get_devices_count(db, user.id)
+    limit = clamp_limit(limit, default=50, maximum=100)
+    offset = clamp_offset(offset)
+    blocked_filter = bool(is_blocked) if is_blocked in (0, 1) else None
+
+    total = device_crud.get_devices_count(db, user.id, is_blocked=blocked_filter)
+    devices = device_crud.get_user_devices(
+        db, user.id, offset=offset, limit=limit, is_blocked=blocked_filter
+    )
 
     return {
         "username": username,
-        "total_devices": count,
         "devices": [
             {
                 "id": d.id,
@@ -49,14 +63,19 @@ async def get_user_devices(db: Session, username: str) -> dict:
             }
             for d in devices
         ],
+        **paginated_envelope(total, offset, limit),
     }
 
 
 @register_tool(
     name="search_devices",
     description=(
-        "Search devices across all users by IP address, client_type, or node_id. "
-        "Useful for diagnosing connections — e.g. find which user is connecting from a specific IP."
+        "Search devices across all users by IP / client_type / node_id / "
+        "country_code / blocked state. ALWAYS pass at least one filter — "
+        "the devices table can hold hundreds of thousands of rows on a busy "
+        "install. Paginated: pass `offset` and `limit` (default 20, hard "
+        "max 100); check `truncated` / `next_offset` in the response. "
+        "`is_blocked`: -1 = any, 0 = only active, 1 = only blocked."
     ),
     requires_confirmation=False,
 )
@@ -65,21 +84,35 @@ async def search_devices(
     ip: str = "",
     client_type: str = "",
     node_id: int = 0,
+    country_code: str = "",
+    is_blocked: int = -1,
     limit: int = 20,
+    offset: int = 0,
 ) -> dict:
     from app.db import device_crud
     from app.db.models.core import User
 
     limit = clamp_limit(limit)
-    kwargs = {"offset": 0, "limit": limit}
+    offset = clamp_offset(offset)
+
+    kwargs: dict = {"offset": offset, "limit": limit}
     if ip:
         kwargs["ip"] = ip
     if client_type:
         kwargs["client_type"] = client_type
     if node_id > 0:
         kwargs["node_id"] = node_id
+    if country_code:
+        kwargs["country_code"] = country_code
+    if is_blocked in (0, 1):
+        kwargs["is_blocked"] = bool(is_blocked)
 
     devices = device_crud.search_devices(db, **kwargs)
+
+    probe_kwargs = dict(kwargs)
+    probe_kwargs.update({"offset": offset + limit, "limit": 1})
+    has_more = bool(device_crud.search_devices(db, **probe_kwargs))
+    estimated_total = offset + len(devices) + (1 if has_more else 0)
 
     user_ids = list({d.user_id for d in devices})
     users = {
@@ -88,7 +121,6 @@ async def search_devices(
     } if user_ids else {}
 
     return {
-        "total": len(devices),
         "devices": [
             {
                 "id": d.id,
@@ -102,6 +134,12 @@ async def search_devices(
             }
             for d in devices
         ],
+        "offset": offset,
+        "limit": limit,
+        "truncated": has_more,
+        "next_offset": (offset + limit) if has_more else None,
+        "total_is_estimate": True,
+        "total_at_least": estimated_total,
     }
 
 

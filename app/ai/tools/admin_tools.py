@@ -3,7 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
-from app.ai.tools._common import clamp_limit, clamp_offset
+from app.ai.tools._common import clamp_limit, clamp_offset, paginated_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +46,7 @@ async def list_admins(
             }
             for a in admins
         ],
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "truncated": total > offset + limit,
+        **paginated_envelope(total, offset, limit),
     }
 
 
