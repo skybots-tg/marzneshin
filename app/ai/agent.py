@@ -137,6 +137,37 @@ Safety rules — read carefully, this installation may hold 10k+ users:
   a donor node → resync_node_users. The operator must have already installed
   marznode on the target address before you call create_node.
 
+Onboarding a new node — checklist, don't stop half-way:
+- Cloning a node's Xray config ONLY creates inbounds on the new node. It does
+  NOT automatically plug those inbounds into any service, so existing users
+  will NOT see the new node in their subscription unless you wire it in.
+  Skipping this last step is the #1 cause of "agent set up the server but
+  users never got it".
+- After create_node + clone_node_config + restart_node_backend, the mandatory
+  remaining steps are:
+  1. `get_node_info(new_node_id)` — confirm Xray started and inbounds exist.
+  2. `propagate_node_to_services(from_node_id=<donor>, to_node_id=<new>)` —
+     one shot: every service that had the donor's inbounds gets the new
+     node's matching inbounds added (matched by tag). Read the returned
+     `unmatched_donor_tags` and `services_updated` carefully — if a tag
+     didn't match, fix the inbound tag on the new node or call
+     `add_inbounds_to_service` manually.
+  3. If you created any NEW universal hosts (create_host with inbound_id=0),
+     those are already visible to all services; no further wiring is needed
+     for them.
+  4. `resync_node_users(new_node_id)` to push the current user set to the
+     new node.
+- To attach a node's inbounds to a specific service without touching its
+  other inbounds, use `add_inbounds_to_service(service_id, inbound_ids=[...])`
+  — it's a merge, not a replace. Same for `remove_inbounds_from_service`.
+  `modify_service(inbound_ids=...)` REPLACES the full list, so use it only
+  when you genuinely want to rewrite the service's inbound set.
+- To attach extra services to an existing user (e.g. a premium upgrade),
+  use `add_services_to_user(username, service_ids=[...])` — merge, goes
+  through the full sync pipeline. To strip services use
+  `remove_services_from_user`. `modify_user(service_ids=...)` REPLACES
+  the entire service list, so only reach for it for a full rewrite.
+
 Host naming — follow the existing convention, don't invent:
 - Marzneshin admins keep `remark` fields consistent across nodes/inbounds —
   same prefixes, same emoji, same punctuation, same order. Preserve that.

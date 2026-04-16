@@ -312,6 +312,131 @@ async def disable_user(db: Session, username: str) -> dict:
 
 
 @register_tool(
+    name="add_services_to_user",
+    description=(
+        "Attach one or more services to a user WITHOUT touching the ones they already have. "
+        "Goes through the full user modification pipeline (node sync, notifications). "
+        "Idempotent: services already attached are skipped and reported."
+    ),
+    requires_confirmation=True,
+)
+async def add_services_to_user(
+    db: Session, username: str, service_ids: list = []
+) -> dict:
+    from app.db import crud
+    from app.models.user import UserModify
+    from app.models.admin import Admin as AdminModel
+    from app.services import user_service
+    from app.db.models.core import Admin
+
+    if not service_ids:
+        return {"error": "service_ids must be a non-empty list of integers"}
+    try:
+        add_ids = {int(s) for s in service_ids}
+    except (TypeError, ValueError):
+        return {"error": "service_ids must contain integers only"}
+
+    db_user = crud.get_user(db, username)
+    if not db_user:
+        return {"error": f"User '{username}' not found"}
+
+    current = {s.id for s in (db_user.services or [])}
+    already = sorted(current & add_ids)
+    new = sorted(add_ids - current)
+    if not new:
+        return {
+            "success": True,
+            "user": username,
+            "added_service_ids": [],
+            "already_attached_service_ids": already,
+            "final_service_ids": sorted(current),
+        }
+
+    sudo = db.query(Admin).filter(Admin.is_sudo == True).first()  # noqa: E712
+    if not sudo:
+        return {"error": "No sudo admin found"}
+    admin_model = AdminModel.model_validate(sudo)
+
+    final = sorted(current | add_ids)
+    try:
+        mod = UserModify(username=username, service_ids=final)
+        db_user = user_service.modify_user(db, db_user, mod, admin_model)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {
+        "success": True,
+        "user": username,
+        "added_service_ids": new,
+        "already_attached_service_ids": already,
+        "final_service_ids": [s.id for s in (db_user.services or [])],
+    }
+
+
+@register_tool(
+    name="remove_services_from_user",
+    description=(
+        "Detach one or more services from a user without touching the rest. "
+        "Goes through the full user modification pipeline (node sync, notifications). "
+        "Idempotent: services that are not currently attached are reported in "
+        "`not_attached_service_ids` but do not fail the call."
+    ),
+    requires_confirmation=True,
+)
+async def remove_services_from_user(
+    db: Session, username: str, service_ids: list = []
+) -> dict:
+    from app.db import crud
+    from app.models.user import UserModify
+    from app.models.admin import Admin as AdminModel
+    from app.services import user_service
+    from app.db.models.core import Admin
+
+    if not service_ids:
+        return {"error": "service_ids must be a non-empty list of integers"}
+    try:
+        drop_ids = {int(s) for s in service_ids}
+    except (TypeError, ValueError):
+        return {"error": "service_ids must contain integers only"}
+
+    db_user = crud.get_user(db, username)
+    if not db_user:
+        return {"error": f"User '{username}' not found"}
+
+    current = {s.id for s in (db_user.services or [])}
+    removed = sorted(current & drop_ids)
+    not_attached = sorted(drop_ids - current)
+    if not removed:
+        return {
+            "success": True,
+            "user": username,
+            "removed_service_ids": [],
+            "not_attached_service_ids": not_attached,
+            "final_service_ids": sorted(current),
+        }
+
+    sudo = db.query(Admin).filter(Admin.is_sudo == True).first()  # noqa: E712
+    if not sudo:
+        return {"error": "No sudo admin found"}
+    admin_model = AdminModel.model_validate(sudo)
+
+    final = sorted(current - drop_ids)
+    try:
+        mod = UserModify(username=username, service_ids=final)
+        db_user = user_service.modify_user(db, db_user, mod, admin_model)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {
+        "success": True,
+        "user": username,
+        "removed_service_ids": removed,
+        "not_attached_service_ids": not_attached,
+        "final_service_ids": [s.id for s in (db_user.services or [])],
+    }
+
+
+@register_tool(
     name="reset_user_data",
     description="Reset traffic usage for a user back to zero. May reactivate the user if they were data-limited.",
     requires_confirmation=True,
