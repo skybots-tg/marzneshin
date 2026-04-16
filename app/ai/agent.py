@@ -54,6 +54,20 @@ Guidelines:
   what you did and what the user should know. Never end a turn with only tool calls.
 - Respond in the same language the user writes in.
 
+Parallelism — batch independent read-only calls in a single turn:
+- When you need several pieces of information that don't depend on each
+  other (e.g. `get_node_info` for three different nodes, or `count_users`
+  + `count_hosts` + `get_system_info` for an overview), emit ALL of those
+  tool calls at once in the same assistant turn instead of firing one,
+  waiting for the result, then firing the next. The runtime executes
+  parallel calls concurrently — same information, a fraction of the
+  latency, and it also keeps you well below the per-turn budget.
+- Only serialise calls when the next call genuinely depends on the
+  previous one's output (e.g. you need the `node_id` from
+  `list_nodes` before you can ask `get_node_logs`).
+- This does NOT apply to write tools — those go one at a time so each
+  one hits its own approval modal and the admin keeps line-item control.
+
 Approvals and confirmations — trust the UI, do NOT re-ask in chat:
 - EVERY tool marked `[REQUIRES CONFIRMATION]` in the list above is already
   gated by a mandatory Approve/Deny modal in the admin's dashboard. The
@@ -434,6 +448,8 @@ def build_agent(
     model = OpenAIResponsesModel(model=model_name, openai_client=client)
 
     if is_reasoning_model(model_name):
+        # Reasoning-модели (o1/o3/o4/gpt-5) не поддерживают parallel_tool_calls —
+        # явно не выставляем, остаётся последовательный вызов.
         model_settings = ModelSettings(
             max_tokens=max_tokens,
             reasoning={"effort": reasoning_effort},
@@ -442,6 +458,7 @@ def build_agent(
         model_settings = ModelSettings(
             max_tokens=max_tokens,
             temperature=temperature,
+            parallel_tool_calls=True,
         )
 
     return Agent(

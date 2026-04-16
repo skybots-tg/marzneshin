@@ -42,7 +42,7 @@ from app.models.settings import AISettings, AISettingsResponse
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["AI Assistant"])
 
-MAX_TURNS = 20
+MAX_TURNS = 50
 
 
 def _get_ai_settings(db: Session) -> AISettings:
