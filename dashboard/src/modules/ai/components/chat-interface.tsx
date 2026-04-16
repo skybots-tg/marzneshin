@@ -9,6 +9,8 @@ import { streamChat, confirmAction } from '../api/chat-stream'
 import { ModelSelector } from './model-selector'
 import { MessageBubble } from './message-bubble'
 import { ConfirmationDialog } from './confirmation-dialog'
+import { SSHUnlockDialog } from './ssh-unlock-dialog'
+import { fetchSSHStatus } from '../api/ssh'
 import type {
     ChatMessage,
     ChatPersistenceSnapshot,
@@ -53,6 +55,12 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
     const [pending, setPending] = useState<PendingConfirmation | null>(null)
     const [confirmLoading, setConfirmLoading] = useState(false)
     const [autoApprove, setAutoApprove] = useState(false)
+    const [sshPrompt, setSSHPrompt] = useState<{
+        sessionId: string
+        nodeId: number | null
+        toolName: string
+        toolArgs: Record<string, unknown>
+    } | null>(null)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const abortRef = useRef<AbortController | null>(null)
@@ -181,6 +189,44 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                     ),
                 )
                 setIsStreaming(false)
+
+                // For SSH tools we first check whether the chat session is
+                // already unlocked. If not, pop the SSH credentials / PIN
+                // dialog instead of the normal confirmation — unlocking
+                // with PIN is the admin's explicit approval.
+                if (data.tool_name === 'ssh_run_command') {
+                    const rawNodeId = (data.tool_args as Record<string, unknown>)?.node_id
+                    const nodeId =
+                        typeof rawNodeId === 'number'
+                            ? rawNodeId
+                            : typeof rawNodeId === 'string'
+                              ? Number(rawNodeId)
+                              : null
+                    fetchSSHStatus(
+                        data.session_id,
+                        nodeId != null && !Number.isNaN(nodeId) ? nodeId : undefined,
+                    )
+                        .then((status) => {
+                            if (status.session_unlocked) {
+                                setPending(data)
+                            } else {
+                                setSSHPrompt({
+                                    sessionId: data.session_id,
+                                    nodeId: nodeId != null && !Number.isNaN(nodeId) ? nodeId : null,
+                                    toolName: data.tool_name,
+                                    toolArgs: data.tool_args,
+                                })
+                            }
+                        })
+                        .catch(() => {
+                            // On status fetch failure, fall through to the
+                            // normal confirmation dialog — the backend will
+                            // still reject the action if SSH is locked.
+                            setPending(data)
+                        })
+                    return
+                }
+
                 // In auto-approve mode we skip the dialog and let the
                 // useEffect below trigger the continuation.
                 setPending(data)
@@ -315,6 +361,34 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         }
     }, [pending, handleConfirm])
 
+    const handleSSHUnlocked = useCallback(() => {
+        const prompt = sshPrompt
+        setSSHPrompt(null)
+        if (!prompt) return
+        // The admin has provided the PIN — treat that as approval and
+        // push the held pending confirmation through as "approve".
+        setPending({
+            session_id: prompt.sessionId,
+            tool_name: prompt.toolName,
+            tool_args: prompt.toolArgs,
+        })
+        // Defer the confirm call so React first updates `pending` state.
+        queueMicrotask(() => handleConfirm('approve'))
+    }, [sshPrompt, handleConfirm])
+
+    const handleSSHCancel = useCallback(() => {
+        const prompt = sshPrompt
+        setSSHPrompt(null)
+        if (!prompt) return
+        // Reject the held confirmation so the agent gets feedback.
+        setPending({
+            session_id: prompt.sessionId,
+            tool_name: prompt.toolName,
+            tool_args: prompt.toolArgs,
+        })
+        queueMicrotask(() => handleConfirm('reject'))
+    }, [sshPrompt, handleConfirm])
+
     const handleApproveAll = useCallback(() => {
         autoApproveRef.current = true
         setAutoApprove(true)
@@ -338,6 +412,7 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         setApiMessages([])
         setSessionId(null)
         setPending(null)
+        setSSHPrompt(null)
         autoApproveRef.current = false
         setAutoApprove(false)
         assistantIdRef.current = 0
@@ -436,6 +511,15 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 onApproveAll={handleApproveAll}
                 onReject={() => handleConfirm('reject')}
                 loading={confirmLoading}
+            />
+
+            <SSHUnlockDialog
+                open={sshPrompt !== null}
+                sessionId={sshPrompt?.sessionId ?? null}
+                nodeId={sshPrompt?.nodeId ?? null}
+                toolName={sshPrompt?.toolName ?? ''}
+                onUnlocked={handleSSHUnlocked}
+                onCancel={handleSSHCancel}
             />
         </div>
     )

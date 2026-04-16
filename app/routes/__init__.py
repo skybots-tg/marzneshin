@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import admin, node, node_update, node_migrate, node_filtering, service, inbounds, subscription, system, user, device, ai
+from . import admin, node, node_update, node_migrate, node_filtering, service, inbounds, subscription, system, user, device, ai, ai_ssh
 
 api_router = APIRouter()
 
@@ -17,5 +17,6 @@ api_router.include_router(system.router, prefix="/api")
 api_router.include_router(user.router, prefix="/api")
 api_router.include_router(device.router, prefix="/api")
 api_router.include_router(ai.router, prefix="/api")
+api_router.include_router(ai_ssh.router, prefix="/api")
 
 __all__ = ["api_router"]
