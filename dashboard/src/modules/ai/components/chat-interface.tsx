@@ -217,7 +217,10 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 // already unlocked. If not, pop the SSH credentials / PIN
                 // dialog instead of the normal confirmation — unlocking
                 // with PIN is the admin's explicit approval.
-                if (data.tool_name === 'ssh_run_command') {
+                if (
+                    data.tool_name === 'ssh_run_command'
+                    || data.tool_name === 'ssh_run_batch'
+                ) {
                     const rawNodeId = (data.tool_args as Record<string, unknown>)?.node_id
                     const nodeId =
                         typeof rawNodeId === 'number'
