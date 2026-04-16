@@ -23,6 +23,7 @@ class Backend(BaseModel):
     backend_type: str
     version: str | None
     running: bool
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NodeStatus(StrEnum):
