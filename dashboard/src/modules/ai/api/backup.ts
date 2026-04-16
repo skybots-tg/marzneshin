@@ -121,7 +121,7 @@ const deriveBackupFilename = (job: BackupJob | null | undefined): string => {
 // attach the bearer token manually — same convention as `fetcher`.
 export const downloadBackupJobArtefact = async (job: BackupJob): Promise<void> => {
     const token = useAuth.getState().getAuthToken()
-    const blob = await $fetch<Blob>(`/ai/backup/jobs/${job.id}/download`, {
+    const blob = await $fetch<Blob, 'blob'>(`/ai/backup/jobs/${job.id}/download`, {
         responseType: 'blob',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
