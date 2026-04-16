@@ -8,7 +8,7 @@ jdatetime==4.1.1
 Jinja2==3.1.4
 passlib==1.7.4
 protobuf==4.25.2
-pydantic==2.10
+pydantic==2.12.5
 pydantic-settings==2.12.0
 PyMySQL==1.1.1
 python-decouple==3.8
@@ -16,7 +16,7 @@ python-dotenv==1.0.0
 requests==2.32.2
 SQLAlchemy==2.0.37
 typer==0.19.2
-websockets==12.0
+websockets==15.0.1
 PyYAML==6.0.1
 aiohttp==3.11.11
 xxhash==3.4.1
@@ -31,7 +31,7 @@ uvicorn==0.30.4
 rich==13.7.1
 python-multipart==0.0.20
 httptools==0.6.4
-aiogram==3.17.0
+aiogram==3.27.0
 bcrypt==4.2.1
 aiohttp-socks==0.10.1
 paramiko==3.4.0
