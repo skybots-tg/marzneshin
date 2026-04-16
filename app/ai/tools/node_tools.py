@@ -108,25 +108,6 @@ async def get_node_stats(db: Session, node_id: int, backend: str = "xray") -> di
 
 
 @register_tool(
-    name="get_node_filtering",
-    description="Get filtering/adblock settings for a specific node",
-    requires_confirmation=False,
-)
-async def get_node_filtering(db: Session, node_id: int) -> dict:
-    from app.db import crud
-    config = crud.get_filtering_config(db, node_id)
-    if not config:
-        return {"node_id": node_id, "configured": False}
-    return {
-        "node_id": node_id,
-        "configured": True,
-        "adblock_enabled": config.adblock_enabled,
-        "adguard_installed": config.adguard_installed,
-        "dns_provider": str(config.dns_provider) if config.dns_provider else None,
-    }
-
-
-@register_tool(
     name="update_node_config",
     description="Update the backend config (e.g. Xray JSON) on a node and restart the backend. This is a dangerous operation.",
     requires_confirmation=True,

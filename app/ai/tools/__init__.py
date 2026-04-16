@@ -9,4 +9,5 @@ from . import (  # noqa: F401
     device_tools,
     admin_tools,
     ssh_tools,
+    filtering_tools,
 )

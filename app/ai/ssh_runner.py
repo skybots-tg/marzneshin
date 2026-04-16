@@ -230,6 +230,68 @@ def decrypt_node_credentials(creds_row, pin: str) -> dict:
         raise PermissionError("Invalid PIN — credential decryption failed")
 
 
+def upload_and_run_script(
+    host: str,
+    creds: dict,
+    script_text: str,
+    remote_path: str,
+    args: str = "",
+    timeout: int = DEFAULT_TIMEOUT_SEC,
+) -> SSHCommandResult:
+    """Upload a bash script via SFTP and execute it once.
+
+    Used by higher-level tools (e.g. AdGuard Home install) that need to
+    ship a multi-line script to the node without squeezing it through
+    the command-line length limit. The script is uploaded to
+    `remote_path`, chmod'd to 0755, then executed with `bash`.
+    The single connection handles both the upload and the exec.
+    """
+    timeout = max(1, min(int(timeout or DEFAULT_TIMEOUT_SEC), MAX_TIMEOUT_SEC))
+    user = creds.get("ssh_user") or "root"
+
+    started = time.monotonic()
+    client: Optional[paramiko.SSHClient] = None
+    try:
+        client = _open_ssh(host, creds, timeout)
+        sftp = client.open_sftp()
+        try:
+            payload = io.BytesIO(script_text.encode("utf-8"))
+            sftp.putfo(payload, remote_path)
+            sftp.chmod(remote_path, 0o755)
+        finally:
+            sftp.close()
+
+        command = f"bash {remote_path}"
+        if args:
+            command = f"{command} {args}"
+
+        exit_code, stdout, stderr, truncated = _exec_with_caps(
+            client, command, timeout
+        )
+    except paramiko.AuthenticationException as exc:
+        raise PermissionError(f"SSH authentication failed: {exc}")
+    except (paramiko.SSHException, OSError) as exc:
+        raise RuntimeError(f"SSH connection error: {exc}")
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    return SSHCommandResult(
+        success=(exit_code == 0),
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        truncated=truncated,
+        elapsed_ms=elapsed_ms,
+        host=host,
+        user=user,
+    )
+
+
 def run_command_with_creds(
     host: str,
     creds: dict,
