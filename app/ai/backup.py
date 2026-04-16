@@ -6,8 +6,11 @@ directory and are retained for `BACKUP_RETENTION_DAYS` days.
 
 Supported dialects:
     - SQLite: uses the sqlite3 online backup API (safe for live DBs).
-    - MySQL / MariaDB: shells out to `mysqldump`.
-    - PostgreSQL: shells out to `pg_dump`.
+    - MySQL / MariaDB: shells out to `mysqldump` / `mariadb-dump`.
+      If the tool is missing on the host, falls back to `docker exec`
+      into the DB container (override the container name via
+      `$MARZNESHIN_DB_CONTAINER`, defaults include `marzneshin-db-1`).
+    - PostgreSQL: shells out to `pg_dump`, with the same docker fallback.
 
 If the dialect is unsupported or the required CLI tool is missing,
 the caller receives a clear error message and the AI agent is
@@ -133,62 +136,204 @@ def _run_subprocess_dump(cmd: list[str], dest: str, env: Optional[dict] = None) 
             raise RuntimeError(f"Dump command failed: {stderr or exc}") from exc
 
 
-def _backup_mysql(db_url: str) -> BackupInfo:
-    if not shutil.which("mysqldump"):
-        raise RuntimeError("mysqldump is not installed on this host")
+def _container_running(name: str) -> bool:
+    try:
+        res = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", name],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return (
+        res.returncode == 0
+        and res.stdout.decode("utf-8", errors="replace").strip() == "true"
+    )
 
+
+def _find_db_container(url_host: Optional[str]) -> Optional[str]:
+    """Find a running Docker container that hosts the DB.
+
+    Priority:
+        1. $MARZNESHIN_DB_CONTAINER override.
+        2. Hostname from SQLALCHEMY_DATABASE_URL (docker-compose services
+           are addressable by their service name / container name).
+        3. Conventional Marzneshin container names.
+    """
+    if not shutil.which("docker"):
+        return None
+
+    override = os.environ.get("MARZNESHIN_DB_CONTAINER", "").strip()
+    if override:
+        return override if _container_running(override) else None
+
+    candidates: list[str] = []
+    if url_host and url_host not in ("localhost", "127.0.0.1", "::1", ""):
+        candidates.append(url_host)
+    candidates += [
+        "marzneshin-db-1",
+        "marzneshin-mariadb-1",
+        "marzneshin-mysql-1",
+        "marzneshin-postgres-1",
+        "marzneshin_db_1",
+    ]
+
+    seen = set()
+    for name in candidates:
+        if name in seen:
+            continue
+        seen.add(name)
+        if _container_running(name):
+            return name
+    return None
+
+
+def _which_in_container(container: str, binary: str) -> bool:
+    try:
+        res = subprocess.run(
+            ["docker", "exec", container, "sh", "-c", f"command -v {binary}"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return res.returncode == 0 and bool(res.stdout.strip())
+
+
+def _first_binary_in_container(
+    container: str, binaries: tuple[str, ...]
+) -> Optional[str]:
+    for b in binaries:
+        if _which_in_container(container, b):
+            return b
+    return None
+
+
+def _backup_mysql(db_url: str) -> BackupInfo:
     url = make_url(db_url)
     dest = _build_backup_path("sql")
-    cmd = ["mysqldump", "--single-transaction", "--quick", "--routines", "--triggers"]
-    if url.host:
-        cmd += ["-h", url.host]
-    if url.port:
-        cmd += ["-P", str(url.port)]
-    if url.username:
-        cmd += ["-u", url.username]
+    database = url.database or ""
+    dump_args = ["--single-transaction", "--quick", "--routines", "--triggers"]
 
-    env = os.environ.copy()
-    if url.password:
-        # Password via env to keep it out of `ps` / audit logs.
-        env["MYSQL_PWD"] = str(url.password)
+    # Strategy 1: local dump tool
+    local_bin = None
+    for candidate in ("mariadb-dump", "mysqldump"):
+        if shutil.which(candidate):
+            local_bin = candidate
+            break
 
-    cmd.append(url.database or "")
+    if local_bin:
+        cmd = [local_bin, *dump_args]
+        if url.host:
+            cmd += ["-h", url.host]
+        if url.port:
+            cmd += ["-P", str(url.port)]
+        if url.username:
+            cmd += ["-u", url.username]
+        cmd.append(database)
 
-    _run_subprocess_dump(cmd, dest, env=env)
-    return BackupInfo(
-        path=dest,
-        size_bytes=os.path.getsize(dest),
-        dialect="mysql",
-        created_at=time.time(),
+        env = os.environ.copy()
+        if url.password:
+            env["MYSQL_PWD"] = str(url.password)
+
+        _run_subprocess_dump(cmd, dest, env=env)
+        return BackupInfo(
+            path=dest,
+            size_bytes=os.path.getsize(dest),
+            dialect="mysql",
+            created_at=time.time(),
+        )
+
+    # Strategy 2: docker exec into the DB container
+    container = _find_db_container(url.host)
+    if container:
+        binary = _first_binary_in_container(container, ("mariadb-dump", "mysqldump"))
+        if binary:
+            cmd = ["docker", "exec"]
+            if url.password:
+                # Pass the password into the container env only, so it
+                # doesn't show up in `ps` / host audit logs.
+                cmd += ["-e", f"MYSQL_PWD={url.password}"]
+            cmd += [container, binary, *dump_args]
+            # Inside the container the DB is on localhost, so we don't
+            # pass -h/-P — that avoids DNS / port confusion when the
+            # URL host is actually the container's own name.
+            if url.username:
+                cmd += ["-u", url.username]
+            cmd.append(database)
+
+            _run_subprocess_dump(cmd, dest)
+            return BackupInfo(
+                path=dest,
+                size_bytes=os.path.getsize(dest),
+                dialect="mysql",
+                created_at=time.time(),
+            )
+
+    raise RuntimeError(
+        "Neither mysqldump/mariadb-dump was found on the host, nor could "
+        "a running MariaDB/MySQL Docker container be located "
+        "(tried $MARZNESHIN_DB_CONTAINER, the URL hostname, and default "
+        "marzneshin-db-1 / marzneshin-mariadb-1 names). "
+        "Install mysqldump on the host or expose a DB container."
     )
 
 
 def _backup_postgres(db_url: str) -> BackupInfo:
-    if not shutil.which("pg_dump"):
-        raise RuntimeError("pg_dump is not installed on this host")
-
     url = make_url(db_url)
     dest = _build_backup_path("sql")
-    cmd = ["pg_dump", "--format=plain", "--no-owner", "--no-acl"]
-    if url.host:
-        cmd += ["-h", url.host]
-    if url.port:
-        cmd += ["-p", str(url.port)]
-    if url.username:
-        cmd += ["-U", url.username]
-    if url.database:
-        cmd += ["-d", url.database]
+    dump_args = ["--format=plain", "--no-owner", "--no-acl"]
 
-    env = os.environ.copy()
-    if url.password:
-        env["PGPASSWORD"] = str(url.password)
+    if shutil.which("pg_dump"):
+        cmd = ["pg_dump", *dump_args]
+        if url.host:
+            cmd += ["-h", url.host]
+        if url.port:
+            cmd += ["-p", str(url.port)]
+        if url.username:
+            cmd += ["-U", url.username]
+        if url.database:
+            cmd += ["-d", url.database]
 
-    _run_subprocess_dump(cmd, dest, env=env)
-    return BackupInfo(
-        path=dest,
-        size_bytes=os.path.getsize(dest),
-        dialect="postgresql",
-        created_at=time.time(),
+        env = os.environ.copy()
+        if url.password:
+            env["PGPASSWORD"] = str(url.password)
+
+        _run_subprocess_dump(cmd, dest, env=env)
+        return BackupInfo(
+            path=dest,
+            size_bytes=os.path.getsize(dest),
+            dialect="postgresql",
+            created_at=time.time(),
+        )
+
+    container = _find_db_container(url.host)
+    if container and _which_in_container(container, "pg_dump"):
+        cmd = ["docker", "exec"]
+        if url.password:
+            cmd += ["-e", f"PGPASSWORD={url.password}"]
+        cmd += [container, "pg_dump", *dump_args]
+        if url.username:
+            cmd += ["-U", url.username]
+        if url.database:
+            cmd += ["-d", url.database]
+
+        _run_subprocess_dump(cmd, dest)
+        return BackupInfo(
+            path=dest,
+            size_bytes=os.path.getsize(dest),
+            dialect="postgresql",
+            created_at=time.time(),
+        )
+
+    raise RuntimeError(
+        "Neither pg_dump was found on the host, nor could a running "
+        "PostgreSQL Docker container be located "
+        "(tried $MARZNESHIN_DB_CONTAINER, the URL hostname, and default "
+        "marzneshin-postgres-1 name). "
+        "Install pg_dump on the host or expose a DB container."
     )
 
 
