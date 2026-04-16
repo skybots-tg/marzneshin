@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 
 ########################
 # 1) Frontend build
@@ -7,17 +7,27 @@ FROM node:20-slim AS frontend-build
 WORKDIR /app
 
 # Нужны для твоих make-таргетов (и если есть зависимости из git)
-RUN apt-get update \
- && apt-get install -y --no-install-recommends make git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+ && apt-get install -y --no-install-recommends make git ca-certificates
 
 # pnpm без глобальной установки
 RUN corepack enable
 
-# В идеале: отдельно копировать только dashboard + lock, но чтобы не сломать твои make-таргеты — оставляю как было
+# Сначала только манифесты — чтобы слой с pnpm install кешировался,
+# пока не меняются package.json / pnpm-lock.yaml.
+COPY Makefile /app/Makefile
+COPY dashboard/package.json dashboard/pnpm-lock.yaml /app/dashboard/
+
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
+    make dashboard-deps
+
+# Теперь исходники и сборка.
+# node_modules исключён через .dockerignore, поэтому COPY не затрёт зависимости.
 COPY . .
 
-RUN make dashboard-deps && make dashboard-build
+RUN make dashboard-build
 
 
 ########################
@@ -26,18 +36,22 @@ RUN make dashboard-deps && make dashboard-build
 FROM python:3.12-slim AS backend-build
 WORKDIR /build
 
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Тут компиляторы и dev-заголовки — только для сборки wheels
-RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc g++ python3-dev git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+ && apt-get install -y --no-install-recommends gcc g++ python3-dev git ca-certificates
 
 COPY requirements.txt /build/requirements.txt
 
-RUN python -m pip install --upgrade pip setuptools wheel \
- && pip wheel --wheel-dir=/wheels -r /build/requirements.txt
+# --prefer-binary: для пакетов вроде grpcio/psycopg-binary/cryptography/aiohttp
+#   берутся готовые wheels с PyPI вместо компиляции из исходников.
+# BuildKit cache mount: повторные сборки не качают пакеты заново.
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    python -m pip install --upgrade pip setuptools wheel \
+ && pip wheel --wheel-dir=/wheels --prefer-binary -r /build/requirements.txt
 
 
 ########################
@@ -51,9 +65,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 # make нужен, потому что у тебя CMD ["make","start"]
-RUN apt-get update \
- && apt-get install -y --no-install-recommends make ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+ && apt-get install -y --no-install-recommends make ca-certificates
 
 # Ставим зависимости ТОЛЬКО из wheels, без скачиваний/сборок в runtime
 COPY --from=backend-build /wheels /wheels
