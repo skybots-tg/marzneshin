@@ -10,6 +10,9 @@ Supported dialects:
       If the tool is missing on the host, falls back to `docker exec`
       into the DB container (override the container name via
       `$MARZNESHIN_DB_CONTAINER`, defaults include `marzneshin-db-1`).
+      As the last resort, produces a pure-Python SQL dump through the
+      same PyMySQL connection the panel already uses — this always
+      works while the DB itself is reachable.
     - PostgreSQL: shells out to `pg_dump`, with the same docker fallback.
 
 If the dialect is unsupported or the required CLI tool is missing,
@@ -18,6 +21,7 @@ expected to abort the write operation.
 """
 from __future__ import annotations
 
+import decimal
 import logging
 import os
 import shutil
@@ -27,7 +31,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -211,6 +215,154 @@ def _first_binary_in_container(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Pure-Python MySQL / MariaDB dump (last-resort fallback).
+#
+# This path uses the same SQLAlchemy/PyMySQL connection the panel already
+# relies on. It has zero external dependencies and works inside a
+# containerised panel that has no access to docker.sock. The trade-offs:
+#   - schema-only: base tables. Views, stored routines, triggers and events
+#     are NOT included (rare in Marzneshin, and mysqldump is still preferred
+#     when available);
+#   - the output is deterministic, mysqldump-compatible SQL that can be
+#     restored with `mysql -u … db < dump.sql`.
+# ---------------------------------------------------------------------------
+
+
+_INSERT_BATCH_SIZE = 500
+
+
+def _format_mysql_value(v) -> str:
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "1" if v else "0"
+    if isinstance(v, (int, float, decimal.Decimal)):
+        return str(v)
+    if isinstance(v, datetime):
+        return "'" + v.strftime("%Y-%m-%d %H:%M:%S") + "'"
+    if isinstance(v, date):
+        return "'" + v.strftime("%Y-%m-%d") + "'"
+    if isinstance(v, dt_time):
+        return "'" + v.strftime("%H:%M:%S") + "'"
+    if isinstance(v, timedelta):
+        total = int(v.total_seconds())
+        hours, rem = divmod(total, 3600)
+        minutes, seconds = divmod(rem, 60)
+        return f"'{hours:02d}:{minutes:02d}:{seconds:02d}'"
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        raw = bytes(v)
+        return "0x" + raw.hex() if raw else "''"
+    s = str(v)
+    escaped = (
+        s.replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\0", "\\0")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\x1a", "\\Z")
+    )
+    return "'" + escaped + "'"
+
+
+def _format_mysql_row(row) -> str:
+    return "(" + ",".join(_format_mysql_value(v) for v in row) + ")"
+
+
+def _backup_mysql_via_sqlalchemy(db_url: str) -> BackupInfo:
+    from sqlalchemy import create_engine, text
+
+    url = make_url(db_url)
+    dest = _build_backup_path("sql")
+    database = url.database or ""
+
+    engine = create_engine(db_url, future=True, pool_pre_ping=True)
+    try:
+        with engine.connect() as conn, open(
+            dest, "w", encoding="utf-8", newline="\n"
+        ) as f:
+            f.write("-- Marzneshin AI backup (pure-Python via SQLAlchemy)\n")
+            f.write(
+                f"-- Generated at: {datetime.now(timezone.utc).isoformat()}\n"
+            )
+            f.write(f"-- Database: {database}\n")
+            f.write("-- NOTE: schema-only base tables + data. Views, routines,\n")
+            f.write("--       triggers and events are NOT included.\n\n")
+            f.write("SET NAMES utf8mb4;\n")
+            f.write("SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, "
+                    "FOREIGN_KEY_CHECKS=0;\n")
+            f.write("SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0;\n")
+            f.write("SET @OLD_SQL_MODE=@@SQL_MODE, "
+                    "SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n\n")
+
+            tables_rs = conn.execute(
+                text("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")
+            )
+            tables = [row[0] for row in tables_rs]
+
+            for table in tables:
+                tn = table.replace("`", "``")
+                f.write(f"-- ----------------------------------------\n")
+                f.write(f"-- Table: `{tn}`\n")
+                f.write(f"-- ----------------------------------------\n")
+                f.write(f"DROP TABLE IF EXISTS `{tn}`;\n")
+
+                create_row = conn.execute(
+                    text(f"SHOW CREATE TABLE `{tn}`")
+                ).fetchone()
+                if create_row is None:
+                    continue
+                create_sql = create_row[1]
+                f.write(create_sql + ";\n\n")
+
+                select_rs = conn.execution_options(
+                    stream_results=True, yield_per=_INSERT_BATCH_SIZE
+                ).execute(text(f"SELECT * FROM `{tn}`"))
+                columns = list(select_rs.keys())
+                col_list = ",".join(
+                    f"`{c.replace('`', '``')}`" for c in columns
+                )
+
+                batch: list = []
+                wrote_any = False
+                for row in select_rs:
+                    batch.append(row)
+                    if len(batch) >= _INSERT_BATCH_SIZE:
+                        values_sql = ",\n".join(
+                            _format_mysql_row(r) for r in batch
+                        )
+                        f.write(
+                            f"INSERT INTO `{tn}` ({col_list}) VALUES\n"
+                            f"{values_sql};\n"
+                        )
+                        batch.clear()
+                        wrote_any = True
+                if batch:
+                    values_sql = ",\n".join(
+                        _format_mysql_row(r) for r in batch
+                    )
+                    f.write(
+                        f"INSERT INTO `{tn}` ({col_list}) VALUES\n"
+                        f"{values_sql};\n"
+                    )
+                    wrote_any = True
+                if wrote_any:
+                    f.write("\n")
+
+            f.write("SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;\n")
+            f.write("SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;\n")
+            f.write("SET SQL_MODE=@OLD_SQL_MODE;\n")
+    finally:
+        engine.dispose()
+
+    return BackupInfo(
+        path=dest,
+        size_bytes=os.path.getsize(dest),
+        dialect="mysql",
+        created_at=time.time(),
+    )
+
+
 def _backup_mysql(db_url: str) -> BackupInfo:
     url = make_url(db_url)
     dest = _build_backup_path("sql")
@@ -272,13 +424,20 @@ def _backup_mysql(db_url: str) -> BackupInfo:
                 created_at=time.time(),
             )
 
-    raise RuntimeError(
-        "Neither mysqldump/mariadb-dump was found on the host, nor could "
-        "a running MariaDB/MySQL Docker container be located "
-        "(tried $MARZNESHIN_DB_CONTAINER, the URL hostname, and default "
-        "marzneshin-db-1 / marzneshin-mariadb-1 names). "
-        "Install mysqldump on the host or expose a DB container."
-    )
+    # Strategy 3: pure-Python dump via the existing SQLAlchemy/PyMySQL link.
+    # This is the last-resort path that works in any environment as long as
+    # the DB itself is reachable (it is — the panel wouldn't be running
+    # otherwise).
+    try:
+        return _backup_mysql_via_sqlalchemy(db_url)
+    except Exception as exc:
+        raise RuntimeError(
+            "MySQL/MariaDB backup failed: no mysqldump/mariadb-dump on the "
+            "host, no reachable DB container for docker exec "
+            "(tried $MARZNESHIN_DB_CONTAINER, URL host, marzneshin-db-1, "
+            "marzneshin-mariadb-1), and the pure-Python fallback also "
+            f"failed: {exc}"
+        ) from exc
 
 
 def _backup_postgres(db_url: str) -> BackupInfo:
