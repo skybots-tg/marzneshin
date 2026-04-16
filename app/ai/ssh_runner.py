@@ -292,6 +292,89 @@ def upload_and_run_script(
     )
 
 
+def run_commands_with_creds(
+    host: str,
+    creds: dict,
+    commands: list[str],
+    timeout: int = DEFAULT_TIMEOUT_SEC,
+    stop_on_error: bool = False,
+) -> list[SSHCommandResult]:
+    """Run multiple commands sequentially over a SINGLE SSH connection.
+
+    Each command is executed in its own channel so that exit codes and
+    stdout/stderr stay cleanly separated. The connection (auth + TCP +
+    TLS handshake) is amortised across the whole batch, which is what
+    the AI batch tool optimises — running 8 diagnostic commands one at
+    a time was taking ~8x the network round-trip time.
+
+    When `stop_on_error=True` the loop stops at the first non-zero exit
+    code (still returns partial results). Otherwise every command is
+    attempted and its result is appended. A per-command timeout applies;
+    a TimeoutError aborts only the offending command (marked with
+    exit_code=-1, success=False) and the loop continues unless
+    `stop_on_error` is set.
+    """
+    timeout = max(1, min(int(timeout or DEFAULT_TIMEOUT_SEC), MAX_TIMEOUT_SEC))
+    user = creds.get("ssh_user") or "root"
+    if not commands:
+        return []
+
+    results: list[SSHCommandResult] = []
+    client: Optional[paramiko.SSHClient] = None
+    try:
+        client = _open_ssh(host, creds, timeout)
+        for cmd in commands:
+            started = time.monotonic()
+            try:
+                exit_code, stdout, stderr, truncated = _exec_with_caps(
+                    client, cmd, timeout
+                )
+            except TimeoutError as exc:
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                results.append(
+                    SSHCommandResult(
+                        success=False,
+                        exit_code=-1,
+                        stdout="",
+                        stderr=str(exc),
+                        truncated=False,
+                        elapsed_ms=elapsed_ms,
+                        host=host,
+                        user=user,
+                    )
+                )
+                if stop_on_error:
+                    break
+                continue
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            results.append(
+                SSHCommandResult(
+                    success=(exit_code == 0),
+                    exit_code=exit_code,
+                    stdout=stdout,
+                    stderr=stderr,
+                    truncated=truncated,
+                    elapsed_ms=elapsed_ms,
+                    host=host,
+                    user=user,
+                )
+            )
+            if stop_on_error and exit_code != 0:
+                break
+    except paramiko.AuthenticationException as exc:
+        raise PermissionError(f"SSH authentication failed: {exc}")
+    except (paramiko.SSHException, OSError) as exc:
+        raise RuntimeError(f"SSH connection error: {exc}")
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    return results
+
+
 def run_command_with_creds(
     host: str,
     creds: dict,

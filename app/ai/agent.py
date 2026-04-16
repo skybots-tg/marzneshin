@@ -98,9 +98,17 @@ Remote SSH access to nodes:
     * `ssh_check_access(node_id)` — read-only; tells you if SSH is
       usable (PIN configured, credentials saved, session unlocked).
       ALWAYS call this first before `ssh_run_command`.
-    * `ssh_run_command(node_id, command)` — runs a shell command on the
-      node and returns stdout/stderr/exit_code. Subject to confirmation
-      and to the 64KiB output cap / 60s timeout.
+    * `ssh_run_command(node_id, command)` — runs ONE shell command on
+      the node and returns stdout/stderr/exit_code. Subject to
+      confirmation and to the 64KiB output cap / 60s timeout.
+    * `ssh_run_batch(node_id, commands, stop_on_error?)` — runs UP TO
+      20 commands in a single SSH connection and a single confirmation
+      dialog. `commands` is either a list of strings or a list of
+      {{name, command}} objects (the `name` is echoed back so you can
+      correlate results easily). Returns a per-command result array
+      with exit_code/stdout/stderr/elapsed_ms each. Prefer this tool
+      over calling `ssh_run_command` repeatedly — same work, one
+      handshake, one admin approval, much less latency.
 - If `ssh_check_access` reports `ssh_ready=false`, explain what is
   missing (PIN not configured, credentials not saved, or session not
   unlocked) and stop. Do NOT try to call `ssh_run_command` until the
@@ -123,6 +131,12 @@ Remote SSH access to nodes:
   `systemctl status marznode --no-pager`,
   `docker ps --filter name=marznode --format '{{.Status}}'`,
   `journalctl -u marznode --since '10 min ago' --no-pager | tail -n 80`.
+- Whenever you know upfront that you need several commands on the
+  same node (e.g. the Xray diagnostic checklist — binary check +
+  process status + listening ports + recent logs + docker state), use
+  `ssh_run_batch` with a list of {{name, command}} entries instead of
+  firing `ssh_run_command` repeatedly. One approval, one connection,
+  one result payload you can reason about in a single step.
 - NEVER run destructive commands (rm -rf, mkfs, disk dd, etc.) or any
   command the admin did not explicitly authorise. The tool will refuse
   obvious footguns, but do not rely on that — behave conservatively.
