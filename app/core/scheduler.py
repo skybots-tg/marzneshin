@@ -9,6 +9,7 @@ from app.core.settings import settings
 from app.tasks import (
     aggregate_old_usages,
     check_pool_health,
+    cleanup_ai_backups,
     record_user_usages,
     reset_user_data_usage,
     review_users,
@@ -59,6 +60,7 @@ _review_users = single_instance(review_users)
 _expire_days_reached = single_instance(expire_days_reached)
 _reset_user_data_usage = single_instance(reset_user_data_usage)
 _aggregate_old_usages = single_instance(aggregate_old_usages)
+_cleanup_ai_backups = single_instance(cleanup_ai_backups)
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -103,6 +105,14 @@ def create_scheduler() -> AsyncIOScheduler:
         _aggregate_old_usages,
         "cron",
         hour=3,
+        minute=0,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        _cleanup_ai_backups,
+        "cron",
+        hour=4,
         minute=0,
         coalesce=True,
         max_instances=1,

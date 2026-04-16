@@ -30,9 +30,39 @@ class PendingRun:
 
 _store: dict[str, PendingRun] = {}
 
+# Tracks whether the agent has already taken a safety backup for a
+# given chat session. Keyed by session id; the stored dict is the
+# backup metadata returned by `app.ai.backup.create_backup`.
+_session_backups: dict[str, dict] = {}
+_SESSION_BACKUP_TTL_SEC = 86400  # drop bookkeeping after 24h
+
 
 def create_session_id() -> str:
     return str(uuid.uuid4())
+
+
+def _cleanup_expired_backups() -> None:
+    now = time.time()
+    expired = [
+        sid for sid, info in _session_backups.items()
+        if now - float(info.get("_tracked_at", 0)) > _SESSION_BACKUP_TTL_SEC
+    ]
+    for sid in expired:
+        _session_backups.pop(sid, None)
+
+
+def get_session_backup(session_id: str) -> dict | None:
+    """Return backup metadata previously recorded for this session, if any."""
+    _cleanup_expired_backups()
+    return _session_backups.get(session_id)
+
+
+def set_session_backup(session_id: str, info: dict) -> None:
+    """Record that a safety backup has been taken for this session."""
+    _cleanup_expired_backups()
+    enriched = dict(info)
+    enriched["_tracked_at"] = time.time()
+    _session_backups[session_id] = enriched
 
 
 def _cleanup_expired() -> None:
