@@ -693,6 +693,74 @@
       "save-and-unlock": "Сохранить и выполнить",
       "cancel": "Отмена",
       "unlocked-toast": "SSH разблокирован для этой сессии"
+    },
+    "backup": {
+      "button": "Бэкап",
+      "button-tooltip": "Сделать бэкап БД",
+      "title": "Создать резервную копию",
+      "description": "Дамп базы Marzneshin. Бэкап делается в фоне, можно закрыть окно — прогресс сохранится.",
+      "mode-label": "Что бэкапим",
+      "mode": {
+        "full": {
+          "title": "Полный",
+          "description": "Вся база, включая всю историю трафика. Медленно, большой файл."
+        },
+        "light": {
+          "title": "Лёгкий (рекомендуется)",
+          "description": "Конфиги целиком + история трафика только за последние N дней."
+        },
+        "config": {
+          "title": "Только конфиги",
+          "description": "Пользователи, ноды, хосты, настройки. Исторические таблицы трафика пропускаются."
+        }
+      },
+      "history-label": "Глубина истории",
+      "history-days_one": "{{count}} день",
+      "history-days_few": "{{count}} дня",
+      "history-days_many": "{{count}} дней",
+      "history-days_other": "{{count}} дней",
+      "days": "дней",
+      "skip-tables-label": "Пропустить тяжёлые таблицы",
+      "skip-tables-hint": "Схема этих таблиц останется в дампе, но данные не попадут. Ускоряет бэкап ещё сильнее.",
+      "start": "Создать бэкап",
+      "cancel": "Отмена",
+      "stop": "Остановить",
+      "cancel-requested": "Запрошена отмена…",
+      "cancel-pending": "Отмена отправлена",
+      "hide": "Свернуть",
+      "close": "Закрыть",
+      "new-backup": "Новый бэкап",
+      "download": "Скачать дамп",
+      "failed": "Бэкап не удался",
+      "succeeded": "Готово",
+      "cancelled-note": "Бэкап отменён. Если файл уже был создан — вы найдёте его в /var/lib/marzneshin/ai_backups.",
+      "size-line": "Размер: {{size}}",
+      "strategy-line": "Стратегия: {{strategy}}",
+      "phase-line": "Этап: {{phase}}",
+      "table-line": "Таблица {{current}} из {{total}}: {{table}}",
+      "rows-line": "Строк записано: {{written}} / {{expected}}",
+      "status": {
+        "pending": "В очереди",
+        "running": "Выполняется",
+        "succeeded": "Готово",
+        "failed": "Ошибка",
+        "cancelled": "Отменено"
+      },
+      "phase": {
+        "queued": "в очереди",
+        "starting": "запуск",
+        "start": "подготовка",
+        "subprocess": "запуск дампера",
+        "schema": "схема таблицы",
+        "data": "загрузка данных",
+        "data_batch": "запись данных",
+        "data_done": "таблица готова",
+        "data_skipped": "таблица пропущена",
+        "finalising": "финализация",
+        "done": "готово",
+        "failed": "ошибка",
+        "cancelled": "отменено"
+      }
     }
   }
 }

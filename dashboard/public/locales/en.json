@@ -709,6 +709,72 @@
       "save-and-unlock": "Save and run",
       "cancel": "Cancel",
       "unlocked-toast": "SSH unlocked for this session"
+    },
+    "backup": {
+      "button": "Backup",
+      "button-tooltip": "Create a database backup",
+      "title": "Create database backup",
+      "description": "Marzneshin DB dump. The backup runs in the background — you can close this dialog, progress is preserved on the server.",
+      "mode-label": "What to back up",
+      "mode": {
+        "full": {
+          "title": "Full",
+          "description": "Entire database including all traffic history. Slow, large file."
+        },
+        "light": {
+          "title": "Light (recommended)",
+          "description": "Everything, but traffic history trimmed to the last N days."
+        },
+        "config": {
+          "title": "Config only",
+          "description": "Users, nodes, hosts, settings. Heavy traffic history tables are skipped."
+        }
+      },
+      "history-label": "History window",
+      "history-days_one": "{{count}} day",
+      "history-days_other": "{{count}} days",
+      "days": "days",
+      "skip-tables-label": "Skip heavy tables",
+      "skip-tables-hint": "Table schema stays in the dump, but no data rows. Speeds up the backup further.",
+      "start": "Create backup",
+      "cancel": "Cancel",
+      "stop": "Stop",
+      "cancel-requested": "Cancel requested…",
+      "cancel-pending": "Cancel requested",
+      "hide": "Hide",
+      "close": "Close",
+      "new-backup": "New backup",
+      "download": "Download dump",
+      "failed": "Backup failed",
+      "succeeded": "Done",
+      "cancelled-note": "Backup cancelled. If the file was already written it is available in /var/lib/marzneshin/ai_backups.",
+      "size-line": "Size: {{size}}",
+      "strategy-line": "Strategy: {{strategy}}",
+      "phase-line": "Phase: {{phase}}",
+      "table-line": "Table {{current}} of {{total}}: {{table}}",
+      "rows-line": "Rows written: {{written}} / {{expected}}",
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "succeeded": "Done",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "phase": {
+        "queued": "queued",
+        "starting": "starting",
+        "start": "preparing",
+        "subprocess": "launching dumper",
+        "schema": "table schema",
+        "data": "loading data",
+        "data_batch": "writing data",
+        "data_done": "table done",
+        "data_skipped": "table skipped",
+        "finalising": "finalising",
+        "done": "done",
+        "failed": "failed",
+        "cancelled": "cancelled"
+      }
     }
   }
 }

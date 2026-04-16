@@ -30,10 +30,10 @@ import subprocess
 import tempfile
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy.engine.url import make_url
 
@@ -62,6 +62,90 @@ class BackupInfo:
                 self.created_at, tz=timezone.utc
             ).isoformat(),
         }
+
+
+# Heavy history/metric tables. Keyed by table name; value is the time column
+# used for "last N days" filtering (or None if there is no natural time
+# column — in that case history_days cannot apply, and data is either
+# fully included or fully skipped).
+HEAVY_HISTORY_TABLES: dict[str, Optional[str]] = {
+    "node_user_usages": "created_at",
+    "node_usages": "created_at",
+    "node_user_usages_daily": "date",
+    "node_usages_daily": "date",
+    "user_device_traffic": "bucket_start",
+    "user_device_ips": "last_seen_at",
+}
+
+
+BACKUP_MODES = ("full", "light", "config")
+
+
+@dataclass
+class BackupOptions:
+    """Tuning knobs exposed to the "Backup" UI.
+
+    mode:
+        - "full"   — dump everything (default for safety restores).
+        - "light"  — dump everything, but trim heavy history tables to
+                     the last `history_days` days (default 30).
+        - "config" — dump schema + data for configuration tables only;
+                     heavy history tables get schema-only (no rows).
+    history_days:
+        - None   → no filter (mode=full);
+        - int>0  → keep only rows where the table's time column is within
+                   the last N days (applied in mode=light, and also in
+                   mode=full if the caller explicitly passes it).
+    skip_tables:
+        - extra table names for which data should be skipped (schema is
+          still written so a restore recreates them empty).
+    progress:
+        - optional callback; receives dict events with keys like
+          {"phase": "...", "current": int, "total_tables": int,
+           "table": str, "rows": int, "bytes_written": int,
+           "percent": float}. Best-effort, never blocks the dump.
+    """
+
+    mode: str = "full"
+    history_days: Optional[int] = None
+    skip_tables: set[str] = field(default_factory=set)
+    progress: Optional[Callable[[dict], None]] = None
+
+    def __post_init__(self) -> None:
+        if self.mode not in BACKUP_MODES:
+            raise ValueError(
+                f"invalid backup mode {self.mode!r}; "
+                f"expected one of {BACKUP_MODES}"
+            )
+        if self.history_days is not None and self.history_days < 0:
+            raise ValueError("history_days must be >= 0")
+        if self.skip_tables is None:
+            self.skip_tables = set()
+
+    def effective_history_days(self) -> Optional[int]:
+        if self.mode == "light":
+            return self.history_days if self.history_days is not None else 30
+        if self.mode == "config":
+            return 0  # never keep data
+        # full
+        return self.history_days
+
+    def should_skip_data(self, table: str) -> bool:
+        if table in self.skip_tables:
+            return True
+        if self.mode == "config" and table in HEAVY_HISTORY_TABLES:
+            return True
+        return False
+
+    def emit_progress(self, event: dict) -> None:
+        cb = self.progress
+        if cb is None:
+            return
+        try:
+            cb(event)
+        except Exception:  # noqa: BLE001
+            # Progress must never take down the dump.
+            logger.exception("Backup progress callback failed")
 
 
 def get_backup_dir() -> str:
@@ -269,42 +353,279 @@ def _format_mysql_row(row) -> str:
     return "(" + ",".join(_format_mysql_value(v) for v in row) + ")"
 
 
-def _backup_mysql_via_sqlalchemy(db_url: str) -> BackupInfo:
+_MYSQL_SESSION_TWEAKS = (
+    # MariaDB 10.x / MySQL 5.7+ — may not all exist on every version.
+    # Best-effort: ignore errors silently.
+    "SET SESSION max_statement_time=0",          # MariaDB
+    "SET SESSION MAX_EXECUTION_TIME=0",          # MySQL 5.7+ hint alt.
+    "SET SESSION net_read_timeout=31536000",
+    "SET SESSION net_write_timeout=31536000",
+    "SET SESSION wait_timeout=31536000",
+    "SET SESSION interactive_timeout=31536000",
+    "SET SESSION innodb_lock_wait_timeout=1073741824",
+    # Consistent non-locking snapshot — works when binlog/durability is off.
+    "SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+)
+
+
+def _apply_mysql_session_tweaks(conn) -> None:
+    """Relax per-statement / connection timeouts for the dump session.
+
+    Best-effort: each tweak is wrapped in try/except because the exact set
+    of supported variables depends on the MariaDB/MySQL version.
+    """
+    from sqlalchemy import text
+
+    for stmt in _MYSQL_SESSION_TWEAKS:
+        try:
+            conn.execute(text(stmt))
+        except Exception:  # noqa: BLE001
+            logger.debug("Session tweak skipped: %s", stmt)
+
+
+def _find_single_int_pk(conn, table: str) -> Optional[str]:
+    """Return the column name of a single-column integer PK, else None."""
+    from sqlalchemy import text
+
+    rows = conn.execute(
+        text(
+            """
+            SELECT k.COLUMN_NAME, c.DATA_TYPE
+            FROM information_schema.KEY_COLUMN_USAGE k
+            JOIN information_schema.COLUMNS c
+              ON c.TABLE_SCHEMA = k.TABLE_SCHEMA
+             AND c.TABLE_NAME  = k.TABLE_NAME
+             AND c.COLUMN_NAME = k.COLUMN_NAME
+            WHERE k.TABLE_SCHEMA = DATABASE()
+              AND k.TABLE_NAME = :t
+              AND k.CONSTRAINT_NAME = 'PRIMARY'
+            ORDER BY k.ORDINAL_POSITION
+            """
+        ),
+        {"t": table},
+    ).fetchall()
+    if not rows or len(rows) != 1:
+        return None
+    col, dtype = rows[0][0], rows[0][1]
+    if str(dtype).lower() not in (
+        "int", "integer", "bigint", "smallint", "mediumint", "tinyint"
+    ):
+        return None
+    return col
+
+
+def _count_rows(conn, table: str, where_sql: str, params: dict) -> int:
+    """Fast COUNT(*) on a table under an optional WHERE clause."""
+    from sqlalchemy import text
+
+    q = f"SELECT COUNT(*) FROM `{table}`"
+    if where_sql:
+        q += f" WHERE {where_sql}"
+    try:
+        return int(conn.execute(text(q), params).scalar() or 0)
+    except Exception:
+        return -1  # unknown
+
+
+def _history_where(table: str, history_days: Optional[int]) -> tuple[str, dict]:
+    """Build a WHERE clause that trims a table to the last N days, if applicable."""
+    if history_days is None:
+        return "", {}
+    time_col = HEAVY_HISTORY_TABLES.get(table)
+    if not time_col:
+        return "", {}
+    if history_days == 0:
+        # Sentinel "keep no rows" — only used by mode=config, and only
+        # if the caller hasn't decided to skip data entirely. Practically
+        # we shouldn't get here in mode=config because should_skip_data()
+        # returns True upstream, but handle it anyway.
+        return f"`{time_col}` >= CURRENT_TIMESTAMP", {}
+    return (
+        f"`{time_col}` >= (NOW() - INTERVAL :hist_days DAY)",
+        {"hist_days": history_days},
+    )
+
+
+def _stream_table_by_pk(
+    f,
+    conn,
+    table: str,
+    pk: str,
+    history_where: str,
+    history_params: dict,
+    batch_size: int,
+    on_batch: Callable[[int], None],
+) -> int:
+    """Dump `SELECT * FROM table` in PK-keyset chunks.
+
+    Each chunk is a short, bounded statement — immune to
+    `max_statement_time` kills on huge tables. Returns total rows written.
+    """
+    from sqlalchemy import text
+
+    total = 0
+    last_pk = None
+    while True:
+        where_parts: list[str] = []
+        params: dict = {"lim": batch_size}
+        if last_pk is not None:
+            where_parts.append(f"`{pk}` > :last_pk")
+            params["last_pk"] = last_pk
+        if history_where:
+            where_parts.append(f"({history_where})")
+            params.update(history_params)
+        where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        sql = (
+            f"SELECT * FROM `{table}`{where_sql} "
+            f"ORDER BY `{pk}` LIMIT :lim"
+        )
+        rs = conn.execute(text(sql), params)
+        rows = rs.fetchall()
+        if not rows:
+            break
+
+        cols = list(rs.keys())
+        col_list = ",".join(f"`{c}`" for c in cols)
+        values_sql = ",\n".join(_format_mysql_row(r) for r in rows)
+        f.write(
+            f"INSERT INTO `{table}` ({col_list}) VALUES\n{values_sql};\n"
+        )
+
+        pk_idx = cols.index(pk)
+        last_pk = rows[-1][pk_idx]
+        total += len(rows)
+        on_batch(len(rows))
+
+        if len(rows) < batch_size:
+            break
+    return total
+
+
+def _stream_table_streaming(
+    f,
+    conn,
+    table: str,
+    history_where: str,
+    history_params: dict,
+    batch_size: int,
+    on_batch: Callable[[int], None],
+) -> int:
+    """Fallback for tables without a usable integer PK: server-side cursor.
+
+    `max_statement_time` may still fire here on very large tables; that's
+    why `_apply_mysql_session_tweaks` disables it earlier in the session.
+    """
+    from sqlalchemy import text
+
+    where_sql = f" WHERE {history_where}" if history_where else ""
+    sql = f"SELECT * FROM `{table}`{where_sql}"
+    rs = conn.execution_options(
+        stream_results=True, yield_per=batch_size
+    ).execute(text(sql), history_params)
+    cols = list(rs.keys())
+    col_list = ",".join(f"`{c}`" for c in cols)
+    batch: list = []
+    total = 0
+    for row in rs:
+        batch.append(row)
+        if len(batch) >= batch_size:
+            values_sql = ",\n".join(_format_mysql_row(r) for r in batch)
+            f.write(
+                f"INSERT INTO `{table}` ({col_list}) VALUES\n{values_sql};\n"
+            )
+            total += len(batch)
+            on_batch(len(batch))
+            batch.clear()
+    if batch:
+        values_sql = ",\n".join(_format_mysql_row(r) for r in batch)
+        f.write(
+            f"INSERT INTO `{table}` ({col_list}) VALUES\n{values_sql};\n"
+        )
+        total += len(batch)
+        on_batch(len(batch))
+    return total
+
+
+def _backup_mysql_via_sqlalchemy(
+    db_url: str, opts: BackupOptions
+) -> BackupInfo:
     from sqlalchemy import create_engine, text
 
     url = make_url(db_url)
     dest = _build_backup_path("sql")
     database = url.database or ""
+    history_days = opts.effective_history_days()
 
     engine = create_engine(db_url, future=True, pool_pre_ping=True)
     try:
         with engine.connect() as conn, open(
             dest, "w", encoding="utf-8", newline="\n"
         ) as f:
+            _apply_mysql_session_tweaks(conn)
+
             f.write("-- Marzneshin AI backup (pure-Python via SQLAlchemy)\n")
             f.write(
                 f"-- Generated at: {datetime.now(timezone.utc).isoformat()}\n"
             )
             f.write(f"-- Database: {database}\n")
-            f.write("-- NOTE: schema-only base tables + data. Views, routines,\n")
-            f.write("--       triggers and events are NOT included.\n\n")
-            f.write("SET NAMES utf8mb4;\n")
-            f.write("SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, "
-                    "FOREIGN_KEY_CHECKS=0;\n")
-            f.write("SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0;\n")
-            f.write("SET @OLD_SQL_MODE=@@SQL_MODE, "
-                    "SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n\n")
-
-            tables_rs = conn.execute(
-                text("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")
+            f.write(f"-- Mode: {opts.mode}\n")
+            if history_days is not None:
+                f.write(f"-- History window: last {history_days} days\n")
+            if opts.skip_tables:
+                f.write(
+                    f"-- Explicitly skipped tables (data only): "
+                    f"{', '.join(sorted(opts.skip_tables))}\n"
+                )
+            f.write(
+                "-- NOTE: schema-only base tables + data. Views, routines,\n"
             )
-            tables = [row[0] for row in tables_rs]
+            f.write(
+                "--       triggers and events are NOT included.\n\n"
+            )
+            f.write("SET NAMES utf8mb4;\n")
+            f.write(
+                "SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, "
+                "FOREIGN_KEY_CHECKS=0;\n"
+            )
+            f.write(
+                "SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0;\n"
+            )
+            f.write(
+                "SET @OLD_SQL_MODE=@@SQL_MODE, "
+                "SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n\n"
+            )
 
-            for table in tables:
+            tables = [
+                row[0]
+                for row in conn.execute(
+                    text("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")
+                )
+            ]
+            total_tables = len(tables)
+            opts.emit_progress(
+                {
+                    "phase": "start",
+                    "total_tables": total_tables,
+                    "current": 0,
+                    "table": None,
+                }
+            )
+
+            for idx, table in enumerate(tables, 1):
                 tn = table.replace("`", "``")
-                f.write(f"-- ----------------------------------------\n")
+
+                opts.emit_progress(
+                    {
+                        "phase": "schema",
+                        "current": idx,
+                        "total_tables": total_tables,
+                        "table": table,
+                    }
+                )
+
+                f.write("-- ----------------------------------------\n")
                 f.write(f"-- Table: `{tn}`\n")
-                f.write(f"-- ----------------------------------------\n")
+                f.write("-- ----------------------------------------\n")
                 f.write(f"DROP TABLE IF EXISTS `{tn}`;\n")
 
                 create_row = conn.execute(
@@ -315,43 +636,97 @@ def _backup_mysql_via_sqlalchemy(db_url: str) -> BackupInfo:
                 create_sql = create_row[1]
                 f.write(create_sql + ";\n\n")
 
-                select_rs = conn.execution_options(
-                    stream_results=True, yield_per=_INSERT_BATCH_SIZE
-                ).execute(text(f"SELECT * FROM `{tn}`"))
-                columns = list(select_rs.keys())
-                col_list = ",".join(
-                    f"`{c.replace('`', '``')}`" for c in columns
+                if opts.should_skip_data(table):
+                    f.write(
+                        f"-- data skipped (mode={opts.mode}"
+                        + (
+                            f", in skip_tables"
+                            if table in opts.skip_tables
+                            else ""
+                        )
+                        + ")\n\n"
+                    )
+                    opts.emit_progress(
+                        {
+                            "phase": "data_skipped",
+                            "current": idx,
+                            "total_tables": total_tables,
+                            "table": table,
+                        }
+                    )
+                    continue
+
+                where_sql, where_params = _history_where(table, history_days)
+                row_count = _count_rows(conn, table, where_sql, where_params)
+                opts.emit_progress(
+                    {
+                        "phase": "data",
+                        "current": idx,
+                        "total_tables": total_tables,
+                        "table": table,
+                        "expected_rows": row_count,
+                    }
                 )
 
-                batch: list = []
-                wrote_any = False
-                for row in select_rs:
-                    batch.append(row)
-                    if len(batch) >= _INSERT_BATCH_SIZE:
-                        values_sql = ",\n".join(
-                            _format_mysql_row(r) for r in batch
-                        )
-                        f.write(
-                            f"INSERT INTO `{tn}` ({col_list}) VALUES\n"
-                            f"{values_sql};\n"
-                        )
-                        batch.clear()
-                        wrote_any = True
-                if batch:
-                    values_sql = ",\n".join(
-                        _format_mysql_row(r) for r in batch
+                pk = _find_single_int_pk(conn, table)
+                written = 0
+
+                def _on_batch(n: int, _table=table, _idx=idx) -> None:
+                    nonlocal written
+                    written += n
+                    opts.emit_progress(
+                        {
+                            "phase": "data_batch",
+                            "current": _idx,
+                            "total_tables": total_tables,
+                            "table": _table,
+                            "rows_written": written,
+                            "expected_rows": row_count,
+                        }
                     )
-                    f.write(
-                        f"INSERT INTO `{tn}` ({col_list}) VALUES\n"
-                        f"{values_sql};\n"
+
+                if pk:
+                    rows_written = _stream_table_by_pk(
+                        f,
+                        conn,
+                        table,
+                        pk,
+                        where_sql,
+                        where_params,
+                        _INSERT_BATCH_SIZE,
+                        _on_batch,
                     )
-                    wrote_any = True
-                if wrote_any:
+                else:
+                    rows_written = _stream_table_streaming(
+                        f,
+                        conn,
+                        table,
+                        where_sql,
+                        where_params,
+                        _INSERT_BATCH_SIZE,
+                        _on_batch,
+                    )
+
+                if rows_written > 0:
                     f.write("\n")
+
+                opts.emit_progress(
+                    {
+                        "phase": "data_done",
+                        "current": idx,
+                        "total_tables": total_tables,
+                        "table": table,
+                        "rows_written": rows_written,
+                    }
+                )
 
             f.write("SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;\n")
             f.write("SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;\n")
             f.write("SET SQL_MODE=@OLD_SQL_MODE;\n")
+
+            opts.emit_progress(
+                {"phase": "finalising", "total_tables": total_tables}
+            )
     finally:
         engine.dispose()
 
@@ -363,13 +738,33 @@ def _backup_mysql_via_sqlalchemy(db_url: str) -> BackupInfo:
     )
 
 
-def _backup_mysql(db_url: str) -> BackupInfo:
+def _mysqldump_ignore_args(database: str, opts: BackupOptions) -> list[str]:
+    """Build `--ignore-table=db.table` args for subprocess dumpers.
+
+    Subprocess paths (mysqldump / mariadb-dump) have no native time-window
+    filter, so mode=light+history_days is honoured by dropping heavy
+    tables entirely. mode=config drops heavy history tables; mode=full
+    only drops explicitly skipped ones.
+    """
+    skip: set[str] = set(opts.skip_tables or ())
+    if opts.mode in ("config", "light"):
+        skip |= set(HEAVY_HISTORY_TABLES)
+    args: list[str] = []
+    for t in sorted(skip):
+        args.append(f"--ignore-table={database}.{t}")
+    return args
+
+
+def _backup_mysql(db_url: str, opts: BackupOptions) -> BackupInfo:
     url = make_url(db_url)
     dest = _build_backup_path("sql")
     database = url.database or ""
     dump_args = ["--single-transaction", "--quick", "--routines", "--triggers"]
+    ignore_args = _mysqldump_ignore_args(database, opts)
 
-    # Strategy 1: local dump tool
+    opts.emit_progress({"phase": "start", "dialect": "mysql", "mode": opts.mode})
+
+    # Strategy 1: local dump tool.
     local_bin = None
     for candidate in ("mariadb-dump", "mysqldump"):
         if shutil.which(candidate):
@@ -377,7 +772,8 @@ def _backup_mysql(db_url: str) -> BackupInfo:
             break
 
     if local_bin:
-        cmd = [local_bin, *dump_args]
+        opts.emit_progress({"phase": "subprocess", "strategy": "local", "binary": local_bin})
+        cmd = [local_bin, *dump_args, *ignore_args]
         if url.host:
             cmd += ["-h", url.host]
         if url.port:
@@ -398,20 +794,26 @@ def _backup_mysql(db_url: str) -> BackupInfo:
             created_at=time.time(),
         )
 
-    # Strategy 2: docker exec into the DB container
+    # Strategy 2: docker exec into the DB container.
     container = _find_db_container(url.host)
     if container:
-        binary = _first_binary_in_container(container, ("mariadb-dump", "mysqldump"))
+        binary = _first_binary_in_container(
+            container, ("mariadb-dump", "mysqldump")
+        )
         if binary:
+            opts.emit_progress(
+                {"phase": "subprocess", "strategy": "docker",
+                 "container": container, "binary": binary}
+            )
             cmd = ["docker", "exec"]
             if url.password:
                 # Pass the password into the container env only, so it
                 # doesn't show up in `ps` / host audit logs.
                 cmd += ["-e", f"MYSQL_PWD={url.password}"]
-            cmd += [container, binary, *dump_args]
+            cmd += [container, binary, *dump_args, *ignore_args]
             # Inside the container the DB is on localhost, so we don't
-            # pass -h/-P — that avoids DNS / port confusion when the
-            # URL host is actually the container's own name.
+            # pass -h/-P — avoids DNS / port confusion when the URL host
+            # is actually the container's own name.
             if url.username:
                 cmd += ["-u", url.username]
             cmd.append(database)
@@ -425,11 +827,9 @@ def _backup_mysql(db_url: str) -> BackupInfo:
             )
 
     # Strategy 3: pure-Python dump via the existing SQLAlchemy/PyMySQL link.
-    # This is the last-resort path that works in any environment as long as
-    # the DB itself is reachable (it is — the panel wouldn't be running
-    # otherwise).
+    opts.emit_progress({"phase": "subprocess", "strategy": "pure-python"})
     try:
-        return _backup_mysql_via_sqlalchemy(db_url)
+        return _backup_mysql_via_sqlalchemy(db_url, opts)
     except Exception as exc:
         raise RuntimeError(
             "MySQL/MariaDB backup failed: no mysqldump/mariadb-dump on the "
@@ -440,10 +840,19 @@ def _backup_mysql(db_url: str) -> BackupInfo:
         ) from exc
 
 
-def _backup_postgres(db_url: str) -> BackupInfo:
+def _backup_postgres(db_url: str, opts: BackupOptions) -> BackupInfo:
     url = make_url(db_url)
     dest = _build_backup_path("sql")
     dump_args = ["--format=plain", "--no-owner", "--no-acl"]
+    # Postgres has no pure-Python fallback here (yet), so history_days /
+    # skip_tables only affect the excluded-table list passed to pg_dump.
+    exclude_tables: set[str] = set(opts.skip_tables or ())
+    if opts.mode in ("config", "light"):
+        exclude_tables |= set(HEAVY_HISTORY_TABLES)
+    for t in sorted(exclude_tables):
+        dump_args.append(f"--exclude-table-data={t}")
+
+    opts.emit_progress({"phase": "start", "dialect": "postgresql", "mode": opts.mode})
 
     if shutil.which("pg_dump"):
         cmd = ["pg_dump", *dump_args]
@@ -496,20 +905,37 @@ def _backup_postgres(db_url: str) -> BackupInfo:
     )
 
 
-def create_backup() -> BackupInfo:
+def create_backup(opts: Optional[BackupOptions] = None) -> BackupInfo:
     """Create a DB backup for the currently configured SQLALCHEMY_DATABASE_URL.
 
+    Parameters
+    ----------
+    opts:
+        Optional BackupOptions controlling the backup scope (mode,
+        history_days, skipped tables) and an optional progress callback.
+        When omitted, defaults to a full backup with no progress events
+        and no filtering — preserving the previous semantics.
+
     Raises RuntimeError with a human-readable message on failure so the
-    AI tool can report the reason to the user verbatim.
+    caller can surface the reason to the user verbatim.
     """
+    if opts is None:
+        opts = BackupOptions()
     url = SQLALCHEMY_DATABASE_URL
     lower = url.lower()
     if lower.startswith("sqlite"):
-        return _backup_sqlite(url)
+        opts.emit_progress({"phase": "start", "dialect": "sqlite"})
+        info = _backup_sqlite(url)
+        opts.emit_progress({"phase": "done"})
+        return info
     if lower.startswith("mysql") or lower.startswith("mariadb"):
-        return _backup_mysql(url)
+        info = _backup_mysql(url, opts)
+        opts.emit_progress({"phase": "done"})
+        return info
     if lower.startswith("postgresql") or lower.startswith("postgres"):
-        return _backup_postgres(url)
+        info = _backup_postgres(url, opts)
+        opts.emit_progress({"phase": "done"})
+        return info
     raise RuntimeError(f"Unsupported database dialect for backup: {url.split(':')[0]}")
 
 
