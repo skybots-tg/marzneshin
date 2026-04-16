@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import clamp_limit, clamp_offset
 
 logger = logging.getLogger(__name__)
 
@@ -42,26 +43,39 @@ async def get_system_info(db: Session) -> dict:
 @register_tool(
     name="list_services",
     description=(
-        "List all services with their IDs, names, inbound tags, and user counts. "
-        "User counts are computed via aggregate queries, not by loading all users, "
-        "so this is safe on large installs. "
+        "List services (paginated) with IDs, names, inbound tags and user counts. "
+        "Default limit 50, hard max 100. User counts come from aggregate queries, "
+        "so safe on large installs. Pass `name` for a substring filter. "
         "Relationship: User → Service → Inbound → Host."
     ),
     requires_confirmation=False,
 )
-async def list_services(db: Session) -> dict:
+async def list_services(
+    db: Session, limit: int = 50, offset: int = 0, name: str = ""
+) -> dict:
     from sqlalchemy import func
     from app.db.models.core import Service
     from app.db.models.associations import users_services
 
-    services = db.query(Service).all()
+    limit = clamp_limit(limit, default=50, maximum=100)
+    offset = clamp_offset(offset)
 
-    user_counts_rows = (
-        db.query(users_services.c.service_id, func.count(users_services.c.user_id))
-        .group_by(users_services.c.service_id)
-        .all()
-    )
-    user_counts = {row[0]: row[1] for row in user_counts_rows}
+    query = db.query(Service)
+    if name:
+        query = query.filter(Service.name.ilike(f"%{name}%"))
+    total = query.count()
+    services = query.order_by(Service.id).offset(offset).limit(limit).all()
+
+    service_ids = [s.id for s in services]
+    user_counts: dict[int, int] = {}
+    if service_ids:
+        user_counts_rows = (
+            db.query(users_services.c.service_id, func.count(users_services.c.user_id))
+            .filter(users_services.c.service_id.in_(service_ids))
+            .group_by(users_services.c.service_id)
+            .all()
+        )
+        user_counts = {row[0]: row[1] for row in user_counts_rows}
 
     return {
         "services": [
@@ -81,18 +95,38 @@ async def list_services(db: Session) -> dict:
             }
             for s in services
         ],
-        "total": len(services),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "truncated": total > offset + limit,
     }
 
 
 @register_tool(
     name="list_inbounds",
-    description="List all inbounds across all nodes with protocol and tag info",
+    description=(
+        "List inbounds across all nodes (paginated) with protocol and tag info. "
+        "Default limit 50, hard max 100. Filters: `node_id` (>0) restricts to a "
+        "single node; `tag` is a substring match on the inbound tag."
+    ),
     requires_confirmation=False,
 )
-async def list_inbounds(db: Session) -> dict:
+async def list_inbounds(
+    db: Session, limit: int = 50, offset: int = 0, node_id: int = 0, tag: str = ""
+) -> dict:
     from app.db.models.proxy import Inbound
-    inbounds = db.query(Inbound).all()
+
+    limit = clamp_limit(limit, default=50, maximum=100)
+    offset = clamp_offset(offset)
+
+    query = db.query(Inbound)
+    if node_id > 0:
+        query = query.filter(Inbound.node_id == node_id)
+    if tag:
+        query = query.filter(Inbound.tag.ilike(f"%{tag}%"))
+    total = query.count()
+    inbounds = query.order_by(Inbound.id).offset(offset).limit(limit).all()
+
     return {
         "inbounds": [
             {
@@ -103,7 +137,10 @@ async def list_inbounds(db: Session) -> dict:
             }
             for i in inbounds
         ],
-        "total": len(inbounds),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "truncated": total > offset + limit,
     }
 
 
