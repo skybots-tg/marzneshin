@@ -1,6 +1,6 @@
 import { FC, useCallback, useEffect, useRef, useState, KeyboardEvent, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Send, Loader2, Settings2, Trash2, ShieldCheck, X } from 'lucide-react'
+import { Send, Loader2, Settings2, Trash2, ShieldCheck, X, Archive } from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@marzneshin/common/components/ui'
 import { Textarea } from '@marzneshin/common/components/ui'
@@ -10,6 +10,7 @@ import { ModelSelector } from './model-selector'
 import { MessageBubble } from './message-bubble'
 import { ConfirmationDialog } from './confirmation-dialog'
 import { SSHUnlockDialog } from './ssh-unlock-dialog'
+import { BackupDialog } from './backup-dialog'
 import { fetchSSHStatus } from '../api/ssh'
 import type {
     ChatMessage,
@@ -61,6 +62,8 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
         toolName: string
         toolArgs: Record<string, unknown>
     } | null>(null)
+
+    const [backupOpen, setBackupOpen] = useState(false)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const abortRef = useRef<AbortController | null>(null)
@@ -442,6 +445,16 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 <div className="flex-1" />
                 <Button
                     variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setBackupOpen(true)}
+                    title={t('ai.backup.button-tooltip')}
+                >
+                    <Archive className="size-4 mr-1.5" />
+                    {t('ai.backup.button')}
+                </Button>
+                <Button
+                    variant="ghost"
                     size="icon"
                     className="size-8"
                     onClick={handleClear}
@@ -520,6 +533,11 @@ export const ChatInterface: FC<ChatInterfaceProps> = ({
                 toolName={sshPrompt?.toolName ?? ''}
                 onUnlocked={handleSSHUnlocked}
                 onCancel={handleSSHCancel}
+            />
+
+            <BackupDialog
+                open={backupOpen}
+                onClose={() => setBackupOpen(false)}
             />
         </div>
     )
