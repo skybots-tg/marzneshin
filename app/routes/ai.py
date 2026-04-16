@@ -76,16 +76,23 @@ def update_ai_settings(db: DBDep, body: AISettings, admin: SudoAdminDep):
     settings = db.query(Settings).first()
     if not settings:
         raise HTTPException(status_code=404, detail="Settings not found")
-    settings.ai = body.model_dump(mode="json")
+
+    # Preserve existing api_key when client sends an empty value.
+    # Empty string means "don't change the key", not "delete it".
+    existing = AISettings(**settings.ai) if settings.ai else AISettings()
+    effective_key = body.api_key or existing.api_key
+    payload = body.model_copy(update={"api_key": effective_key})
+
+    settings.ai = payload.model_dump(mode="json")
     db.commit()
     return AISettingsResponse(
-        configured=bool(body.api_key),
-        default_model=body.default_model,
-        thinking_model=body.thinking_model,
-        max_tokens=body.max_tokens,
-        temperature=body.temperature,
-        reasoning_effort=body.reasoning_effort,
-        system_prompt=body.system_prompt,
+        configured=bool(effective_key),
+        default_model=payload.default_model,
+        thinking_model=payload.thinking_model,
+        max_tokens=payload.max_tokens,
+        temperature=payload.temperature,
+        reasoning_effort=payload.reasoning_effort,
+        system_prompt=payload.system_prompt,
     )
 
 

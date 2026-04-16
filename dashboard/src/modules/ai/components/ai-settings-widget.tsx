@@ -1,5 +1,6 @@
 import { FC, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Pencil, X } from 'lucide-react'
 import {
     Button,
     Input,
@@ -13,6 +14,8 @@ import {
 } from '@marzneshin/common/components/ui'
 import { useAISettingsQuery, useAISettingsUpdateMutation, useAIModelsQuery } from '../api'
 import type { AISettings, ReasoningEffort } from '../types'
+
+const MASKED_KEY = '••••••••••••••••'
 
 interface AISettingsWidgetProps {
     open: boolean
@@ -43,6 +46,7 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
         reasoning_effort: 'medium',
         system_prompt: '',
     })
+    const [editingKey, setEditingKey] = useState(false)
 
     useEffect(() => {
         if (settings) {
@@ -58,10 +62,29 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
         }
     }, [settings])
 
+    useEffect(() => {
+        if (open) {
+            setEditingKey(!settings?.configured)
+            setForm((prev) => ({ ...prev, api_key: '' }))
+        }
+    }, [open, settings?.configured])
+
+    const keyLocked = settings?.configured && !editingKey
+
     const handleSave = () => {
         mutation.mutate(form, {
             onSuccess: () => onClose(),
         })
+    }
+
+    const handleStartEditKey = () => {
+        setEditingKey(true)
+        setForm((prev) => ({ ...prev, api_key: '' }))
+    }
+
+    const handleCancelEditKey = () => {
+        setEditingKey(false)
+        setForm((prev) => ({ ...prev, api_key: '' }))
     }
 
     if (!open) return null
@@ -74,21 +97,61 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                 <div className="space-y-3">
                     <div>
                         <Label className="text-xs">{t('ai.api-key')}</Label>
-                        <Input
-                            type="password"
-                            autoComplete="one-time-code"
-                            data-1p-ignore
-                            data-lpignore="true"
-                            placeholder={t('ai.api-key-placeholder')}
-                            value={form.api_key}
-                            onChange={(e) =>
-                                setForm({ ...form, api_key: e.target.value })
-                            }
-                            className="mt-1"
-                        />
-                        {settings?.configured && !form.api_key && (
+                        <div className="relative mt-1">
+                            <Input
+                                type="password"
+                                autoComplete="one-time-code"
+                                data-1p-ignore
+                                data-lpignore="true"
+                                placeholder={t('ai.api-key-placeholder')}
+                                value={keyLocked ? MASKED_KEY : form.api_key}
+                                readOnly={keyLocked}
+                                onChange={(e) =>
+                                    setForm({ ...form, api_key: e.target.value })
+                                }
+                                className={
+                                    'pr-9' +
+                                    (keyLocked
+                                        ? ' cursor-not-allowed bg-muted/50 text-muted-foreground'
+                                        : '')
+                                }
+                            />
+                            {settings?.configured && (
+                                <button
+                                    type="button"
+                                    onClick={
+                                        editingKey
+                                            ? handleCancelEditKey
+                                            : handleStartEditKey
+                                    }
+                                    title={
+                                        editingKey
+                                            ? t('ai.cancel-edit-key')
+                                            : t('ai.edit-api-key')
+                                    }
+                                    aria-label={
+                                        editingKey
+                                            ? t('ai.cancel-edit-key')
+                                            : t('ai.edit-api-key')
+                                    }
+                                    className="absolute inset-y-0 right-0 flex items-center justify-center w-9 text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    {editingKey ? (
+                                        <X className="h-4 w-4" />
+                                    ) : (
+                                        <Pencil className="h-4 w-4" />
+                                    )}
+                                </button>
+                            )}
+                        </div>
+                        {settings?.configured && keyLocked && (
                             <p className="text-xs text-green-600 mt-1">
                                 {t('ai.configured')}
+                            </p>
+                        )}
+                        {settings?.configured && editingKey && (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                                {t('ai.edit-api-key-hint')}
                             </p>
                         )}
                     </div>
