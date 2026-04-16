@@ -12,16 +12,25 @@ logger = logging.getLogger(__name__)
     name="list_admins",
     description=(
         "List admin accounts with pagination. Default limit 20, hard maximum 100. "
-        "Returns roles, service access, and user modification permissions."
+        "Returns roles, service access, and user modification permissions. "
+        "Pass `username` for a substring filter."
     ),
     requires_confirmation=False,
 )
-async def list_admins(db: Session, limit: int = 20, offset: int = 0) -> dict:
-    from app.db import crud
+async def list_admins(
+    db: Session, limit: int = 20, offset: int = 0, username: str = ""
+) -> dict:
+    from app.db.models.core import Admin
 
     limit = clamp_limit(limit)
     offset = clamp_offset(offset)
-    admins = crud.get_admins(db, offset=offset, limit=limit)
+
+    query = db.query(Admin)
+    if username:
+        query = query.filter(Admin.username.ilike(f"%{username}%"))
+    total = query.count()
+    admins = query.order_by(Admin.id).offset(offset).limit(limit).all()
+
     return {
         "admins": [
             {
@@ -37,7 +46,10 @@ async def list_admins(db: Session, limit: int = 20, offset: int = 0) -> dict:
             }
             for a in admins
         ],
-        "total": len(admins),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "truncated": total > offset + limit,
     }
 
 
@@ -175,4 +187,55 @@ async def modify_admin(
             "all_services_access": db_admin.all_services_access,
             "modify_users_access": db_admin.modify_users_access,
         },
+    }
+
+
+@register_tool(
+    name="delete_admin",
+    description=(
+        "DANGEROUS: permanently delete an admin account. "
+        "Users owned by this admin are NOT deleted — check `count_users` with "
+        "`admin_username` first to see the blast radius and reassign/clean them "
+        "beforehand if needed. Refuses to delete the last sudo admin — the "
+        "panel needs at least one."
+    ),
+    requires_confirmation=True,
+)
+async def delete_admin(db: Session, username: str) -> dict:
+    from app.db import crud
+    from app.db.models.core import Admin, User
+
+    db_admin = crud.get_admin(db, username)
+    if not db_admin:
+        return {"error": f"Admin '{username}' not found"}
+
+    if db_admin.is_sudo:
+        remaining_sudo = (
+            db.query(Admin)
+            .filter(Admin.is_sudo == True, Admin.id != db_admin.id)  # noqa: E712
+            .count()
+        )
+        if remaining_sudo == 0:
+            return {
+                "error": (
+                    f"Refusing to delete '{username}': it is the last sudo admin. "
+                    "Promote another admin with modify_admin(is_sudo=1) first."
+                )
+            }
+
+    owned_users = (
+        db.query(User).filter(User.admin_id == db_admin.id, User.removed == False)  # noqa: E712
+        .count()
+    )
+
+    try:
+        crud.remove_admin(db, db_admin)
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Failed to delete admin: {str(e)}"}
+
+    return {
+        "success": True,
+        "message": f"Admin '{username}' deleted",
+        "orphaned_users": owned_users,
     }

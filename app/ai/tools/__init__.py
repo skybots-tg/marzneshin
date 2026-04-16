@@ -9,4 +9,6 @@ from . import (  # noqa: F401
     admin_tools,
     ssh_tools,
     filtering_tools,
+    crypto_tools,
+    test_tools,
 )

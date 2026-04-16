@@ -3,18 +3,37 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import clamp_limit, clamp_offset
 
 logger = logging.getLogger(__name__)
 
 
 @register_tool(
     name="list_nodes",
-    description="List all nodes with their statuses, addresses, and basic info",
+    description=(
+        "List nodes (paginated) with statuses, addresses and basic info. "
+        "Default limit 50, hard max 100. Filters: `status` ('healthy', "
+        "'unhealthy', 'disabled'), `name` (substring match). For a single "
+        "node use `get_node_info` directly."
+    ),
     requires_confirmation=False,
 )
-async def list_nodes(db: Session) -> dict:
+async def list_nodes(
+    db: Session, limit: int = 50, offset: int = 0, status: str = "", name: str = ""
+) -> dict:
     from app.db.models import Node
-    nodes = db.query(Node).all()
+
+    limit = clamp_limit(limit, default=50, maximum=100)
+    offset = clamp_offset(offset)
+
+    query = db.query(Node)
+    if status:
+        query = query.filter(Node.status == status)
+    if name:
+        query = query.filter(Node.name.ilike(f"%{name}%"))
+    total = query.count()
+    nodes = query.order_by(Node.id).offset(offset).limit(limit).all()
+
     return {
         "nodes": [
             {
@@ -32,7 +51,10 @@ async def list_nodes(db: Session) -> dict:
             }
             for n in nodes
         ],
-        "total": len(nodes),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "truncated": total > offset + limit,
     }
 
 
@@ -73,10 +95,25 @@ async def get_node_info(db: Session, node_id: int) -> dict:
 
 @register_tool(
     name="get_node_config",
-    description="Get the live backend config (e.g. Xray JSON) of a specific node. Returns the raw config string.",
+    description=(
+        "Get the live backend config (e.g. Xray JSON) of a specific node. "
+        "Returns the raw config string. By default the payload is capped at "
+        "32 KiB to avoid dumping huge configs into the chat — set "
+        "`max_bytes` higher (up to 262144) when you genuinely need the full "
+        "text for rewriting. `summary=true` returns only a compact digest "
+        "(inbound tags/ports/protocols + outbound tags) instead of the full JSON."
+    ),
     requires_confirmation=False,
 )
-async def get_node_config(db: Session, node_id: int, backend: str = "xray") -> dict:
+async def get_node_config(
+    db: Session,
+    node_id: int,
+    backend: str = "xray",
+    max_bytes: int = 32768,
+    summary: bool = False,
+) -> dict:
+    import json
+
     from app.marznode import node_registry
     db.close()
     node = node_registry.get(node_id)
@@ -84,9 +121,49 @@ async def get_node_config(db: Session, node_id: int, backend: str = "xray") -> d
         return {"error": f"Node {node_id} is not connected"}
     try:
         config, config_format = await node.get_backend_config(name=backend)
-        return {"config": config, "format": config_format}
     except Exception as e:
         return {"error": f"Failed to get config: {str(e)}"}
+
+    size = len(config) if config else 0
+
+    if summary:
+        digest: dict = {"node_id": node_id, "backend": backend, "size_bytes": size}
+        try:
+            parsed = json.loads(config)
+        except (json.JSONDecodeError, TypeError):
+            digest["parse_error"] = "Config is not valid JSON"
+            return digest
+        inbounds_summary = []
+        for ib in (parsed.get("inbounds") or []):
+            inbounds_summary.append({
+                "tag": ib.get("tag"),
+                "protocol": ib.get("protocol"),
+                "port": ib.get("port"),
+                "listen": ib.get("listen"),
+                "streamSettings_network": (ib.get("streamSettings") or {}).get("network"),
+                "streamSettings_security": (ib.get("streamSettings") or {}).get("security"),
+            })
+        outbounds_summary = [
+            {"tag": o.get("tag"), "protocol": o.get("protocol")}
+            for o in (parsed.get("outbounds") or [])
+        ]
+        digest.update({
+            "inbounds": inbounds_summary,
+            "outbounds": outbounds_summary,
+            "routing_rules_count": len(((parsed.get("routing") or {}).get("rules") or [])),
+        })
+        return digest
+
+    cap = max(1024, min(int(max_bytes or 32768), 262144))
+    truncated = size > cap
+    body = config[:cap] if truncated else config
+    return {
+        "config": body,
+        "format": config_format,
+        "size_bytes": size,
+        "truncated": truncated,
+        "max_bytes": cap,
+    }
 
 
 @register_tool(

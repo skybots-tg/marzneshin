@@ -50,14 +50,22 @@ async def get_node_logs(db: Session, node_id: int, backend: str = "xray", max_li
 
 @register_tool(
     name="check_all_nodes_health",
-    description="Check health status of all nodes at once. Returns a summary of healthy, unhealthy, and disabled nodes.",
+    description=(
+        "Check health status of nodes at once. Returns a summary of healthy, "
+        "unhealthy, and disabled nodes plus per-node detail. Default limit 100 "
+        "nodes — if you have more, call `list_nodes` with pagination instead. "
+        "Summary counters always reflect the full table regardless of the cap."
+    ),
     requires_confirmation=False,
 )
-async def check_all_nodes_health(db: Session) -> dict:
+async def check_all_nodes_health(db: Session, limit: int = 100) -> dict:
     from app.db.models import Node
     from app.marznode import node_registry
 
-    nodes = db.query(Node).all()
+    limit = max(1, min(int(limit or 100), 200))
+
+    total = db.query(Node).count()
+    nodes = db.query(Node).order_by(Node.id).limit(limit).all()
     result = []
     for n in nodes:
         connected = node_registry.get(n.id) is not None
@@ -70,17 +78,20 @@ async def check_all_nodes_health(db: Session) -> dict:
             "last_status_change": str(n.last_status_change) if n.last_status_change else None,
         })
 
-    healthy = sum(1 for r in result if r["status"] == "healthy")
-    unhealthy = sum(1 for r in result if r["status"] == "unhealthy")
-    disabled = sum(1 for r in result if r["status"] == "disabled")
+    from app.models.node import NodeStatus
+    healthy_total = db.query(Node).filter(Node.status == NodeStatus.healthy).count()
+    unhealthy_total = db.query(Node).filter(Node.status == NodeStatus.unhealthy).count()
+    disabled_total = db.query(Node).filter(Node.status == NodeStatus.disabled).count()
 
     return {
         "nodes": result,
         "summary": {
-            "total": len(result),
-            "healthy": healthy,
-            "unhealthy": unhealthy,
-            "disabled": disabled,
+            "total": total,
+            "healthy": healthy_total,
+            "unhealthy": unhealthy_total,
+            "disabled": disabled_total,
+            "shown": len(result),
+            "truncated": total > len(result),
         },
     }
 

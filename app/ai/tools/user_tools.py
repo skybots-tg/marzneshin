@@ -169,9 +169,12 @@ async def create_user(
 @register_tool(
     name="modify_user",
     description=(
-        "Modify an existing user. Only provided (non-empty/non-zero) fields will be updated. "
-        "Can change data_limit (bytes), expire_date (ISO), expire_strategy, "
-        "service_ids, data_limit_reset_strategy, note, usage_duration. "
+        "Modify an existing user. Only provided (non-sentinel) fields will be updated. "
+        "Sentinels: -1 for int, '' for string, empty list for service_ids. "
+        "Fields: data_limit (bytes, 0 = unlimited), expire_date (ISO), "
+        "expire_strategy, service_ids, data_limit_reset_strategy, note, "
+        "usage_duration, device_limit (-1 keep / -2 clear to 'no limit' / "
+        "0 block all new devices / positive = max concurrent devices). "
         "Syncs changes to nodes automatically."
     ),
     requires_confirmation=True,
@@ -186,6 +189,7 @@ async def modify_user(
     data_limit_reset_strategy: str = "",
     usage_duration: int = -1,
     note: str = "",
+    device_limit: int = -1,
 ) -> dict:
     from app.db import crud
     from app.models.user import UserModify, UserExpireStrategy, UserDataUsageResetStrategy
@@ -220,6 +224,10 @@ async def modify_user(
         kwargs["usage_duration"] = usage_duration or None
     if note:
         kwargs["note"] = note
+    if device_limit == -2:
+        kwargs["device_limit"] = None
+    elif device_limit >= 0:
+        kwargs["device_limit"] = device_limit
 
     try:
         modifications = UserModify(**kwargs)
@@ -228,6 +236,34 @@ async def modify_user(
         return {"error": str(e)}
 
     return {"success": True, "user": _serialize_user(db_user)}
+
+
+@register_tool(
+    name="get_user_subscription",
+    description=(
+        "Get the user's subscription URL (the link clients paste into Xray/v2ray/"
+        "sing-box/Clash apps). Also returns the internal subscription key. "
+        "Do NOT leak the URL beyond the admin who asked — it grants proxy access."
+    ),
+    requires_confirmation=False,
+)
+async def get_user_subscription(db: Session, username: str) -> dict:
+    from app.db.models.core import User
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return {"error": f"User '{username}' not found"}
+    if user.removed:
+        return {"error": f"User '{username}' is removed"}
+
+    return {
+        "username": user.username,
+        "subscription_url": user.subscription_url,
+        "key": user.key,
+        "sub_updated_at": str(user.sub_updated_at) if user.sub_updated_at else None,
+        "sub_last_user_agent": user.sub_last_user_agent,
+        "sub_revoked_at": str(user.sub_revoked_at) if user.sub_revoked_at else None,
+    }
 
 
 @register_tool(

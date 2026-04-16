@@ -8,6 +8,12 @@ from app.ai.tools._common import clamp_limit
 logger = logging.getLogger(__name__)
 
 
+def _device_owner_username(db, user_id: int) -> str | None:
+    from app.db.models.core import User
+    row = db.query(User.username).filter(User.id == user_id).first()
+    return row[0] if row else None
+
+
 @register_tool(
     name="get_user_devices",
     description=(
@@ -97,3 +103,127 @@ async def search_devices(
             for d in devices
         ],
     }
+
+
+@register_tool(
+    name="block_device",
+    description=(
+        "Mark a specific device as blocked (UserDevice.is_blocked=True). "
+        "Requires `device_id` — first resolve it via get_user_devices or "
+        "search_devices. When ENFORCE_DEVICE_LIMITS_ON_PROXY is enabled, "
+        "marznode will drop connections from this device on the next sync. "
+        "Blocking is reversible with unblock_device. Use this instead of "
+        "lowering device_limit when you want to disable ONE specific client "
+        "without touching the user's other devices."
+    ),
+    requires_confirmation=True,
+)
+async def block_device(db: Session, device_id: int) -> dict:
+    from app.db import device_crud
+
+    device = device_crud.get_device_by_id(db, device_id)
+    if not device:
+        return {"error": f"Device {device_id} not found"}
+    if device.is_blocked:
+        return {
+            "success": True,
+            "already_blocked": True,
+            "device_id": device_id,
+            "user_id": device.user_id,
+            "username": _device_owner_username(db, device.user_id),
+        }
+
+    updated = device_crud.update_device(db, device_id, is_blocked=True)
+    return {
+        "success": True,
+        "device_id": device_id,
+        "user_id": updated.user_id,
+        "username": _device_owner_username(db, updated.user_id),
+        "client_name": updated.client_name,
+        "is_blocked": updated.is_blocked,
+    }
+
+
+@register_tool(
+    name="unblock_device",
+    description=(
+        "Clear the blocked flag on a device (UserDevice.is_blocked=False). "
+        "Inverse of block_device."
+    ),
+    requires_confirmation=True,
+)
+async def unblock_device(db: Session, device_id: int) -> dict:
+    from app.db import device_crud
+
+    device = device_crud.get_device_by_id(db, device_id)
+    if not device:
+        return {"error": f"Device {device_id} not found"}
+    if not device.is_blocked:
+        return {
+            "success": True,
+            "already_unblocked": True,
+            "device_id": device_id,
+            "user_id": device.user_id,
+            "username": _device_owner_username(db, device.user_id),
+        }
+
+    updated = device_crud.update_device(db, device_id, is_blocked=False)
+    return {
+        "success": True,
+        "device_id": device_id,
+        "user_id": updated.user_id,
+        "username": _device_owner_username(db, updated.user_id),
+        "client_name": updated.client_name,
+        "is_blocked": updated.is_blocked,
+    }
+
+
+@register_tool(
+    name="forget_device",
+    description=(
+        "DANGEROUS: permanently delete a device record and ALL its related "
+        "IP / traffic rows. Use only when the admin explicitly wants to drop "
+        "historical data — for everyday cases prefer block_device (reversible)."
+    ),
+    requires_confirmation=True,
+)
+async def forget_device(db: Session, device_id: int) -> dict:
+    from app.db import device_crud
+
+    device = device_crud.get_device_by_id(db, device_id)
+    if not device:
+        return {"error": f"Device {device_id} not found"}
+
+    owner = _device_owner_username(db, device.user_id)
+    ok = device_crud.delete_device(db, device_id)
+    if not ok:
+        return {"error": f"Failed to delete device {device_id}"}
+    return {
+        "success": True,
+        "device_id": device_id,
+        "username": owner,
+    }
+
+
+@register_tool(
+    name="get_user_device_stats",
+    description=(
+        "Get aggregated device statistics for a user: total / active (seen in "
+        "last 24h) / blocked device counts, unique IPs, unique country codes, "
+        "lifetime traffic. Cheaper than listing all devices when you only need "
+        "the numbers."
+    ),
+    requires_confirmation=False,
+)
+async def get_user_device_stats(db: Session, username: str) -> dict:
+    from app.db import device_crud
+    from app.db.models.core import User
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return {"error": f"User '{username}' not found"}
+
+    stats = device_crud.get_user_device_statistics(db, user.id)
+    stats["username"] = username
+    stats["device_limit"] = user.device_limit
+    return stats
