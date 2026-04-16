@@ -5,8 +5,8 @@ from typing import Optional, Union
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.db.models import Node, NodeUserUsage
-from app.db.models.proxy import NodeUserUsageDaily
+from app.db.models import Node, NodeUsage, NodeUserUsage
+from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
 from app.core.settings import settings
 from app.models.node import NodeCreate, NodeModify, NodeStatus
 from app.models.system import TrafficUsageSeries
@@ -128,6 +128,23 @@ def create_node(db: Session, node: NodeCreate):
 
 
 def remove_node(db: Session, dbnode: Node):
+    # На уровне БД у таблиц *_usages(_daily) нет ON DELETE CASCADE, а в ORM
+    # cascade выставлен только на save-update/merge, поэтому удаляем вручную,
+    # иначе MySQL возвращает IntegrityError по FK при удалении ноды.
+    node_id = dbnode.id
+    db.query(NodeUserUsageDaily).filter(
+        NodeUserUsageDaily.node_id == node_id
+    ).delete(synchronize_session=False)
+    db.query(NodeUsageDaily).filter(
+        NodeUsageDaily.node_id == node_id
+    ).delete(synchronize_session=False)
+    db.query(NodeUserUsage).filter(
+        NodeUserUsage.node_id == node_id
+    ).delete(synchronize_session=False)
+    db.query(NodeUsage).filter(
+        NodeUsage.node_id == node_id
+    ).delete(synchronize_session=False)
+
     db.delete(dbnode)
     db.commit()
     return dbnode
