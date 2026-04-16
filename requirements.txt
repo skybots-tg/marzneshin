@@ -27,7 +27,7 @@ v2share==0.1.0b31
 PyJWT~=2.8.0
 PyNaCl==1.5.0
 starlette==0.41.3
-uvicorn==0.30.4
+uvicorn==0.32.1
 rich==13.7.1
 python-multipart==0.0.20
 httptools==0.6.4
