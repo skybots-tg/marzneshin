@@ -3,7 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.tool_registry import register_tool
-from app.ai.tools._common import clamp_limit, clamp_offset
+from app.ai.tools._common import clamp_limit, clamp_offset, paginated_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +51,7 @@ async def list_nodes(
             }
             for n in nodes
         ],
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "truncated": total > offset + limit,
+        **paginated_envelope(total, offset, limit),
     }
 
 
@@ -97,11 +94,18 @@ async def get_node_info(db: Session, node_id: int) -> dict:
     name="get_node_config",
     description=(
         "Get the live backend config (e.g. Xray JSON) of a specific node. "
-        "Returns the raw config string. By default the payload is capped at "
-        "32 KiB to avoid dumping huge configs into the chat — set "
-        "`max_bytes` higher (up to 262144) when you genuinely need the full "
-        "text for rewriting. `summary=true` returns only a compact digest "
-        "(inbound tags/ports/protocols + outbound tags) instead of the full JSON."
+        "Three reading modes, pick the cheapest that answers your question:\n"
+        "  * `summary=true` — compact digest (inbound tags/protocols/ports + "
+        "outbound tags + routing rule count). Use this to locate which part "
+        "of the config you care about before pulling raw text.\n"
+        "  * `inbound_tag='XYZ'` — return ONLY the inbound object whose tag "
+        "matches (first match). Usually a few KiB regardless of total size.\n"
+        "  * Default (raw paging) — returns a slice of the raw config string. "
+        "`offset` (byte offset, default 0) + `max_bytes` (default 32 KiB, hard "
+        "max 128 KiB per call). Response includes `size_bytes`, `truncated`, "
+        "and `next_offset` so you can walk a huge config in successive calls "
+        "without blowing context. The slice is UTF-8 safe (broken surrogate "
+        "at the tail is trimmed)."
     ),
     requires_confirmation=False,
 )
@@ -110,7 +114,9 @@ async def get_node_config(
     node_id: int,
     backend: str = "xray",
     max_bytes: int = 32768,
+    offset: int = 0,
     summary: bool = False,
+    inbound_tag: str = "",
 ) -> dict:
     import json
 
@@ -154,15 +160,62 @@ async def get_node_config(
         })
         return digest
 
-    cap = max(1024, min(int(max_bytes or 32768), 262144))
-    truncated = size > cap
-    body = config[:cap] if truncated else config
+    if inbound_tag:
+        try:
+            parsed = json.loads(config)
+        except (json.JSONDecodeError, TypeError):
+            return {
+                "node_id": node_id,
+                "backend": backend,
+                "size_bytes": size,
+                "error": "Config is not valid JSON — cannot search by inbound_tag",
+            }
+        match = next(
+            (ib for ib in (parsed.get("inbounds") or []) if ib.get("tag") == inbound_tag),
+            None,
+        )
+        if not match:
+            return {
+                "node_id": node_id,
+                "backend": backend,
+                "inbound_tag": inbound_tag,
+                "found": False,
+                "available_tags": [
+                    ib.get("tag") for ib in (parsed.get("inbounds") or [])
+                ],
+            }
+        return {
+            "node_id": node_id,
+            "backend": backend,
+            "inbound_tag": inbound_tag,
+            "found": True,
+            "inbound": match,
+            "size_bytes": size,
+        }
+
+    cap = max(1024, min(int(max_bytes or 32768), 131072))
+    start = max(0, int(offset or 0))
+    if start >= size:
+        return {
+            "config": "",
+            "format": config_format,
+            "size_bytes": size,
+            "offset": start,
+            "max_bytes": cap,
+            "truncated": False,
+            "next_offset": None,
+        }
+    end = min(size, start + cap)
+    body = config[start:end]
+    truncated = end < size
     return {
         "config": body,
         "format": config_format,
         "size_bytes": size,
-        "truncated": truncated,
+        "offset": start,
         "max_bytes": cap,
+        "truncated": truncated,
+        "next_offset": end if truncated else None,
     }
 
 
