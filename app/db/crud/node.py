@@ -1,8 +1,10 @@
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
 from sqlalchemy import and_, func
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.db.models import Node, NodeUsage, NodeUserUsage
@@ -10,6 +12,10 @@ from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
 from app.core.settings import settings
 from app.models.node import NodeCreate, NodeModify, NodeStatus
 from app.models.system import TrafficUsageSeries
+
+logger = logging.getLogger(__name__)
+
+_NODE_USAGE_DELETE_BATCH = 2000
 
 
 def get_node(db: Session, name: str):
@@ -127,23 +133,52 @@ def create_node(db: Session, node: NodeCreate):
     return dbnode
 
 
+def _batched_delete_usage(db: Session, model, node_id: int) -> int:
+    """Удаляет строки usage-таблицы, относящиеся к ноде, пакетами с коммитами.
+
+    У таблиц *_usages(_daily) нет ON DELETE CASCADE на уровне БД, а ORM-cascade
+    выставлен только на save-update/merge. Один большой DELETE на активной ноде
+    выбивает `Lost connection to MySQL server during query (timed out)`
+    (см. read_timeout / max_execution_time в app/db/base.py), поэтому удаляем
+    чанками по `_NODE_USAGE_DELETE_BATCH` строк и коммитим между ними.
+    """
+    total = 0
+    while True:
+        ids = [
+            row[0]
+            for row in db.query(model.id)
+            .filter(model.node_id == node_id)
+            .limit(_NODE_USAGE_DELETE_BATCH)
+            .all()
+        ]
+        if not ids:
+            break
+        db.query(model).filter(model.id.in_(ids)).delete(
+            synchronize_session=False
+        )
+        db.commit()
+        total += len(ids)
+    if total:
+        logger.info(
+            "Deleted %d rows from %s for node_id=%s",
+            total,
+            model.__tablename__,
+            node_id,
+        )
+    return total
+
+
 def remove_node(db: Session, dbnode: Node):
-    # На уровне БД у таблиц *_usages(_daily) нет ON DELETE CASCADE, а в ORM
-    # cascade выставлен только на save-update/merge, поэтому удаляем вручную,
-    # иначе MySQL возвращает IntegrityError по FK при удалении ноды.
     node_id = dbnode.id
-    db.query(NodeUserUsageDaily).filter(
-        NodeUserUsageDaily.node_id == node_id
-    ).delete(synchronize_session=False)
-    db.query(NodeUsageDaily).filter(
-        NodeUsageDaily.node_id == node_id
-    ).delete(synchronize_session=False)
-    db.query(NodeUserUsage).filter(
-        NodeUserUsage.node_id == node_id
-    ).delete(synchronize_session=False)
-    db.query(NodeUsage).filter(
-        NodeUsage.node_id == node_id
-    ).delete(synchronize_session=False)
+
+    # Порядок: сначала daily-агрегаты (обычно компактные), потом hourly-таблицы,
+    # которые могут содержать миллионы строк на долгоживущей ноде.
+    for model in (NodeUserUsageDaily, NodeUsageDaily, NodeUserUsage, NodeUsage):
+        try:
+            _batched_delete_usage(db, model, node_id)
+        except OperationalError:
+            db.rollback()
+            raise
 
     db.delete(dbnode)
     db.commit()
