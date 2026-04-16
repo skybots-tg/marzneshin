@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
-    buildBackupDownloadUrl,
+    downloadBackupJobArtefact,
     useBackupInfoQuery,
     useBackupJobQuery,
     useCancelBackupMutation,
@@ -63,6 +63,7 @@ export const BackupDialog: FC<BackupDialogProps> = ({ open, onClose }) => {
     const [historyDays, setHistoryDays] = useState<number>(30)
     const [skipTables, setSkipTables] = useState<Set<string>>(new Set())
     const [jobId, setJobId] = useState<string | null>(null)
+    const [isDownloading, setIsDownloading] = useState(false)
 
     const jobQuery = useBackupJobQuery(jobId, open)
     const job: BackupJob | undefined = jobQuery.data
@@ -114,6 +115,20 @@ export const BackupDialog: FC<BackupDialogProps> = ({ open, onClose }) => {
                 (err as { data?: { detail?: string } })?.data?.detail ||
                 String(err)
             toast.error(detail)
+        }
+    }
+
+    const handleDownload = async () => {
+        if (!jobId) return
+        try {
+            setIsDownloading(true)
+            await downloadBackupJobArtefact(jobId)
+        } catch (err) {
+            toast.error(
+                err instanceof Error ? err.message : String(err),
+            )
+        } finally {
+            setIsDownloading(false)
         }
     }
 
@@ -393,16 +408,17 @@ export const BackupDialog: FC<BackupDialogProps> = ({ open, onClose }) => {
                     {(isDone || isFailed || isCancelled) && (
                         <>
                             {isDone && jobId && (
-                                <a
-                                    href={buildBackupDownloadUrl(jobId)}
-                                    download
-                                    className="inline-flex"
+                                <Button
+                                    onClick={handleDownload}
+                                    disabled={isDownloading}
                                 >
-                                    <Button>
+                                    {isDownloading ? (
+                                        <Loader2 className="size-3.5 animate-spin mr-1" />
+                                    ) : (
                                         <Download className="size-3.5 mr-1" />
-                                        {t('ai.backup.download')}
-                                    </Button>
-                                </a>
+                                    )}
+                                    {t('ai.backup.download')}
+                                </Button>
                             )}
                             <Button variant="outline" onClick={() => setJobId(null)}>
                                 {t('ai.backup.new-backup')}
