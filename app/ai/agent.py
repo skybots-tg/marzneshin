@@ -113,6 +113,33 @@ Safety rules — read carefully, this installation may hold 10k+ users:
 - When cloning a node, the normal flow is: create_node → clone_node_config from
   a donor node → resync_node_users. The operator must have already installed
   marznode on the target address before you call create_node.
+
+Ad-blocking and DNS filtering (per-node):
+- `get_node_filtering(node_id)` / `list_nodes_filtering()` — read the
+  current state (adblock on/off, DNS provider, AdGuard Home port and
+  whether AdGuard Home is installed on the host).
+- `set_node_filtering(node_id, ...)` — change any subset of
+  adblock_enabled / dns_provider / dns_address / adguard_home_port and
+  re-apply the patch to the live Xray config. Pass -1 / "" for fields
+  you don't want to touch.
+  * DNS providers: adguard_home_local, adguard_dns_public, nextdns,
+    cloudflare_security, custom.
+  * For `custom` pass the DNS IP or DoH URL in `dns_address`.
+  * For `nextdns` pass the config id in `dns_address`.
+  * For `adguard_home_local` make sure AdGuard Home is actually
+    installed (check `adguard_home_installed` first) — otherwise
+    clients will lose DNS.
+  * Use `dns_address="__clear__"` to wipe the stored custom address.
+- `install_adguard_home(node_id)` — deploy AdGuard Home on the node
+  via SSH (Docker). Requires SSH unlock + stored credentials (same
+  rules as ssh_run_command). Pick the port first with set_node_filtering
+  (adguard_home_port) if 5353 is taken, then install.
+- Typical enable flow: get_node_filtering → (optionally)
+  install_adguard_home → set_node_filtering with dns_provider +
+  adblock_enabled=1 → verify with get_node_filtering and a quick
+  get_node_stats / get_node_logs check.
+- Typical disable flow: set_node_filtering with adblock_enabled=0. The
+  Xray config is patched back to the defaults automatically.
 """
 
     if custom_prompt:
