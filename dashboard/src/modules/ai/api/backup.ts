@@ -1,6 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { fetch } from '@marzneshin/common/utils/fetch'
-import { useAuth } from '@marzneshin/modules/auth'
 
 export type BackupMode = 'full' | 'light' | 'config'
 
@@ -106,52 +105,23 @@ export const useBackupJobQuery = (jobId: string | null, enabled: boolean) =>
 export const buildBackupDownloadUrl = (jobId: string): string =>
     `/api/ai/backup/jobs/${jobId}/download`
 
-// The download endpoint is protected by SudoAdminDep, so a plain <a href>
-// navigation cannot attach the bearer token and would receive 401. We fetch
-// the artefact as a blob with the auth header and trigger the download via
-// an object URL instead.
-const parseFilenameFromContentDisposition = (
-    header: string | null,
-): string | null => {
-    if (!header) return null
-    const utf8Match = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)
-    if (utf8Match?.[1]) {
-        try {
-            return decodeURIComponent(utf8Match[1].trim())
-        } catch {
-            return utf8Match[1].trim()
-        }
+const deriveBackupFilename = (job: BackupJob | null | undefined): string => {
+    if (job?.path) {
+        const base = job.path.split(/[\\/]/).pop()
+        if (base) return base
     }
-    const asciiMatch = /filename\s*=\s*"?([^";]+)"?/i.exec(header)
-    if (asciiMatch?.[1]) return asciiMatch[1].trim()
-    return null
+    return `marzneshin-backup-${job?.id ?? 'artefact'}`
 }
 
-export const downloadBackupJobArtefact = async (
-    jobId: string,
-    fallbackName = 'backup',
-): Promise<void> => {
-    const baseUrl = (import.meta.env.VITE_BASE_API ?? '').replace(/\/$/, '')
-    const url = `${baseUrl}/ai/backup/jobs/${jobId}/download`
-    const token = useAuth.getState().getAuthToken()
-    const res = await window.fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+// The download endpoint is protected by SudoAdminDep, so a plain <a href>
+// navigation cannot attach the bearer token and would receive 401. We route
+// the request through the shared fetch helper (which adds the token) and
+// trigger the download via an object URL instead.
+export const downloadBackupJobArtefact = async (job: BackupJob): Promise<void> => {
+    const blob = await fetch<Blob>(`/ai/backup/jobs/${job.id}/download`, {
+        responseType: 'blob',
     })
-    if (!res.ok) {
-        let detail = `${res.status} ${res.statusText}`
-        try {
-            const body = await res.json()
-            if (body?.detail) detail = String(body.detail)
-        } catch {
-            // ignore — non-JSON error bodies are fine.
-        }
-        throw new Error(detail)
-    }
-    const blob = await res.blob()
-    const filename =
-        parseFilenameFromContentDisposition(
-            res.headers.get('content-disposition'),
-        ) ?? fallbackName
+    const filename = deriveBackupFilename(job)
     const objectUrl = URL.createObjectURL(blob)
     try {
         const link = document.createElement('a')
