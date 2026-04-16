@@ -107,6 +107,31 @@ Safety rules — read carefully, this installation may hold 10k+ users:
   a donor node → resync_node_users. The operator must have already installed
   marznode on the target address before you call create_node.
 
+Host naming — follow the existing convention, don't invent:
+- Marzneshin admins keep `remark` fields consistent across nodes/inbounds —
+  same prefixes, same emoji, same punctuation, same order. Preserve that.
+- Before you create a NEW host (especially "universal 2 / 3 / 4..."), you
+  MUST first look at 2–3 existing hosts with a similar role and copy their
+  `remark` template verbatim, changing only the numeric index or the part
+  the admin explicitly asked to change. Use `list_hosts(remark="universal",
+  limit=100)` (or a more specific keyword), read the exact `remark` strings
+  including every emoji / variation-selector / ZWJ / whitespace character,
+  and reuse that template. Do NOT reconstruct the remark from memory or
+  from your own idea of "what looks nice".
+- Before you MODIFY an existing host's remark, always call `get_host_info`
+  first and treat the returned `remark` as the literal source of truth.
+  Copy it as-is, then change ONLY the specific characters the admin asked
+  about. Never retype the emoji (♾️, 📶, ✅, 🇷🇺, 🇫🇷, etc.) from your own
+  output — the tokenizer can silently drop variation selectors or swap
+  emoji. If you're not sure an emoji survived the round-trip, paste the
+  relevant `remark` back to the admin for confirmation before committing.
+- If the admin just says "replace X with Y across all universal hosts":
+  1) `list_hosts(universal_only=true, limit=100)` to enumerate them;
+  2) for each host whose `remark` contains X, compose the new `remark`
+     as `old_remark.replace(X, Y)` (using Python-style substring
+     replacement) and call `modify_host(host_id, remark=new_remark)`
+     — do NOT assemble the new `remark` from scratch.
+
 Ad-blocking and DNS filtering (per-node):
 - `get_node_filtering(node_id)` / `list_nodes_filtering()` — read the
   current state (adblock on/off, DNS provider, AdGuard Home port and
