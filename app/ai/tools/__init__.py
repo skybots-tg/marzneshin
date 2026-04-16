@@ -8,4 +8,5 @@ from . import (  # noqa: F401
     service_tools,
     device_tools,
     admin_tools,
+    ssh_tools,
 )
