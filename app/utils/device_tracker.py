@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.db import device_crud
 from app.utils.device_fingerprint import (
+    DEFAULT_FINGERPRINT_VERSION,
+    SUPPORTED_FINGERPRINT_VERSIONS,
     build_device_fingerprint,
+    build_device_fingerprints_all,
     guess_client_type,
     extract_client_name,
     normalize_client_name,
@@ -73,16 +76,30 @@ def track_user_connection(
         client_name = normalize_client_name(client_name)
         client_type = guess_client_type(client_name, user_agent)
         
-        fingerprint, fingerprint_version = build_device_fingerprint(
+        # Compute fingerprints for every supported version so we can
+        # transparently look up legacy (v1) device records while creating
+        # new ones with the current default (v2).
+        fingerprints_by_version = build_device_fingerprints_all(
             user_id=user_id,
             client_name=client_name,
             tls_fingerprint=tls_fingerprint,
             user_agent=user_agent,
         )
-        
-        device = device_crud.get_device_by_fingerprint(
-            db, user_id, fingerprint, fingerprint_version
-        )
+        fingerprint_version = DEFAULT_FINGERPRINT_VERSION
+        fingerprint = fingerprints_by_version[fingerprint_version]
+
+        device = None
+        for version in (
+            DEFAULT_FINGERPRINT_VERSION,
+            *(v for v in SUPPORTED_FINGERPRINT_VERSIONS if v != DEFAULT_FINGERPRINT_VERSION),
+        ):
+            device = device_crud.get_device_by_fingerprint(
+                db, user_id, fingerprints_by_version[version], version
+            )
+            if device:
+                fingerprint = fingerprints_by_version[version]
+                fingerprint_version = version
+                break
         
         if not device:
             from app.db.models import User as DBUser
@@ -181,20 +198,41 @@ def track_user_connection(
         return None, None
 
 
-def is_device_blocked(db: Session, user_id: int, fingerprint: str) -> bool:
+def is_device_blocked(
+    db: Session,
+    user_id: int,
+    fingerprint: str,
+    fingerprint_version: Optional[int] = None,
+) -> bool:
     """
     Check if a device is blocked.
-    
+
+    Looks up the record across every supported fingerprint version so the
+    caller does not have to know whether the device was registered before
+    or after the v2 migration.
+
     Args:
         db: Database session
         user_id: User ID
-        fingerprint: Device fingerprint
-    
+        fingerprint: Device fingerprint hash
+        fingerprint_version: Explicit version to check; when ``None`` (the
+            default) all supported versions are probed.
+
     Returns:
         True if device is blocked, False otherwise
     """
-    device = device_crud.get_device_by_fingerprint(db, user_id, fingerprint, 1)
-    return device.is_blocked if device else False
+    versions_to_check = (
+        (fingerprint_version,)
+        if fingerprint_version is not None
+        else SUPPORTED_FINGERPRINT_VERSIONS
+    )
+    for version in versions_to_check:
+        device = device_crud.get_device_by_fingerprint(
+            db, user_id, fingerprint, version
+        )
+        if device:
+            return bool(device.is_blocked)
+    return False
 
 
 def get_user_active_devices_count(
