@@ -1,5 +1,10 @@
 import asyncio
+import base64
+import json
 import logging
+import re
+from urllib.parse import unquote
+from uuid import UUID as UUIDType
 
 from sqlalchemy.orm import Session
 
@@ -265,41 +270,23 @@ def _looks_like_reality(host) -> bool:
     return False
 
 
-@register_tool(
-    name="validate_host",
-    description=(
-        "Run a set of heuristic checks on a single host entry and report "
-        "misconfigurations that usually cause broken subscriptions — "
-        "missing Reality public key on a universal host, empty UUID on a "
-        "VLESS host that has no bound inbound, `fingerprint=none` on a "
-        "Reality host, Trojan/Shadowsocks hosts without a password, "
-        "obviously bad address/port, etc. Use this after "
-        "`inspect_user_subscription` spots a suspicious line. "
-        "Read-only: only returns a list of issues, does not touch the "
-        "host."
-    ),
-    requires_confirmation=False,
-)
-async def validate_host(db: Session, host_id: int) -> dict:
-    from app.db.models.proxy import InboundHost
+def _host_protocol(host) -> str:
+    return (
+        host.inbound.protocol.value
+        if host.inbound
+        else (host.host_protocol or "")
+    ).lower()
 
-    host = (
-        db.query(InboundHost).filter(InboundHost.id == host_id).first()
-    )
-    if not host:
-        return {"error": f"Host {host_id} not found"}
 
+def _collect_host_issues(host) -> list[dict]:
+    """Return a list of heuristic issues for an InboundHost. Shared between
+    `validate_host` (single) and `scan_hosts_for_issues` (bulk)."""
     issues: list[dict] = []
 
     def add(level: str, field: str | None, message: str) -> None:
         issues.append({"level": level, "field": field, "message": message})
 
-    protocol = (
-        host.inbound.protocol.value
-        if host.inbound
-        else (host.host_protocol or "")
-    )
-    protocol = (protocol or "").lower()
+    protocol = _host_protocol(host)
 
     if not host.address:
         add("error", "address", "address is empty")
@@ -385,6 +372,30 @@ async def validate_host(db: Session, host_id: int) -> dict:
                 "host has no bound inbound AND no host_protocol — "
                 "panel cannot generate any link for it",
             )
+    else:
+        # Bound-to-inbound host: still check Reality-on-host misconfigs.
+        # A VLESS host that HAS reality_public_key set but the field is
+        # null/empty is a very common cause of vless://None@ links even
+        # when a bound inbound exists, because the reality params are
+        # pulled from the host record by `share.py`.
+        if protocol == "vless" and _looks_like_reality(host):
+            if not host.reality_public_key:
+                add(
+                    "warning",
+                    "reality_public_key",
+                    "VLESS host looks like Reality (flow=vision) but "
+                    "host-level reality_public_key is empty — link "
+                    "will rely entirely on the inbound's reality "
+                    "settings; if those are also missing you will "
+                    "see `vless://...` without `pbk=`",
+                )
+            if not host.reality_short_ids:
+                add(
+                    "warning",
+                    "reality_short_ids",
+                    "VLESS Reality host without host-level "
+                    "reality_short_ids — same caveat as above",
+                )
 
     if (
         getattr(host, "mlkem_enabled", False)
@@ -403,6 +414,34 @@ async def validate_host(db: Session, host_id: int) -> dict:
             "host is disabled — it will not appear in any subscription",
         )
 
+    return issues
+
+
+@register_tool(
+    name="validate_host",
+    description=(
+        "Run a set of heuristic checks on a single host entry and report "
+        "misconfigurations that usually cause broken subscriptions — "
+        "missing Reality public key on a universal host, empty UUID on a "
+        "VLESS host that has no bound inbound, `fingerprint=none` on a "
+        "Reality host, Trojan/Shadowsocks hosts without a password, "
+        "obviously bad address/port, etc. Use this after "
+        "`inspect_user_subscription` spots a suspicious line. "
+        "Read-only: only returns a list of issues, does not touch the "
+        "host."
+    ),
+    requires_confirmation=False,
+)
+async def validate_host(db: Session, host_id: int) -> dict:
+    from app.db.models.proxy import InboundHost
+
+    host = (
+        db.query(InboundHost).filter(InboundHost.id == host_id).first()
+    )
+    if not host:
+        return {"error": f"Host {host_id} not found"}
+
+    issues = _collect_host_issues(host)
     summary = {
         "error": sum(1 for i in issues if i["level"] == "error"),
         "warning": sum(1 for i in issues if i["level"] == "warning"),
@@ -412,10 +451,290 @@ async def validate_host(db: Session, host_id: int) -> dict:
     return {
         "host_id": host_id,
         "remark": host.remark,
-        "protocol": protocol or None,
+        "protocol": _host_protocol(host) or None,
         "universal": bool(host.universal),
         "bound_to_inbound": host.inbound is not None,
         "issues": issues,
         "summary": summary,
         "ok": summary["error"] == 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bulk host validator
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="scan_hosts_for_issues",
+    description=(
+        "Bulk-run the same heuristic checks as `validate_host` across "
+        "many hosts at once and return only the ones with problems. "
+        "Ideal for questions like 'show me every broken host on node X' "
+        "or 'which VLESS+Reality hosts are misconfigured'. Filters: "
+        "`node_id` (>0 restricts to hosts bound to inbounds on that "
+        "node — universal hosts are NOT included when this is set), "
+        "`inbound_id` (>0 restricts to one inbound), `protocol` (e.g. "
+        "'vless', 'trojan'; case-insensitive). By default returns only "
+        "hosts with at least one `error`-level issue; pass "
+        "`only_with_errors=False` to also include warnings. Paginated: "
+        "`limit` default 100, hard max 500. `total` in the response is "
+        "the total number of hosts matching the SQL filter BEFORE the "
+        "in-memory error/warning filter — iterate pages with "
+        "`next_offset` to be sure you've seen every broken host."
+    ),
+    requires_confirmation=False,
+)
+async def scan_hosts_for_issues(
+    db: Session,
+    node_id: int = 0,
+    inbound_id: int = 0,
+    protocol: str = "",
+    only_with_errors: bool = True,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    from app.db.models import Inbound, InboundHost
+
+    limit = clamp_limit(limit, default=100, maximum=500)
+    offset = clamp_offset(offset)
+
+    query = db.query(InboundHost)
+    if inbound_id > 0:
+        query = query.filter(InboundHost.inbound_id == inbound_id)
+    if node_id > 0:
+        query = query.join(
+            Inbound, InboundHost.inbound_id == Inbound.id
+        ).filter(Inbound.node_id == node_id)
+    query = query.order_by(InboundHost.id)
+
+    total = query.count()
+    hosts = query.offset(offset).limit(limit).all()
+
+    proto_filter = (protocol or "").lower().strip()
+    results: list[dict] = []
+    ok_count = 0
+    for h in hosts:
+        host_proto = _host_protocol(h)
+        if proto_filter and host_proto != proto_filter:
+            continue
+        issues = _collect_host_issues(h)
+        err_count = sum(1 for i in issues if i["level"] == "error")
+        warn_count = sum(1 for i in issues if i["level"] == "warning")
+        if err_count == 0 and (only_with_errors or warn_count == 0):
+            ok_count += 1
+            continue
+        results.append({
+            "host_id": h.id,
+            "remark": h.remark,
+            "protocol": host_proto or None,
+            "universal": bool(h.universal),
+            "inbound_id": h.inbound_id,
+            "node_id": h.inbound.node_id if h.inbound else None,
+            "errors": err_count,
+            "warnings": warn_count,
+            "issues": issues,
+        })
+
+    return {
+        "hosts": results,
+        "filter": {
+            "node_id": node_id or None,
+            "inbound_id": inbound_id or None,
+            "protocol": proto_filter or None,
+            "only_with_errors": only_with_errors,
+        },
+        "page_ok_count": ok_count,
+        "page_broken_count": len(results),
+        **paginated_envelope(total, offset, limit),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reverse credential lookup (UUID / password / subscription URL → username)
+# ---------------------------------------------------------------------------
+
+
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def _extract_credential(raw: str) -> tuple[str, str] | None:
+    """Parse an admin-supplied string into ('uuid'|'password', value).
+
+    Accepts: a bare UUID, a bare password/hex string, or a full
+    vless://<uuid>@... / trojan://<pass>@... / vmess://<base64> URL.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return None
+
+    low = s.lower()
+    for scheme, kind in (("vless://", "uuid"), ("trojan://", "password")):
+        if low.startswith(scheme):
+            rest = s[len(scheme):]
+            at = rest.find("@")
+            if at > 0:
+                userinfo = unquote(rest[:at]).strip()
+                if userinfo and userinfo.lower() != "none":
+                    return (kind, userinfo)
+            return None  # vless://None@... — nothing to look up
+
+    if low.startswith("vmess://"):
+        try:
+            b64 = s[len("vmess://"):].split("#", 1)[0].split("?", 1)[0]
+            pad = "=" * (-len(b64) % 4)
+            decoded = base64.b64decode(b64 + pad).decode(
+                "utf-8", errors="replace"
+            )
+            obj = json.loads(decoded)
+            uid = obj.get("id")
+            if uid:
+                return ("uuid", str(uid))
+        except Exception:
+            pass
+        return None
+
+    if _UUID_RE.match(s):
+        return ("uuid", s.lower())
+    return ("password", s)
+
+
+@register_tool(
+    name="find_user_by_credential",
+    description=(
+        "Reverse-lookup a user (or host) by a credential taken from a "
+        "subscription. Accepts a UUID (VLESS/VMess), a password "
+        "(Trojan/Shadowsocks/Hysteria2), or a full "
+        "`vless://<uuid>@...`, `trojan://<pass>@...`, or "
+        "`vmess://<base64>` URL — the tool auto-detects the kind and "
+        "extracts the credential. It then checks BOTH explicit host-"
+        "level credentials (`host.uuid` / `host.password`) AND "
+        "per-user derived credentials (`gen_uuid(user.key)` / "
+        "`gen_password(user.key)`) so it works regardless of the "
+        "panel's AUTH_GENERATION_ALGORITHM setting. Read-only. Use "
+        "this when the admin gives you a UUID / password but no "
+        "username, or when they paste a single suspicious subscription "
+        "line. `max_scan` (default 5000, hard max 50000) caps how many "
+        "non-removed users are hashed before giving up — the full user "
+        "count and `truncated` flag are returned so you know if you "
+        "need to raise it."
+    ),
+    requires_confirmation=False,
+)
+async def find_user_by_credential(
+    db: Session,
+    credential: str,
+    max_scan: int = 5000,
+) -> dict:
+    from app.db.models import InboundHost
+    from app.db.models.core import User
+    from app.utils.keygen import gen_password, gen_uuid
+
+    parsed = _extract_credential(credential)
+    if not parsed:
+        return {
+            "error": (
+                "Could not extract a credential from the input. Pass a "
+                "bare UUID, a password, or a full vless://<uuid>@... / "
+                "trojan://<pass>@... / vmess://<base64> URL. A "
+                "`vless://None@...` link by itself is not enough — "
+                "the admin must give a username instead."
+            )
+        }
+
+    kind, value = parsed
+    max_scan = max(1, min(int(max_scan or 5000), 50_000))
+
+    host_matches: list[dict] = []
+    if kind == "uuid":
+        try:
+            norm = str(UUIDType(value))
+        except ValueError:
+            norm = value.lower()
+        rows = (
+            db.query(InboundHost)
+            .filter(InboundHost.uuid.ilike(norm))
+            .limit(25)
+            .all()
+        )
+        for h in rows:
+            host_matches.append({
+                "host_id": h.id,
+                "remark": h.remark,
+                "field": "uuid",
+                "value": h.uuid,
+            })
+    else:
+        rows = (
+            db.query(InboundHost)
+            .filter(InboundHost.password == value)
+            .limit(25)
+            .all()
+        )
+        for h in rows:
+            host_matches.append({
+                "host_id": h.id,
+                "remark": h.remark,
+                "field": "password",
+            })
+
+    target_value = value.lower() if kind == "uuid" else value
+    user_matches: list[dict] = []
+    q = (
+        db.query(User.id, User.username, User.key, User.removed)
+        .filter(User.removed == False)  # noqa: E712
+        .order_by(User.id)
+    )
+    total_users = q.count()
+    rows = q.limit(max_scan).all()
+
+    scanned = 0
+    for uid, uname, key, _removed in rows:
+        scanned += 1
+        if not key:
+            continue
+        try:
+            if kind == "uuid":
+                derived = gen_uuid(key).lower()
+                if derived == target_value:
+                    user_matches.append({
+                        "user_id": uid,
+                        "username": uname,
+                        "match": "derived_uuid",
+                    })
+            else:
+                derived = gen_password(key)
+                if derived == target_value:
+                    user_matches.append({
+                        "user_id": uid,
+                        "username": uname,
+                        "match": "derived_password",
+                    })
+        except Exception:
+            continue
+        if len(user_matches) >= 25:
+            break
+
+    truncated = scanned < total_users and not user_matches
+
+    return {
+        "input": credential,
+        "credential_kind": kind,
+        "credential_value": value if kind == "uuid" else "(password redacted)",
+        "matches": user_matches,
+        "host_matches": host_matches,
+        "scanned_users": scanned,
+        "total_users": total_users,
+        "truncated": truncated,
+        "hint": (
+            "No match — the credential may belong to a removed user, "
+            "to a user past `max_scan`, or it is simply not derived "
+            "from any `user.key` in this panel. If `truncated=true`, "
+            "retry with a higher `max_scan`."
+            if not user_matches and not host_matches
+            else None
+        ),
     }
