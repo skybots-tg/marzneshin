@@ -329,9 +329,11 @@ def create_config(
         auth_uuid, auth_password = UUID(gen_uuid(key)), gen_password(key)
     else:
         inbound, protocol, network = {}, host.host_protocol, host.host_network
-        auth_uuid, auth_password = (
-            UUID(host.uuid) if host.uuid else None
-        ), host.password
+        # Для universal/direct-хостов без inbound: если uuid/пароль явно не
+        # заданы на хосте — генерируем их из ключа пользователя, иначе в
+        # ссылке окажется `None@...` и подписка не будет работать.
+        auth_uuid = UUID(host.uuid) if host.uuid else UUID(gen_uuid(key))
+        auth_password = host.password or gen_password(key)
 
     format_variables.update(
         {
@@ -363,6 +365,21 @@ def create_config(
         if host.security == InboundHostSecurity.inbound_default
         else host.security.value
     )
+    # Автодетект reality для хостов без inbound: если на хосте задан
+    # reality_public_key и явно не выбран другой режим безопасности —
+    # ссылка должна содержать security=reality вместе с pbk/sid/sni/fp.
+    if (
+        not host_tls
+        and not inbound.get("tls")
+        and host.reality_public_key
+    ):
+        host_tls = "reality"
+
+    host_reality_sid = None
+    if host.reality_short_ids:
+        host_reality_sid = random.choice(host.reality_short_ids).replace(
+            "*", salt
+        )
     splithttp_settings = (
         SplitHttpSettings.model_validate(host.splithttp_settings)
         if host.splithttp_settings
@@ -399,8 +416,8 @@ def create_config(
             else inbound.get("path")
         ),
         fingerprint=host.fingerprint.value or inbound.get("fp"),
-        reality_pbk=inbound.get("pbk"),
-        reality_sid=inbound.get("sid"),
+        reality_pbk=inbound.get("pbk") or host.reality_public_key,
+        reality_sid=inbound.get("sid") or host_reality_sid,
         client_address=calculate_client_address(
             inbound.get("address"), user_id
         ),
