@@ -1,6 +1,6 @@
 import { FC, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, X } from 'lucide-react'
+import { BookOpen, Pencil, X } from 'lucide-react'
 import {
     Button,
     Input,
@@ -14,6 +14,7 @@ import {
 } from '@marzneshin/common/components/ui'
 import { useAISettingsQuery, useAISettingsUpdateMutation, useAIModelsQuery } from '../api'
 import type { AISettings, ReasoningEffort } from '../types'
+import { SkillsManager } from './skills-manager'
 
 const MASKED_KEY = '••••••••••••••••'
 
@@ -47,6 +48,7 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
         system_prompt: '',
     })
     const [editingKey, setEditingKey] = useState(false)
+    const [skillsOpen, setSkillsOpen] = useState(false)
 
     useEffect(() => {
         if (settings) {
@@ -276,15 +278,29 @@ export const AISettingsWidget: FC<AISettingsWidgetProps> = ({ open, onClose }) =
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={onClose}>
-                        Cancel
+                <div className="flex items-center justify-between gap-2 pt-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSkillsOpen(true)}
+                    >
+                        <BookOpen className="h-3.5 w-3.5 mr-1" />
+                        {t('ai.skills.open')}
                     </Button>
-                    <Button onClick={handleSave} disabled={mutation.isPending}>
-                        {t('ai.save-settings')}
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={onClose}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSave} disabled={mutation.isPending}>
+                            {t('ai.save-settings')}
+                        </Button>
+                    </div>
                 </div>
             </div>
+            <SkillsManager
+                open={skillsOpen}
+                onClose={() => setSkillsOpen(false)}
+            />
         </div>
     )
 }

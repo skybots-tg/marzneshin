@@ -11,4 +11,5 @@ from . import (  # noqa: F401
     filtering_tools,
     crypto_tools,
     test_tools,
+    skill_tools,
 )

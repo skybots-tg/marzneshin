@@ -34,9 +34,18 @@ from app.ai.state_store import (
     remove_pending,
     store_pending,
 )
+from app.ai import skills_registry
 from app.ai.tool_registry import get_all_tools
+from app.db import crud
 from app.db.models import Settings
 from app.dependencies import DBDep, SudoAdminDep
+from app.models.ai_skill import (
+    AISkillCreate,
+    AISkillDetail,
+    AISkillSummary,
+    AISkillUpdate,
+    SkillSource,
+)
 from app.models.settings import AISettings, AISettingsResponse
 
 logger = logging.getLogger(__name__)
@@ -378,3 +387,159 @@ async def confirm_action(body: ConfirmRequest, db: DBDep, admin: SudoAdminDep):
             "Connection": "keep-alive",
         },
     )
+
+
+def _skill_to_summary(skill) -> AISkillSummary:
+    return AISkillSummary(
+        name=skill.name,
+        description=skill.description,
+        source=SkillSource(skill.source),
+        enabled=skill.enabled,
+    )
+
+
+def _skill_to_detail(skill) -> AISkillDetail:
+    return AISkillDetail(
+        name=skill.name,
+        description=skill.description,
+        body=skill.body,
+        source=SkillSource(skill.source),
+        enabled=skill.enabled,
+    )
+
+
+@router.get("/skills", response_model=list[AISkillSummary])
+def list_ai_skills(db: DBDep, admin: SudoAdminDep):
+    """List every skill known to the panel (built-in + DB overrides + custom)."""
+    return [_skill_to_summary(s) for s in skills_registry.list_all(db)]
+
+
+@router.get("/skills/{name}", response_model=AISkillDetail)
+def get_ai_skill(name: str, db: DBDep, admin: SudoAdminDep):
+    skill = skills_registry.get(name, db)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    return _skill_to_detail(skill)
+
+
+@router.post(
+    "/skills", response_model=AISkillDetail, status_code=201
+)
+def create_ai_skill(body: AISkillCreate, db: DBDep, admin: SudoAdminDep):
+    """Create a custom skill, or an override for a built-in with the same `name`.
+
+    `name` is unique across both built-ins and DB rows; attempting to
+    create a row whose name collides with an existing DB row returns 409.
+    """
+    if crud.get_ai_skill(db, body.name) is not None:
+        raise HTTPException(
+            status_code=409, detail=f"Skill '{body.name}' already exists"
+        )
+
+    builtin = skills_registry.get(body.name, db)
+    is_override = builtin is not None and builtin.source == "builtin"
+
+    try:
+        row = crud.create_ai_skill(db, body, is_override=is_override)
+    except Exception as exc:
+        logger.exception("Failed to create AI skill '%s'", body.name)
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    skills_registry.invalidate()
+    skill = skills_registry.get(row.name, db)
+    assert skill is not None
+    return _skill_to_detail(skill)
+
+
+@router.put("/skills/{name}", response_model=AISkillDetail)
+def update_ai_skill(
+    name: str, body: AISkillUpdate, db: DBDep, admin: SudoAdminDep
+):
+    """Update a skill. For a built-in that has no DB row yet, a new override
+    row is created automatically using the built-in's current values as
+    the base — so PUT always works, regardless of whether the skill was
+    previously edited via the UI.
+    """
+    row = crud.get_ai_skill(db, name)
+    if row is None:
+        builtin = skills_registry.get(name, db)
+        if builtin is None:
+            raise HTTPException(
+                status_code=404, detail=f"Skill '{name}' not found"
+            )
+        row = crud.create_ai_skill(
+            db,
+            AISkillCreate(
+                name=name,
+                description=body.description or builtin.description or name,
+                body=body.body or builtin.body,
+                enabled=(
+                    builtin.enabled if body.enabled is None else body.enabled
+                ),
+            ),
+            is_override=True,
+        )
+    else:
+        row = crud.update_ai_skill(db, row, body)
+
+    skills_registry.invalidate()
+    skill = skills_registry.get(row.name, db)
+    assert skill is not None
+    return _skill_to_detail(skill)
+
+
+@router.post("/skills/{name}/revert", response_model=AISkillDetail)
+def revert_ai_skill(name: str, db: DBDep, admin: SudoAdminDep):
+    """Drop the DB override / disable flag for a built-in skill, so the
+    on-disk version becomes authoritative again. Fails for pure custom
+    skills — for those use DELETE.
+    """
+    row = crud.get_ai_skill(db, name)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail=f"No DB override for skill '{name}'"
+        )
+    if not row.is_override:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Skill '{name}' is a custom skill, not an override. "
+                "Use DELETE to remove it."
+            ),
+        )
+    crud.delete_ai_skill(db, row)
+    skills_registry.invalidate()
+
+    builtin = skills_registry.get(name, db)
+    if builtin is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Skill '{name}' had an override but no on-disk version "
+                "exists to revert to"
+            ),
+        )
+    return _skill_to_detail(builtin)
+
+
+@router.delete("/skills/{name}", status_code=204)
+def delete_ai_skill(name: str, db: DBDep, admin: SudoAdminDep):
+    """Delete a custom skill. Refuses to delete a built-in — use revert
+    to drop an override, or PUT with `enabled=false` to hide a built-in.
+    """
+    row = crud.get_ai_skill(db, name)
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail=f"Skill '{name}' not found in DB"
+        )
+    if row.is_override:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Skill '{name}' overrides a built-in. Use /revert to "
+                "restore the built-in version."
+            ),
+        )
+    crud.delete_ai_skill(db, row)
+    skills_registry.invalidate()
+    return None

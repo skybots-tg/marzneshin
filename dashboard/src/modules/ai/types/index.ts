@@ -89,3 +89,30 @@ export interface ChatPersistenceSnapshot {
     sessionId: string | null
     model: string
 }
+
+export type AISkillSource = 'builtin' | 'override' | 'custom'
+
+export interface AISkillSummary {
+    name: string
+    description: string
+    source: AISkillSource
+    enabled: boolean
+}
+
+export interface AISkillDetail extends AISkillSummary {
+    body: string
+    updated_at?: string | null
+}
+
+export interface AISkillCreate {
+    name: string
+    description: string
+    body: string
+    enabled?: boolean
+}
+
+export interface AISkillUpdate {
+    description?: string
+    body?: string
+    enabled?: boolean
+}
