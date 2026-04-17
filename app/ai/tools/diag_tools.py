@@ -206,7 +206,6 @@ async def inspect_user_subscription(
     db: Session, username: str, config_format: str = "links"
 ) -> dict:
     from app.db.models.core import User
-    from app.models.user import UserResponse
     from app.utils.share import generate_subscription
 
     fmt = (config_format or "links").lower()
@@ -224,9 +223,11 @@ async def inspect_user_subscription(
     if db_user.removed:
         return {"error": f"User '{username}' is removed"}
 
+    # generate_subscription accesses `user.inbounds`, which is an ORM
+    # relationship on the DB model — NOT a field on UserResponse. Pass
+    # the ORM row directly, same as app/routes/subscription.py does.
     try:
-        user = UserResponse.model_validate(db_user)
-        payload = generate_subscription(user=user, config_format=fmt)
+        payload = generate_subscription(user=db_user, config_format=fmt)
     except Exception as exc:
         logger.exception("Failed to generate subscription for %s", username)
         return {"error": f"Failed to generate subscription: {exc}"}
