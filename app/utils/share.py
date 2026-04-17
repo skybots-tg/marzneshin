@@ -295,6 +295,10 @@ def generate_user_configs(
             hosts = get_hosts_for_user(db, user_id, service_ids=service_ids)
 
     for host in hosts:
+        # Skip hosts with default "Marz" remark — они не должны попадать
+        # в подписки пользователей (стандартное название хоста)
+        if host.remark and "Marz" in host.remark:
+            continue
         chained_hosts = [c.chained_host for c in host.chain]
         if chained_hosts and not chaining_support:
             continue
