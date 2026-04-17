@@ -136,6 +136,84 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
+_INTERRUPTED_TOOL_OUTPUT = (
+    "[interrupted] The previous tool call was cut off because the network "
+    "connection between the browser and the panel dropped before the result "
+    "could be delivered. No data was captured from that call. Do NOT assume "
+    "the call failed or that it succeeded — if you still need the answer, "
+    "call the tool again with the same arguments, or use a read-only tool "
+    "(get_*/list_*/inspect_*/validate_*/scan_*) to verify the current state."
+)
+
+
+def _sanitize_input_items(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Patch up history so the Responses API doesn't return 400 on
+    unpaired function_call / function_call_output items.
+
+    Orphans happen when an SSE stream is cut mid-turn: the browser stored
+    the `function_call` but never received the matching `function_call_output`
+    (or, far rarer, the opposite). Submitting such history as-is makes
+    OpenAI reject the whole turn with:
+        "No tool output found for function call <id>".
+
+    Fix policy:
+    - Orphan `function_call` (no output with the same call_id) -> inject a
+      placeholder `function_call_output` right after it so the model knows
+      the call happened but the result is gone.
+    - Orphan `function_call_output` (no preceding call in THIS history) ->
+      drop it; the model can't make sense of a result for a call it can't
+      see, and the API rejects it anyway.
+    """
+    call_ids = {
+        it.get("call_id")
+        for it in items
+        if it.get("type") == "function_call" and it.get("call_id")
+    }
+    output_ids = {
+        it.get("call_id")
+        for it in items
+        if it.get("type") == "function_call_output" and it.get("call_id")
+    }
+    missing_outputs = call_ids - output_ids
+    orphan_outputs = output_ids - call_ids
+
+    if not missing_outputs and not orphan_outputs:
+        return items
+
+    logger.warning(
+        "Sanitizing chat history: injecting %d placeholder output(s), "
+        "dropping %d orphan output(s)",
+        len(missing_outputs),
+        len(orphan_outputs),
+    )
+
+    sanitized: list[dict[str, Any]] = []
+    injected: set[str] = set()
+    for it in items:
+        t = it.get("type")
+        if t == "function_call_output":
+            cid = it.get("call_id")
+            if not cid or cid in orphan_outputs:
+                continue
+            sanitized.append(it)
+            continue
+
+        sanitized.append(it)
+
+        if t == "function_call":
+            cid = it.get("call_id")
+            if cid and cid in missing_outputs and cid not in injected:
+                sanitized.append({
+                    "type": "function_call_output",
+                    "call_id": cid,
+                    "output": _INTERRUPTED_TOOL_OUTPUT,
+                })
+                injected.add(cid)
+    return sanitized
+
+
 def _messages_to_input_items(
     messages: list[ChatMessage],
 ) -> list[dict[str, Any]]:
@@ -165,7 +243,7 @@ def _messages_to_input_items(
                     })
             continue
         items.append({"role": "user", "content": msg.content or ""})
-    return items
+    return _sanitize_input_items(items)
 
 
 def _extract_tool_name(item: ToolApprovalItem) -> str:
