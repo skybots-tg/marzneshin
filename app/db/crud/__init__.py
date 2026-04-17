@@ -78,6 +78,13 @@ from .node_filtering import (
     has_any_ssh_credentials,
     delete_all_ssh_credentials,
 )
+from .ai_skill import (
+    get_ai_skill,
+    get_all_ai_skills,
+    create_ai_skill,
+    update_ai_skill,
+    delete_ai_skill,
+)
 
 __all__ = [
     "get_subscription_settings_cached",
@@ -146,4 +153,9 @@ __all__ = [
     "get_ssh_pin_hash",
     "set_ssh_pin_hash",
     "clear_ssh_pin_hash",
+    "get_ai_skill",
+    "get_all_ai_skills",
+    "create_ai_skill",
+    "update_ai_skill",
+    "delete_ai_skill",
 ]

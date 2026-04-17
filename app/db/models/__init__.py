@@ -19,6 +19,7 @@ from .proxy import (
 from .system import JWT, Settings, System, TLS
 from .device import UserDevice, UserDeviceIP, UserDeviceTraffic
 from .node_filtering import NodeFilteringConfig, NodeSSHCredentials
+from .ai_skill import AISkill
 
 __all__ = [
     "admins_services",
@@ -46,4 +47,5 @@ __all__ = [
     "UserDeviceTraffic",
     "NodeFilteringConfig",
     "NodeSSHCredentials",
+    "AISkill",
 ]
