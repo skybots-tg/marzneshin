@@ -123,34 +123,53 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
 
     async def _stream_user_updates(self):
         logger.debug("opened the stream")
-        stream = self._stub.SyncUsers()
-        while True:
-            user_update = await self._updates_queue.get()
-            logger.debug("got something from queue")
-            user = user_update["user"]
-            try:
-                user_proto = User(
-                    id=user.id, 
-                    username=user.username, 
-                    key=user.key,
-                )
-                
-                await stream.write(
-                    UserData(
-                        user=user_proto,
-                        inbounds=[
-                            Inbound(tag=t) for t in user_update["inbounds"]
-                        ],
+        try:
+            stream = self._stub.SyncUsers()
+            while True:
+                user_update = await self._updates_queue.get()
+                logger.debug("got something from queue")
+                user = user_update["user"]
+                try:
+                    user_proto = User(
+                        id=user.id,
+                        username=user.username,
+                        key=user.key,
                     )
-                )
-            except RpcError:
-                self.synced = False
+
+                    await stream.write(
+                        UserData(
+                            user=user_proto,
+                            inbounds=[
+                                Inbound(tag=t) for t in user_update["inbounds"]
+                            ],
+                        )
+                    )
+                except RpcError as e:
+                    logger.info("node %i: stream RpcError: %s", self.id, e)
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Catch-all so transient internal errors (e.g. AttributeError
+            # from grpc internals on a torn-down channel) do not silently
+            # kill the streaming task and leave self.synced=True forever,
+            # which would deadlock the bounded _updates_queue.
+            logger.exception(
+                "node %i: unexpected error in _stream_user_updates", self.id
+            )
+        finally:
+            self.synced = False
+            try:
                 await self._set_unhealthy()
-                return
+            except Exception:
+                logger.exception(
+                    "node %i: failed to set unhealthy after stream end",
+                    self.id,
+                )
 
     async def update_user(
-        self, 
-        user, 
+        self,
+        user,
         inbounds: set[str] | None = None,
         device_limit: int | None = None,
         allowed_fingerprints: list[str] | None = None
@@ -160,12 +179,37 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         if allowed_fingerprints is None:
             allowed_fingerprints = []
 
-        await self._updates_queue.put({
-            "user": user, 
+        # See grpclib.py update_user() for the rationale: avoid blocking
+        # forever on a dead streaming task that nobody is draining.
+        streaming_alive = (
+            self._streaming_task is not None and not self._streaming_task.done()
+        )
+        payload = {
+            "user": user,
             "inbounds": inbounds,
             "device_limit": device_limit,
-            "allowed_fingerprints": allowed_fingerprints
-        })
+            "allowed_fingerprints": allowed_fingerprints,
+        }
+        if not streaming_alive or not self.synced:
+            logger.warning(
+                "Node %i: dropping user update (streaming alive=%s, "
+                "synced=%s) for user id=%s",
+                self.id,
+                streaming_alive,
+                self.synced,
+                getattr(user, "id", "?"),
+            )
+            return
+
+        try:
+            self._updates_queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            logger.warning(
+                "Node %i: _updates_queue full, dropping user update for "
+                "id=%s — node likely behind, will be resynced on reconnect",
+                self.id,
+                getattr(user, "id", "?"),
+            )
 
     async def _repopulate_users(self, users_data: list[dict]) -> None:
         updates = []
@@ -221,9 +265,23 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
                 )
             )
             await self._sync()
-        except RpcError:
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Catch wider than RpcError so internal grpc/asyncio errors
+            # (e.g. AttributeError on a torn-down channel) are logged
+            # with a full traceback instead of bubbling up unannotated.
+            logger.exception(
+                "node %i: restart_backend(%s) failed", self.id, name
+            )
             self.synced = False
-            await self._set_unhealthy()
+            try:
+                await self._set_unhealthy()
+            except Exception:
+                logger.exception(
+                    "node %i: _set_unhealthy after restart_backend failed",
+                    self.id,
+                )
             raise
         else:
             await asyncio.to_thread(self.set_status, NodeStatus.healthy)
@@ -266,6 +324,13 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
 
     async def resync_users(self) -> None:
         """Force resync all users with the node"""
-        users = await asyncio.to_thread(self.list_users)
-        await self._repopulate_users(users)
+        try:
+            users = await asyncio.to_thread(self.list_users)
+            await self._repopulate_users(users)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("node %i: resync_users failed", self.id)
+            self.synced = False
+            raise
         logger.info("Resynced %d users with node %d", len(users), self.id)
