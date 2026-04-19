@@ -95,6 +95,7 @@ class NodeResponse(Node):
     inbound_ids: list[int] | None = None
     backends: list[Backend]
     adblock_enabled: bool = False
+    address_in_hosts: bool = True
 
 
 class NodeUsageResponse(BaseModel):

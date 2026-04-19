@@ -179,9 +179,11 @@ def get_hosts_for_user(
         session.query(InboundHost)
         .join(Inbound, InboundHost.inbound_id == Inbound.id)
         .join(inbounds_services, Inbound.id == inbounds_services.c.inbound_id)
+        .join(Node, Inbound.node_id == Node.id)
         .filter(
             InboundHost.is_disabled == False,
-            inbounds_services.c.service_id.in_(service_ids)
+            inbounds_services.c.service_id.in_(service_ids),
+            Node.status != NodeStatus.disabled,
         )
         .options(
             joinedload(InboundHost.inbound),
@@ -190,10 +192,8 @@ def get_hosts_for_user(
     )
 
     if exclude_unhealthy_nodes:
-        hosts_with_inbound = (
-            hosts_with_inbound
-            .join(Node, Inbound.node_id == Node.id)
-            .filter(Node.status != NodeStatus.unhealthy)
+        hosts_with_inbound = hosts_with_inbound.filter(
+            Node.status != NodeStatus.unhealthy
         )
 
     universal_hosts = (
@@ -231,6 +231,63 @@ def get_hosts_for_user(
             unique_hosts.append(host)
 
     return unique_hosts
+
+
+_SERVER_IP_PLACEHOLDER = "{server_ip}"
+
+
+def get_nodes_address_in_hosts(
+    db: Session, node_ids: list[int], server_ip: str
+) -> dict[int, bool]:
+    """
+    For each node id, return True if at least one of its (non-disabled) hosts
+    has an address that resolves to the node's address.
+
+    A node without any inbounds is considered "ok" (True) — there is nothing
+    to match against yet, so we don't surface a misleading warning.
+
+    The {SERVER_IP} placeholder used in host.address is substituted with the
+    given marzneshin public IP before comparison, so single-server setups
+    where the node IP equals the marzneshin server IP are handled correctly.
+    """
+    if not node_ids:
+        return {}
+
+    inbound_node_ids = {
+        nid for (nid,) in db.query(Inbound.node_id)
+        .filter(Inbound.node_id.in_(node_ids))
+        .distinct()
+        .all()
+    }
+
+    rows = (
+        db.query(Inbound.node_id, Node.address, InboundHost.address)
+        .join(Node, Inbound.node_id == Node.id)
+        .join(InboundHost, InboundHost.inbound_id == Inbound.id)
+        .filter(Inbound.node_id.in_(node_ids))
+        .filter(InboundHost.is_disabled == False)
+        .all()
+    )
+
+    server_ip_lower = (server_ip or "").strip().lower()
+    has_match = {nid: False for nid in inbound_node_ids}
+
+    for nid, node_addr, host_addr in rows:
+        if not node_addr or not host_addr:
+            continue
+        node_addr_l = node_addr.strip().lower()
+        host_addr_l = host_addr.strip().lower()
+        if server_ip_lower:
+            host_addr_l = host_addr_l.replace(
+                _SERVER_IP_PLACEHOLDER, server_ip_lower
+            )
+        if node_addr_l and node_addr_l in host_addr_l:
+            has_match[nid] = True
+
+    return {
+        nid: True if nid not in inbound_node_ids else has_match.get(nid, False)
+        for nid in node_ids
+    }
 
 
 _node_coefficients_cache: dict = {"data": None, "expires": 0}

@@ -356,6 +356,16 @@
         "success": "Users resynced on node {{name}}",
         "error": "Failed to resync users on node {{name}}"
       },
+      "enabled": {
+        "title": "Enabled",
+        "toggle": "Toggle node",
+        "on_desc": "Node is enabled. Hosts of this node are included in user subscriptions.",
+        "off_desc": "Node is disabled. Hosts of this node are hidden from user subscriptions."
+      },
+      "address_missing": {
+        "label": "Not in hosts",
+        "desc": "This node's address does not appear in any of its hosts. Clients won't connect to this node — add a host pointing to this address."
+      },
       "devices": {
         "title": "Device History",
         "active_only": "Show active only",

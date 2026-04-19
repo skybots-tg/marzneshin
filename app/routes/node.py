@@ -17,6 +17,7 @@ from grpclib.exceptions import StreamTerminatedError, GRPCError
 from app import marznode
 from app.db import crud, get_tls_certificate, GetDB
 from app.db.models import Node
+from app.utils.share import SERVER_IP
 from app.dependencies import (
     DBDep,
     SudoAdminDep,
@@ -58,7 +59,14 @@ def get_nodes(
     if status:
         query = query.filter(Node.status.in_(status))
 
-    return paginate(db, query)
+    page = paginate(db, query)
+    if page.items:
+        flags = crud.get_nodes_address_in_hosts(
+            db, [n.id for n in page.items], SERVER_IP
+        )
+        for item in page.items:
+            item.address_in_hosts = flags.get(item.id, True)
+    return page
 
 
 @router.post("", response_model=NodeResponse)
@@ -72,6 +80,8 @@ async def add_node(new_node: NodeCreate, db: DBDep, admin: SudoAdminDep):
                 status_code=409, detail=f'Node "{new_node.name}" already exists'
             )
         certificate = get_tls_certificate(db)
+        flags = crud.get_nodes_address_in_hosts(db, [db_node.id], SERVER_IP)
+        db_node.address_in_hosts = flags.get(db_node.id, True)
         response = NodeResponse.model_validate(db_node)
         db.close()
         return db_node, certificate, response
@@ -96,6 +106,8 @@ def get_node(node_id: int, db: DBDep, admin: SudoAdminDep):
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
 
+    flags = crud.get_nodes_address_in_hosts(db, [db_node.id], SERVER_IP)
+    db_node.address_in_hosts = flags.get(db_node.id, True)
     return db_node
 
 
@@ -144,6 +156,8 @@ async def modify_node(
             raise HTTPException(status_code=404, detail="Node not found")
         db_node = crud.update_node(db, db_node, modified_node)
         certificate = get_tls_certificate(db) if db_node.status != NodeStatus.disabled else None
+        flags = crud.get_nodes_address_in_hosts(db, [db_node.id], SERVER_IP)
+        db_node.address_in_hosts = flags.get(db_node.id, True)
         response = NodeResponse.model_validate(db_node)
         db.close()
         return db_node, certificate, response
