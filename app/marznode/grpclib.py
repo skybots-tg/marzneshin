@@ -3,6 +3,8 @@ import atexit
 import logging
 import ssl
 import tempfile
+import time
+from collections import deque
 
 from grpclib import GRPCError
 from grpclib.client import Channel
@@ -110,7 +112,31 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         self._updates_queue = asyncio.Queue(1)
         self.synced = False
         self.usage_coefficient = usage_coefficient
+        # Ring buffer of recent sync/runtime errors. Drives the AI tool
+        # `get_node_recent_errors` so the agent can see *why* the node
+        # is detached without grepping container logs (which are not
+        # available from inside the panel process).
+        self.recent_errors: deque = deque(maxlen=50)
         atexit.register(self._channel.close)
+
+    def _record_error(self, kind: str, message: str) -> None:
+        """Append a structured error event to the ring buffer.
+
+        `kind` is a short tag like ``"sync"``, ``"connect"``, ``"ssl"``,
+        ``"restart"``, ``"resync"``. The agent reads `kind` to bucket
+        repeating failures and tell e.g. an mTLS reset apart from a
+        SQL statement timeout that masquerades as a sync failure.
+        """
+        try:
+            self.recent_errors.append({
+                "ts": time.time(),
+                "kind": kind,
+                "message": message,
+            })
+        except Exception:
+            # Diagnostics must never break sync — swallow anything weird
+            # (e.g. deque mutated during iteration).
+            pass
 
     async def stop(self):
         self._monitor_task.cancel()
@@ -159,6 +185,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             except asyncio.TimeoutError:
                 error_msg = f"connection timeout (5s) to {self._address}:{self._port}"
                 logger.warning("Node %i: %s", self.id, error_msg)
+                self._record_error("connect", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
                 if self._streaming_task:
@@ -166,6 +193,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             except ssl.SSLError as e:
                 error_msg = f"SSL error: {e}"
                 logger.warning("Node %i: %s", self.id, error_msg)
+                self._record_error("ssl", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
                 if self._streaming_task:
@@ -173,6 +201,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             except ConnectionRefusedError:
                 error_msg = f"connection refused by {self._address}:{self._port}"
                 logger.warning("Node %i: %s", self.id, error_msg)
+                self._record_error("connect", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
                 if self._streaming_task:
@@ -180,6 +209,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             except OSError as e:
                 error_msg = f"network error: {e}"
                 logger.warning("Node %i: %s", self.id, error_msg)
+                self._record_error("network", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
                 if self._streaming_task:
@@ -187,6 +217,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             except Exception as e:
                 error_msg = f"{type(e).__name__}: {e}"
                 logger.warning("Node %i connection failed: %s", self.id, error_msg)
+                self._record_error("connect", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
                 if self._streaming_task:
@@ -215,6 +246,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                                 f"sync failed: {type(e).__name__}: {e}"
                             )
                         logger.warning("Node %i: %s", self.id, error_msg)
+                        self._record_error("sync", error_msg)
                         await self._set_unhealthy(error_msg)
                         # Drop the protocol so the next iteration starts
                         # from a fresh SSL transport. Even with the
@@ -407,6 +439,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             logger.exception(
                 "node %i: restart_backend(%s) failed", self.id, name
             )
+            self._record_error("restart", f"restart_backend({name}) failed")
             self.synced = False
             try:
                 await self._set_unhealthy()
@@ -468,8 +501,9 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             await self._repopulate_users(users)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as e:
             logger.exception("node %i: resync_users failed", self.id)
+            self._record_error("resync", f"{type(e).__name__}: {e}")
             self.synced = False
             # If the channel is in the half-dead SSL state, every retry
             # from the panel will keep raising '_write_appdata'. Force
