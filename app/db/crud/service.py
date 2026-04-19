@@ -23,10 +23,7 @@ def create_service(db: Session, service: ServiceCreate) -> Service:
 def get_service(db: Session, service_id: id) -> Service:
     return (
         db.query(Service)
-        .options(
-            selectinload(Service.inbounds),
-            selectinload(Service.users),
-        )
+        .options(selectinload(Service.inbounds))
         .filter(Service.id == service_id)
         .first()
     )

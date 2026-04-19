@@ -4,9 +4,14 @@ from fastapi_pagination.customization import CustomizedPage, UseParamsFields
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
 from pydantic import BaseModel
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.db import crud
-from app.db.models import InboundHost as DBInboundHost, Inbound as DBInbound
+from app.db.models import (
+    InboundHost as DBInboundHost,
+    Inbound as DBInbound,
+    Service as DBService,
+)
 from app.dependencies import DBDep, sudo_admin
 from app.models.proxy import Inbound, InboundHost, InboundHostResponse
 
@@ -37,7 +42,10 @@ def get_inbounds(db: DBDep, tag: str = Query(None)):
     """
     Get all inbounds
     """
-    query = db.query(DBInbound)
+    query = db.query(DBInbound).options(
+        joinedload(DBInbound.node),
+        selectinload(DBInbound.services).load_only(DBService.id),
+    )
     if tag:
         query = query.filter(DBInbound.tag.ilike(f"%{tag}%"))
 
@@ -52,7 +60,9 @@ def get_hosts(
     """
     Get all hosts (optionally filtered) sorted by weight.
     """
-    query = db.query(DBInboundHost)
+    query = db.query(DBInboundHost).options(
+        selectinload(DBInboundHost.services).load_only(DBService.id),
+    )
 
     if remark:
         query = query.filter(DBInboundHost.remark.ilike(f"%{remark}%"))
@@ -151,7 +161,11 @@ def get_inbound_hosts(
     if not inbound:
         raise HTTPException(status_code=404, detail="Inbound not found")
 
-    query = db.query(DBInboundHost).filter(DBInboundHost.inbound_id == id)
+    query = (
+        db.query(DBInboundHost)
+        .options(selectinload(DBInboundHost.services).load_only(DBService.id))
+        .filter(DBInboundHost.inbound_id == id)
+    )
 
     if remark:
         query = query.filter(DBInboundHost.remark.ilike(f"%{remark}%"))
