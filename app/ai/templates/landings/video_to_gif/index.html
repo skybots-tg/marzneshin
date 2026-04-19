@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GifLoom — turn short videos into looping GIFs</title>
+<meta name="description" content="Online MP4 to GIF converter with crop, trim and frame-rate controls. Free.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,800&family=Inter:wght@400;500;600&display=swap">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#fff5ee;--paper:#fffaf6;--ink:#27130d;--mut:#7d5c4d;--accent:#d8326e;--accent-d:#b5184f;
+    --line:#ead4c4;--ok:#427346;--err:#b34433;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.6 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+  header{padding:22px 0;border-bottom:1px solid var(--line)}
+  .nav{display:flex;justify-content:space-between;align-items:center;gap:18px}
+  .brand{font-family:Fraunces,serif;font-weight:800;font-size:24px;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+  .brand .dot{width:14px;height:14px;border-radius:50%;background:var(--accent)}
+  .nav-links{display:flex;gap:22px;color:var(--mut);font-weight:500;font-size:15px}
+  .nav-links a{color:inherit}
+  .cta{background:var(--ink);color:var(--paper);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px}
+  .cta:hover{background:#000;color:var(--paper);text-decoration:none}
+  .hero{padding:54px 0 28px;display:grid;grid-template-columns:1.1fr .9fr;gap:42px;align-items:center}
+  .eyebrow{display:inline-block;font-family:Fraunces,serif;font-style:italic;color:var(--accent);font-size:18px;margin-bottom:8px}
+  h1{font-family:Fraunces,serif;font-size:clamp(40px,6vw,64px);line-height:1.02;margin:0 0 14px;letter-spacing:-.02em}
+  h1 i{font-style:italic;color:var(--accent)}
+  .lede{color:var(--mut);font-size:18px;max-width:480px}
+  .frame{position:relative;background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 24px 48px -32px rgba(70,30,15,.35)}
+  .preview{aspect-ratio:16/10;border-radius:12px;background:linear-gradient(135deg,#ffd8b5,#ffb6c8 40%,#caa6ff);position:relative;overflow:hidden}
+  .preview::before{content:"";position:absolute;inset:0;background:radial-gradient(120px 80px at 30% 30%,rgba(255,255,255,.6),transparent 60%),radial-gradient(140px 90px at 70% 70%,rgba(255,255,255,.5),transparent 60%);animation:drift 6s ease-in-out infinite alternate}
+  @keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(-12px,8px) scale(1.05)}}
+  .ribbon{position:absolute;top:14px;left:14px;background:var(--ink);color:var(--paper);font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;text-transform:uppercase}
+  .ribbon b{color:var(--accent);margin-right:4px}
+  .timeline{margin-top:14px;background:#f5e1cf;border-radius:8px;height:38px;display:flex;align-items:center;padding:0 8px;position:relative;overflow:hidden}
+  .timeline .seg{flex:1;height:14px;background:linear-gradient(90deg,#d8326e22,#a06bff22);border-radius:3px;margin:0 1px}
+  .timeline .pos{position:absolute;left:32%;top:0;bottom:0;width:2px;background:var(--accent)}
+  .controls{padding:14px 6px 4px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center;color:var(--mut);font-size:13px}
+  .controls span b{color:var(--ink);display:block;font-size:16px;font-weight:600}
+  .converter{padding:30px 0 60px}
+  .panel{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:24px;display:grid;grid-template-columns:1.3fr 1fr;gap:24px}
+  .drop{border:2px dashed #d9bfaa;border-radius:12px;padding:34px 18px;text-align:center;transition:.15s}
+  .drop.drag{border-color:var(--accent);background:#fff0e7}
+  .drop h2{font-family:Fraunces,serif;margin:0 0 6px;font-size:22px;font-weight:700}
+  .drop p{margin:0 0 16px;color:var(--mut)}
+  .pickbtn{display:inline-block;background:var(--accent);color:#fff;padding:11px 22px;border-radius:999px;font-weight:600;cursor:pointer}
+  .pickbtn:hover{background:var(--accent-d)}
+  .pickbtn input{display:none}
+  .meta{margin-top:14px;color:var(--mut);font-size:13px}
+  .progress{display:none;margin:14px auto 0;background:#efd6c2;height:8px;border-radius:6px;overflow:hidden;max-width:340px}
+  .progress.on{display:block}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#d8a032);transition:width .3s}
+  .toast{display:none;margin:14px auto 0;max-width:340px;padding:10px 12px;background:#fff0eb;border:1px solid #f0c2b3;color:var(--err);border-radius:8px;font-size:13px}
+  .toast.on{display:block}
+  .opts{display:flex;flex-direction:column;gap:14px}
+  .opt{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px}
+  .opt label{display:flex;justify-content:space-between;color:var(--mut);font-size:13px;margin-bottom:8px}
+  .opt label b{color:var(--ink);font-weight:600;font-family:Fraunces,serif;font-size:15px}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;background:#fff;border:1px solid var(--line);color:var(--mut);padding:7px 10px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px}
+  .seg button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .editorial{padding:60px 0 80px;border-top:1px solid var(--line)}
+  .editorial h3{font-family:Fraunces,serif;font-size:28px;margin:0 0 8px;letter-spacing:-.01em}
+  .editorial p.kicker{color:var(--mut);margin:0 0 22px;max-width:560px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .card h4{margin:0 0 6px;font-family:Fraunces,serif;font-size:18px}
+  .card p{margin:0;color:var(--mut);font-size:14px}
+  footer{border-top:1px solid var(--line);background:var(--paper);padding:22px 0;color:var(--mut);font-size:13px}
+  .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  @media (max-width:780px){.hero{grid-template-columns:1fr}.panel{grid-template-columns:1fr}.nav-links{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="dot"></span>GifLoom</div>
+    <nav class="nav-links"><a href="#convert">Convert</a><a href="#editorial">How it works</a><a href="#">Showcase</a></nav>
+    <a class="cta" href="#convert">Make a GIF</a>
+  </div>
+</header>
+
+<main>
+  <section class="wrap hero">
+    <div>
+      <span class="eyebrow">Editor's pick · 2026</span>
+      <h1>Turn a clip<br>into a <i>loop</i><br>worth sharing.</h1>
+      <p class="lede">Drag in a short MP4, set the trim points, choose a frame rate. GifLoom does the rest — colour palette, dithering, file size — quietly in the background.</p>
+    </div>
+    <div class="frame">
+      <div class="preview"><div class="ribbon"><b>●</b> live preview</div></div>
+      <div class="timeline">
+        <span class="pos"></span>
+        <span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span>
+      </div>
+      <div class="controls">
+        <span>Trim<b>0:00 — 0:03</b></span>
+        <span>Frame rate<b>15 fps</b></span>
+        <span>Output<b>480 × 300</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap converter" id="convert">
+    <div class="panel">
+      <form class="drop" id="dropzone">
+        <h2>Drop your video</h2>
+        <p>MP4 · MOV · WebM · up to 50 MB · max 30 s</p>
+        <label class="pickbtn">
+          Pick from device
+          <input type="file" id="picker" accept="video/*">
+        </label>
+        <div class="meta" id="meta">Tip: short clips with little motion compress best.</div>
+        <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+        <div class="toast" id="toast"></div>
+      </form>
+
+      <div class="opts">
+        <div class="opt">
+          <label>Frame rate <b id="fpsv">15 fps</b></label>
+          <input type="range" min="5" max="30" value="15" id="fps">
+        </div>
+        <div class="opt">
+          <label>Crop area</label>
+          <div class="seg" id="crop">
+            <button class="on" data-v="full">Full</button>
+            <button data-v="square">Square</button>
+            <button data-v="9x16">9:16</button>
+          </div>
+        </div>
+        <div class="opt">
+          <label>Loop <b id="loopv">forever</b></label>
+          <div class="seg" id="loop">
+            <button class="on" data-v="forever">Forever</button>
+            <button data-v="3">3×</button>
+            <button data-v="1">Once</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="editorial" id="editorial">
+    <div class="wrap">
+      <h3>Made for the moments worth replaying.</h3>
+      <p class="kicker">From editorial usage in newsletters to silly reaction GIFs in Slack — GifLoom keeps the file small without making it look cheap.</p>
+      <div class="grid">
+        <div class="card"><h4>Smart palette</h4><p>Per-clip colour quantisation keeps gradients smooth at 256 colours.</p></div>
+        <div class="card"><h4>No watermarks</h4><p>Free downloads, no nag overlay, no email-gate after the third file.</p></div>
+        <div class="card"><h4>Browser-side trim</h4><p>Cut in/out before upload — your bandwidth, our roundtrip, both saved.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>© GifLoom · A small studio in Lisbon</div>
+    <div><a href="#">Privacy</a> · <a href="#">Press</a> · <a href="#">Contact</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  function bindSeg(id, cb){
+    var s = document.getElementById(id); if(!s) return;
+    s.addEventListener('click', function(e){
+      var b = e.target.closest('button'); if(!b) return; e.preventDefault();
+      s.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on');
+      if(cb) cb(b.dataset.v);
+    });
+  }
+  var fps = document.getElementById('fps');
+  fps.addEventListener('input', function(){ document.getElementById('fpsv').textContent = fps.value + ' fps'; });
+  bindSeg('crop');
+  bindSeg('loop', function(v){ document.getElementById('loopv').textContent = v === 'forever' ? 'forever' : (v + '×'); });
+
+  var dz = document.getElementById('dropzone');
+  var picker = document.getElementById('picker');
+  var bar = document.getElementById('bar');
+  var prog = document.getElementById('progress');
+  var toast = document.getElementById('toast');
+  var meta = document.getElementById('meta');
+
+  function fakeRun(file){
+    toast.classList.remove('on');
+    if(file) meta.textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB';
+    bar.style.width = '0%';
+    prog.classList.add('on');
+    var w = 0;
+    var iv = setInterval(function(){
+      w += 6 + Math.random()*9;
+      if(w >= 90){
+        clearInterval(iv);
+        bar.style.width = '90%';
+        setTimeout(function(){
+          prog.classList.remove('on');
+          toast.textContent = 'Our render farm is in scheduled maintenance. Please retry in a few minutes.';
+          toast.classList.add('on');
+        }, 700);
+      } else {
+        bar.style.width = w + '%';
+      }
+    }, 230);
+  }
+
+  picker.addEventListener('change', function(e){ if(e.target.files && e.target.files.length) fakeRun(e.target.files[0]); });
+  ['dragenter','dragover'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.add('drag');}); });
+  ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.remove('drag');}); });
+  dz.addEventListener('drop', function(e){ if(e.dataTransfer.files && e.dataTransfer.files.length) fakeRun(e.dataTransfer.files[0]); });
+})();
+</script>
+</body>
+</html>

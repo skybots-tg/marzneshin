@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocuSwift — PDF to Word, free and online</title>
+<meta name="description" content="Convert PDF documents to editable Word (DOCX) files online. Fast, secure, no signup.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#f6f8fb;--ink:#0e1a2b;--muted:#5e6c80;--brand:#1a56ff;--brand-d:#0f3edb;
+    --line:#dfe6f0;--card:#ffffff;--ok:#1aae5d;--warn:#c44a30;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.55 Manrope,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  header{padding:18px 0;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:5}
+  .nav{display:flex;align-items:center;justify-content:space-between;gap:24px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.01em}
+  .brand-mark{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,var(--brand),#7aa2ff);display:grid;place-items:center;color:#fff;font-weight:800}
+  .nav-links{display:flex;gap:22px;color:var(--muted);font-weight:500}
+  .nav-links a{color:inherit}
+  .cta{background:var(--brand);color:#fff;padding:9px 16px;border-radius:8px;font-weight:600}
+  .cta:hover{background:var(--brand-d);text-decoration:none;color:#fff}
+  .hero{padding:64px 0 32px;text-align:center}
+  h1{font-size:clamp(32px,5vw,52px);line-height:1.05;letter-spacing:-.02em;margin:0 0 16px}
+  h1 .accent{color:var(--brand)}
+  .lede{color:var(--muted);font-size:18px;max-width:640px;margin:0 auto}
+  .uploader{margin:36px auto 0;max-width:720px;background:var(--card);border:1px dashed #b9c6db;border-radius:18px;padding:42px 24px;text-align:center;transition:border-color .15s,background .15s}
+  .uploader.drag{border-color:var(--brand);background:#eef3ff}
+  .uploader-icon{width:56px;height:56px;border-radius:14px;background:#eaf0ff;color:var(--brand);display:grid;place-items:center;margin:0 auto 14px}
+  .uploader h2{margin:0 0 6px;font-size:20px}
+  .uploader p{margin:0 0 18px;color:var(--muted)}
+  .pick{display:inline-block;background:var(--brand);color:#fff;padding:12px 22px;border-radius:10px;font-weight:600;cursor:pointer}
+  .pick:hover{background:var(--brand-d)}
+  .pick input{display:none}
+  .formats{margin-top:14px;color:var(--muted);font-size:13px}
+  .progress{display:none;margin-top:18px;background:#eef2f8;border-radius:10px;overflow:hidden;height:10px}
+  .progress.on{display:block}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,var(--brand),#7aa2ff);transition:width .3s}
+  .toast{display:none;margin:14px auto 0;max-width:520px;padding:12px 14px;border-radius:10px;background:#fff4ef;border:1px solid #f3c5b6;color:var(--warn);font-size:14px;text-align:left}
+  .toast.on{display:block}
+  .features{padding:64px 0}
+  .features h3{font-size:28px;letter-spacing:-.01em;margin:0 0 28px;text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .feat svg{width:28px;height:28px;color:var(--brand);margin-bottom:10px}
+  .feat h4{margin:0 0 6px;font-size:17px}
+  .feat p{margin:0;color:var(--muted);font-size:14px}
+  .faq{padding:48px 0 80px}
+  .faq h3{font-size:24px;margin:0 0 18px;text-align:center}
+  details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-bottom:10px}
+  summary{cursor:pointer;font-weight:600;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  details[open] summary{color:var(--brand)}
+  details p{color:var(--muted);margin:10px 0 0}
+  footer{border-top:1px solid var(--line);background:#fff;padding:28px 0;color:var(--muted);font-size:14px}
+  .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  .foot-links{display:flex;gap:18px}
+  @media (max-width:680px){.nav-links{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><div class="brand-mark">D</div>DocuSwift</div>
+    <nav class="nav-links">
+      <a href="#convert">Convert</a><a href="#features">Features</a><a href="#faq">FAQ</a>
+    </nav>
+    <a class="cta" href="#convert">Try free</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="convert">
+    <div class="wrap">
+      <h1>PDF to Word, in <span class="accent">seconds</span>.</h1>
+      <p class="lede">Drop a PDF and get a fully editable <strong>.docx</strong> back — formatting, tables and images preserved. No watermarks, no email required.</p>
+
+      <form class="uploader" id="dropzone">
+        <div class="uploader-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <h2>Drop your PDF here</h2>
+        <p>or pick a file from your device</p>
+        <label class="pick">
+          Choose PDF file
+          <input type="file" id="picker" accept="application/pdf">
+        </label>
+        <div class="formats">Max 100 MB · We never store your files</div>
+        <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+        <div class="toast" id="toast"></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="features" id="features">
+    <div class="wrap">
+      <h3>Why teams use DocuSwift</h3>
+      <div class="grid">
+        <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><h4>Fast conversion</h4><p>Most documents finish in under 8 seconds, regardless of page count.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><h4>Encrypted in transit</h4><p>Every upload uses TLS 1.3 and is wiped from our edge minutes after delivery.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h12"/></svg><h4>Layout preserved</h4><p>Tables, columns and embedded fonts come through intact, ready to edit in Word.</p></div>
+        <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><h4>Free forever</h4><p>No accounts, no daily limits, no surprise paywalls on basic conversions.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq" id="faq">
+    <div class="wrap" style="max-width:760px">
+      <h3>Frequently asked</h3>
+      <details><summary>Is DocuSwift really free?</summary><p>Yes — single-file conversions up to 100 MB are free without an account.</p></details>
+      <details><summary>What happens to my files?</summary><p>Files live on our edge for the duration of the conversion and are purged immediately after the download link expires (typically 5 minutes).</p></details>
+      <details><summary>Will scanned PDFs work?</summary><p>Native (text-based) PDFs convert losslessly. For scanned documents we run OCR; results depend on scan quality.</p></details>
+      <details><summary>Do you support batch conversions?</summary><p>Coming soon — we are rolling out a bulk uploader to early-access users.</p></details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>© DocuSwift · A simple document utility</div>
+    <div class="foot-links"><a href="#">Privacy</a><a href="#">Terms</a><a href="#">Contact</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var dz = document.getElementById('dropzone');
+  var picker = document.getElementById('picker');
+  var bar = document.getElementById('bar');
+  var prog = document.getElementById('progress');
+  var toast = document.getElementById('toast');
+
+  function fakeUpload(){
+    toast.classList.remove('on');
+    bar.style.width = '0%';
+    prog.classList.add('on');
+    var w = 0;
+    var iv = setInterval(function(){
+      w += 7 + Math.random()*9;
+      if(w >= 92){
+        clearInterval(iv);
+        bar.style.width = '92%';
+        setTimeout(function(){
+          prog.classList.remove('on');
+          toast.textContent = 'Conversion service is temporarily unavailable. Please try again in a few minutes — we apologise for the inconvenience.';
+          toast.classList.add('on');
+        }, 700);
+      } else {
+        bar.style.width = w + '%';
+      }
+    }, 220);
+  }
+
+  picker.addEventListener('change', function(e){ if(e.target.files && e.target.files.length) fakeUpload(); });
+  ['dragenter','dragover'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.add('drag');}); });
+  ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.remove('drag');}); });
+  dz.addEventListener('drop', function(e){ if(e.dataTransfer.files && e.dataTransfer.files.length) fakeUpload(); });
+})();
+</script>
+</body>
+</html>

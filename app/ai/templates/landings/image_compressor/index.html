@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixly — smart image compression for the web</title>
+<meta name="description" content="Compress JPEG, PNG and WebP images without losing visible quality. Free online tool.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#0a0d12;--panel:#101521;--ink:#e7eef9;--mut:#7b8aa3;--neon:#33ffaa;--neon-d:#11d489;
+    --line:#1d2738;--err:#ff7163;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.55 'Space Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{background:radial-gradient(900px 500px at 75% -10%,rgba(51,255,170,.08),transparent 60%),radial-gradient(700px 500px at 0% 110%,rgba(80,90,255,.07),transparent 60%),var(--bg)}
+  a{color:var(--neon);text-decoration:none}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 24px}
+  header{padding:18px 0}
+  .nav{display:flex;justify-content:space-between;align-items:center;gap:24px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em}
+  .dot{width:14px;height:14px;border-radius:50%;background:var(--neon);box-shadow:0 0 14px var(--neon)}
+  .nav-links{display:flex;gap:22px;color:var(--mut);font-weight:500}
+  .nav-links a{color:inherit}
+  .nav-links a:hover{color:var(--ink)}
+  .pill{border:1px solid var(--neon);color:var(--neon);padding:8px 14px;border-radius:999px;font-weight:500}
+  .pill:hover{background:var(--neon);color:#04130b}
+  .hero{padding:56px 0 24px}
+  .badge{display:inline-flex;gap:8px;align-items:center;padding:5px 12px;border:1px solid var(--line);border-radius:999px;color:var(--mut);font-size:13px;margin-bottom:18px}
+  .badge .led{width:8px;height:8px;border-radius:50%;background:var(--neon);box-shadow:0 0 8px var(--neon)}
+  h1{font-size:clamp(34px,5.5vw,60px);line-height:1.04;margin:0 0 14px;letter-spacing:-.02em}
+  h1 em{font-style:normal;color:var(--neon)}
+  .lede{color:var(--mut);font-size:18px;max-width:580px}
+  .panel{margin-top:36px;background:linear-gradient(180deg,#121828,#0d121e);border:1px solid var(--line);border-radius:20px;padding:26px;display:grid;grid-template-columns:1.3fr 1fr;gap:22px}
+  .drop{border:2px dashed #283349;border-radius:14px;padding:40px 18px;text-align:center;transition:.15s}
+  .drop.drag{border-color:var(--neon);background:rgba(51,255,170,.05)}
+  .drop h2{margin:0 0 6px;font-size:18px}
+  .drop p{margin:0 0 16px;color:var(--mut)}
+  .pickbtn{display:inline-block;background:var(--neon);color:#04130b;padding:11px 20px;border-radius:10px;font-weight:600;cursor:pointer}
+  .pickbtn:hover{background:var(--neon-d)}
+  .pickbtn input{display:none}
+  .meta{font-family:'JetBrains Mono',monospace;color:var(--mut);font-size:12px;margin-top:14px}
+  .progress{display:none;margin-top:14px;background:#1a2335;height:8px;border-radius:6px;overflow:hidden}
+  .progress.on{display:block}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,var(--neon),#3aa3ff);transition:width .3s}
+  .toast{display:none;margin-top:12px;padding:10px 12px;background:rgba(255,113,99,.07);border:1px solid rgba(255,113,99,.3);color:var(--err);border-radius:10px;font-size:13px;text-align:left}
+  .toast.on{display:block}
+  .controls{display:flex;flex-direction:column;gap:18px}
+  .control{background:#0c1220;border:1px solid var(--line);border-radius:12px;padding:14px}
+  .control label{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-bottom:8px}
+  .control b{color:var(--ink);font-weight:600;font-family:'JetBrains Mono',monospace}
+  input[type=range]{width:100%;accent-color:var(--neon)}
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;background:#0c1220;border:1px solid var(--line);color:var(--mut);padding:8px 10px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px}
+  .seg button.on{border-color:var(--neon);color:var(--neon);background:rgba(51,255,170,.06)}
+  .stats{padding:64px 0}
+  .stats .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .stat .n{font-family:'JetBrains Mono',monospace;font-size:30px;color:var(--neon)}
+  .stat .l{color:var(--mut);font-size:13px;margin-top:4px}
+  .privacy{padding:8px 0 60px;color:var(--mut);font-size:14px;text-align:center}
+  footer{border-top:1px solid var(--line);padding:24px 0;color:var(--mut);font-size:13px}
+  .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  @media (max-width:780px){.panel{grid-template-columns:1fr}.nav-links{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="dot"></span>Pixly</div>
+    <nav class="nav-links">
+      <a href="#compress">Compress</a><a href="#stats">Stats</a><a href="#privacy">Privacy</a>
+    </nav>
+    <a class="pill" href="#compress">Compress now</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="compress">
+    <div class="wrap">
+      <div class="badge"><span class="led"></span>Edge-cached · sub-second response</div>
+      <h1>Smart image <em>compression</em><br>for the modern web.</h1>
+      <p class="lede">Drop a JPEG, PNG or WebP — Pixly trims it to the smallest size that still looks identical to the human eye. Quality, format and stripping are up to you.</p>
+
+      <div class="panel">
+        <form class="drop" id="dropzone">
+          <h2>Drop image here</h2>
+          <p>JPEG · PNG · WebP · AVIF · up to 25 MB</p>
+          <label class="pickbtn">
+            Pick from device
+            <input type="file" id="picker" accept="image/*">
+          </label>
+          <div class="meta" id="meta">awaiting input · 0 bytes</div>
+          <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+          <div class="toast" id="toast"></div>
+        </form>
+
+        <div class="controls">
+          <div class="control">
+            <label>Quality <b id="qv">82</b></label>
+            <input type="range" min="40" max="100" value="82" id="q">
+          </div>
+          <div class="control">
+            <label>Output format</label>
+            <div class="seg" id="fmt">
+              <button class="on" data-v="auto">Auto</button>
+              <button data-v="webp">WebP</button>
+              <button data-v="avif">AVIF</button>
+              <button data-v="jpeg">JPEG</button>
+            </div>
+          </div>
+          <div class="control">
+            <label>Strip metadata <b id="sv">on</b></label>
+            <div class="seg" id="strip">
+              <button class="on" data-v="on">Yes</button>
+              <button data-v="off">Keep EXIF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats" id="stats">
+    <div class="wrap">
+      <div class="grid">
+        <div class="stat"><div class="n">62%</div><div class="l">average size reduction</div></div>
+        <div class="stat"><div class="n">0.4s</div><div class="l">median round-trip on edge</div></div>
+        <div class="stat"><div class="n">17M+</div><div class="l">images shipped this year</div></div>
+        <div class="stat"><div class="n">SSIM 0.98</div><div class="l">visual quality kept</div></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="privacy" id="privacy">Pixly never stores originals. Files live in RAM only and are wiped after the download link expires.</p>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>© Pixly · image tools, kept simple</div>
+    <div><a href="#">Status</a> · <a href="#">Privacy</a> · <a href="#">API</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var dz = document.getElementById('dropzone');
+  var picker = document.getElementById('picker');
+  var bar = document.getElementById('bar');
+  var prog = document.getElementById('progress');
+  var toast = document.getElementById('toast');
+  var meta = document.getElementById('meta');
+  var q = document.getElementById('q');
+  var qv = document.getElementById('qv');
+  q.addEventListener('input', function(){ qv.textContent = q.value; });
+
+  function bindSeg(id, sink){
+    var seg = document.getElementById(id);
+    seg.querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(e){
+        e.preventDefault();
+        seg.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+        b.classList.add('on');
+        if(sink) sink(b.dataset.v);
+      });
+    });
+  }
+  bindSeg('fmt');
+  bindSeg('strip', function(v){ document.getElementById('sv').textContent = v === 'on' ? 'on' : 'off'; });
+
+  function fakeRun(file){
+    toast.classList.remove('on');
+    if(file) meta.textContent = file.name + ' · ' + (file.size/1024).toFixed(1) + ' KB · queued';
+    bar.style.width = '0%';
+    prog.classList.add('on');
+    var w = 0;
+    var iv = setInterval(function(){
+      w += 8 + Math.random()*8;
+      if(w >= 95){
+        clearInterval(iv);
+        bar.style.width = '95%';
+        setTimeout(function(){
+          prog.classList.remove('on');
+          toast.textContent = 'The compression backend is offline for routine maintenance. Please try again in a few minutes.';
+          toast.classList.add('on');
+          if(file) meta.textContent = file.name + ' · job aborted';
+        }, 600);
+      } else {
+        bar.style.width = w + '%';
+      }
+    }, 200);
+  }
+
+  picker.addEventListener('change', function(e){ if(e.target.files && e.target.files.length) fakeRun(e.target.files[0]); });
+  ['dragenter','dragover'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.add('drag');}); });
+  ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.remove('drag');}); });
+  dz.addEventListener('drop', function(e){ if(e.dataTransfer.files && e.dataTransfer.files.length) fakeRun(e.dataTransfer.files[0]); });
+})();
+</script>
+</body>
+</html>

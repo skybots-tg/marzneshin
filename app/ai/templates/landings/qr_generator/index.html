@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QRForge — fast QR code generator</title>
+<meta name="description" content="Generate QR codes for URLs, Wi-Fi credentials and contact cards. Free and instant.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{--bg:#0d0d0d;--card:#161616;--ink:#f4f1ea;--mut:#a39e91;--accent:#ffd400;--line:#272626;--err:#ff8a6b}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.55 'Inter Tight',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  .wrap{max-width:880px;margin:0 auto;padding:0 22px}
+  header{padding:20px 0}
+  .nav{display:flex;align-items:center;justify-content:space-between}
+  .brand{font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  .brand .square{width:24px;height:24px;background:var(--accent);position:relative;border-radius:3px}
+  .brand .square::before{content:"";position:absolute;inset:6px;background:var(--bg);border-radius:1px}
+  .ext{color:var(--mut);font-size:14px}
+  .hero{padding:38px 0 16px}
+  h1{font-size:clamp(34px,5vw,52px);line-height:1.05;margin:0 0 14px;letter-spacing:-.02em}
+  .lede{color:var(--mut);font-size:17px;max-width:560px;margin:0}
+  .panel{margin-top:32px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px;display:grid;grid-template-columns:1.2fr 1fr;gap:24px;align-items:center}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs button{flex:1;background:transparent;border:1px solid var(--line);color:var(--mut);padding:9px 10px;border-radius:9px;cursor:pointer;font:inherit;font-size:14px}
+  .tabs button.on{background:var(--accent);color:#000;border-color:var(--accent)}
+  .form{display:flex;flex-direction:column;gap:10px}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field label{color:var(--mut);font-size:13px}
+  .field input{background:#0c0c0c;border:1px solid var(--line);color:var(--ink);padding:11px 12px;border-radius:9px;font:inherit;font-size:15px}
+  .field input:focus{outline:none;border-color:var(--accent)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .preview{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .qrwrap{background:#fff;border-radius:14px;padding:18px}
+  .qrwrap svg{display:block;width:200px;height:200px}
+  .dlbtn{background:var(--accent);color:#000;padding:11px 18px;border-radius:10px;border:none;cursor:pointer;font:inherit;font-weight:600}
+  .dlbtn:hover{filter:brightness(.95)}
+  .dlbtn[disabled]{opacity:.55;cursor:not-allowed}
+  .toast{display:none;background:rgba(255,138,107,.07);border:1px solid rgba(255,138,107,.3);color:var(--err);padding:10px 12px;border-radius:9px;font-size:13px;text-align:center;width:100%}
+  .toast.on{display:block}
+  .feats{padding:42px 0 60px}
+  .feats h3{font-size:22px;margin:0 0 18px;letter-spacing:-.01em}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .feat h4{margin:0 0 4px;font-size:15px}
+  .feat p{margin:0;color:var(--mut);font-size:13px}
+  footer{border-top:1px solid var(--line);padding:22px 0;color:var(--mut);font-size:13px}
+  .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  @media (max-width:680px){.panel{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="square"></span>QRForge</div>
+    <div class="ext">Free · no signup</div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <h1>Generate a QR<br>code in one click.</h1>
+      <p class="lede">URLs, Wi-Fi credentials, vCards — type once, export an SVG or PNG. No tracking, no watermark, no nag screen.</p>
+
+      <div class="panel">
+        <div>
+          <div class="tabs" id="tabs">
+            <button class="on" data-v="url">URL</button>
+            <button data-v="wifi">Wi-Fi</button>
+            <button data-v="vcard">vCard</button>
+            <button data-v="text">Text</button>
+          </div>
+
+          <form class="form" id="form">
+            <div class="field" data-mode="url"><label>Destination URL</label><input id="url" type="url" placeholder="https://example.com" value="https://example.com"></div>
+
+            <div class="field" data-mode="wifi" hidden><label>Network name (SSID)</label><input id="ssid" type="text" placeholder="MyNetwork"></div>
+            <div class="row2" data-mode="wifi" hidden>
+              <div class="field"><label>Password</label><input id="wifipw" type="text" placeholder="••••••••"></div>
+              <div class="field"><label>Encryption</label><input id="enc" type="text" value="WPA2"></div>
+            </div>
+
+            <div class="row2" data-mode="vcard" hidden>
+              <div class="field"><label>Full name</label><input id="vname" type="text" placeholder="Ada Lovelace"></div>
+              <div class="field"><label>Phone</label><input id="vphone" type="tel" placeholder="+1 555 0100"></div>
+            </div>
+            <div class="field" data-mode="vcard" hidden><label>Email</label><input id="vmail" type="email" placeholder="ada@example.com"></div>
+
+            <div class="field" data-mode="text" hidden><label>Plain text</label><input id="text" type="text" placeholder="Anything you like"></div>
+          </form>
+        </div>
+
+        <div class="preview">
+          <div class="qrwrap" aria-label="QR code preview">
+            <svg viewBox="0 0 33 33" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">
+              <rect width="33" height="33" fill="#fff"/>
+              <g fill="#000">
+                <!-- finder top-left -->
+                <rect x="1" y="1" width="7" height="7"/><rect x="2" y="2" width="5" height="5" fill="#fff"/><rect x="3" y="3" width="3" height="3"/>
+                <!-- finder top-right -->
+                <rect x="25" y="1" width="7" height="7"/><rect x="26" y="2" width="5" height="5" fill="#fff"/><rect x="27" y="3" width="3" height="3"/>
+                <!-- finder bottom-left -->
+                <rect x="1" y="25" width="7" height="7"/><rect x="2" y="26" width="5" height="5" fill="#fff"/><rect x="3" y="27" width="3" height="3"/>
+                <!-- alignment-ish -->
+                <rect x="22" y="22" width="5" height="5"/><rect x="23" y="23" width="3" height="3" fill="#fff"/><rect x="24" y="24" width="1" height="1"/>
+                <!-- timing patterns -->
+                <rect x="9" y="6" width="1" height="1"/><rect x="11" y="6" width="1" height="1"/><rect x="13" y="6" width="1" height="1"/><rect x="15" y="6" width="1" height="1"/><rect x="17" y="6" width="1" height="1"/><rect x="19" y="6" width="1" height="1"/><rect x="21" y="6" width="1" height="1"/><rect x="23" y="6" width="1" height="1"/>
+                <rect x="6" y="9" width="1" height="1"/><rect x="6" y="11" width="1" height="1"/><rect x="6" y="13" width="1" height="1"/><rect x="6" y="15" width="1" height="1"/><rect x="6" y="17" width="1" height="1"/><rect x="6" y="19" width="1" height="1"/><rect x="6" y="21" width="1" height="1"/><rect x="6" y="23" width="1" height="1"/>
+                <!-- pseudo-data scatter -->
+                <rect x="10" y="10" width="2" height="2"/><rect x="14" y="10" width="1" height="1"/><rect x="16" y="10" width="2" height="1"/><rect x="20" y="10" width="1" height="2"/><rect x="22" y="10" width="1" height="1"/>
+                <rect x="10" y="13" width="1" height="2"/><rect x="13" y="13" width="2" height="1"/><rect x="16" y="13" width="1" height="2"/><rect x="19" y="13" width="2" height="2"/><rect x="22" y="13" width="1" height="1"/>
+                <rect x="11" y="16" width="1" height="1"/><rect x="13" y="16" width="2" height="1"/><rect x="17" y="16" width="2" height="2"/><rect x="20" y="16" width="1" height="1"/><rect x="23" y="16" width="2" height="1"/>
+                <rect x="10" y="19" width="2" height="1"/><rect x="13" y="19" width="1" height="2"/><rect x="15" y="19" width="2" height="1"/><rect x="18" y="19" width="1" height="2"/><rect x="21" y="19" width="1" height="1"/>
+                <rect x="11" y="22" width="1" height="2"/><rect x="14" y="22" width="2" height="1"/><rect x="17" y="22" width="1" height="2"/><rect x="20" y="22" width="1" height="1"/>
+                <rect x="10" y="26" width="2" height="1"/><rect x="14" y="26" width="1" height="1"/><rect x="16" y="26" width="2" height="1"/><rect x="19" y="26" width="1" height="2"/>
+                <rect x="11" y="29" width="1" height="1"/><rect x="14" y="29" width="2" height="1"/><rect x="17" y="29" width="1" height="1"/><rect x="20" y="29" width="2" height="1"/>
+              </g>
+            </svg>
+          </div>
+          <button class="dlbtn" id="dl">Download PNG</button>
+          <div class="toast" id="toast"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feats">
+    <div class="wrap">
+      <h3>Built for speed</h3>
+      <div class="grid">
+        <div class="feat"><h4>Vector output</h4><p>SVG export scales to any print or display size without artefacts.</p></div>
+        <div class="feat"><h4>Error correction</h4><p>Levels L–H so codes survive print smudges, light damage and stickers.</p></div>
+        <div class="feat"><h4>Privacy-first</h4><p>All generation happens client-side — your text never leaves the browser.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>© QRForge · A small studio project</div>
+    <div><a href="#">GitHub</a> · <a href="#">Privacy</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var tabs = document.getElementById('tabs');
+  var fields = document.querySelectorAll('[data-mode]');
+  function setMode(v){
+    tabs.querySelectorAll('button').forEach(function(b){b.classList.toggle('on', b.dataset.v===v)});
+    fields.forEach(function(el){ el.hidden = (el.dataset.mode !== v); });
+  }
+  tabs.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return; e.preventDefault();
+    setMode(b.dataset.v);
+  });
+
+  var dl = document.getElementById('dl');
+  var toast = document.getElementById('toast');
+  dl.addEventListener('click', function(){
+    dl.disabled = true;
+    toast.classList.remove('on');
+    setTimeout(function(){
+      dl.disabled = false;
+      toast.textContent = 'Download service is in maintenance mode. Please try again later.';
+      toast.classList.add('on');
+    }, 700);
+  });
+})();
+</script>
+</body>
+</html>
