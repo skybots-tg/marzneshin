@@ -81,6 +81,13 @@ from .node_filtering import (
     has_any_ssh_credentials,
     delete_all_ssh_credentials,
 )
+from .node_tls import (
+    get_tls_provisioning,
+    upsert_tls_provisioning,
+    update_cert_dates,
+    mark_renew_attempted,
+    delete_tls_provisioning,
+)
 from .ai_skill import (
     get_ai_skill,
     get_all_ai_skills,
@@ -159,6 +166,11 @@ __all__ = [
     "get_ssh_pin_hash",
     "set_ssh_pin_hash",
     "clear_ssh_pin_hash",
+    "get_tls_provisioning",
+    "upsert_tls_provisioning",
+    "update_cert_dates",
+    "mark_renew_attempted",
+    "delete_tls_provisioning",
     "get_ai_skill",
     "get_all_ai_skills",
     "create_ai_skill",

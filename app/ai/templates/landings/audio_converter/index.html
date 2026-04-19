@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SoundFlip — convert audio between MP3, WAV, FLAC and OGG</title>
+<meta name="description" content="Online audio format converter. Lossless WAV/FLAC and lossy MP3/OGG with custom bitrate.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#1a0e2c;--ink:#f5edff;--mut:#b29ecb;--card:#241337;--line:#3a2454;
+    --primary:#ff6b3d;--primary-d:#ed4f1c;--accent:#a06bff;--err:#ffb46b;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.55 'Plus Jakarta Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{background:radial-gradient(700px 500px at 90% -10%,rgba(255,107,61,.18),transparent 65%),radial-gradient(800px 600px at 0% 100%,rgba(160,107,255,.18),transparent 65%),var(--bg)}
+  a{color:var(--accent);text-decoration:none}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 22px}
+  header{padding:18px 0}
+  .nav{display:flex;justify-content:space-between;align-items:center}
+  .brand{font-weight:800;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
+  .brand .wave{display:inline-flex;align-items:end;gap:3px;height:22px}
+  .brand .wave span{width:3px;background:linear-gradient(180deg,var(--primary),var(--accent));border-radius:2px;animation:bounce 1s ease-in-out infinite}
+  .brand .wave span:nth-child(1){height:50%;animation-delay:.0s}
+  .brand .wave span:nth-child(2){height:80%;animation-delay:.15s}
+  .brand .wave span:nth-child(3){height:35%;animation-delay:.3s}
+  .brand .wave span:nth-child(4){height:65%;animation-delay:.45s}
+  @keyframes bounce{0%,100%{transform:scaleY(.5)}50%{transform:scaleY(1)}}
+  .nav-links{display:flex;gap:20px;color:var(--mut)}
+  .nav-links a{color:inherit}
+  .nav-links a:hover{color:var(--ink)}
+  .cta{background:var(--primary);color:#fff;padding:9px 16px;border-radius:9px;font-weight:600}
+  .cta:hover{background:var(--primary-d);color:#fff}
+  .hero{padding:48px 0 24px}
+  h1{font-size:clamp(34px,5.5vw,58px);line-height:1.05;margin:0 0 14px;letter-spacing:-.02em}
+  h1 span{background:linear-gradient(90deg,var(--primary),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{color:var(--mut);font-size:18px;max-width:600px}
+  .converter{margin-top:36px;background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+  .matrix{display:grid;grid-template-columns:1fr auto 1fr;gap:0;padding:18px 22px;border-bottom:1px solid var(--line);align-items:center}
+  .col h4{margin:0 0 8px;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+  .pills{display:flex;flex-wrap:wrap;gap:6px}
+  .pills button{background:transparent;border:1px solid var(--line);color:var(--mut);padding:7px 13px;border-radius:999px;cursor:pointer;font:inherit;font-size:13px}
+  .pills button.on{background:linear-gradient(135deg,var(--primary),var(--accent));color:#fff;border-color:transparent}
+  .arrow{padding:0 14px;color:var(--mut)}
+  .body{display:grid;grid-template-columns:1.4fr 1fr;gap:0}
+  .drop{padding:36px 22px;text-align:center;border-right:1px solid var(--line)}
+  .drop.drag{background:rgba(255,107,61,.06)}
+  .drop h2{margin:8px 0 6px;font-size:18px}
+  .drop p{margin:0 0 16px;color:var(--mut)}
+  .pickbtn{display:inline-block;background:var(--primary);color:#fff;padding:11px 22px;border-radius:10px;font-weight:600;cursor:pointer}
+  .pickbtn:hover{background:var(--primary-d)}
+  .pickbtn input{display:none}
+  .meta{margin-top:14px;color:var(--mut);font-size:13px}
+  .progress{display:none;margin:14px auto 0;background:#180a2e;height:8px;border-radius:6px;overflow:hidden;max-width:380px}
+  .progress.on{display:block}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,var(--primary),var(--accent));transition:width .3s}
+  .toast{display:none;margin:14px auto 0;max-width:380px;padding:10px 12px;background:rgba(255,180,107,.08);border:1px solid rgba(255,180,107,.32);color:var(--err);border-radius:9px;font-size:13px}
+  .toast.on{display:block}
+  .opts{padding:24px 22px;display:flex;flex-direction:column;gap:14px}
+  .opt{background:#1d1030;border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+  .opt label{display:flex;justify-content:space-between;color:var(--mut);font-size:13px;margin-bottom:8px}
+  .opt label b{color:var(--ink);font-weight:600}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:60px;background:transparent;border:1px solid var(--line);color:var(--mut);padding:7px 8px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px}
+  .seg button.on{background:rgba(160,107,255,.18);border-color:var(--accent);color:var(--ink)}
+  .feats{padding:48px 0 70px}
+  .feats h3{font-size:24px;letter-spacing:-.01em;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .feat h4{margin:0 0 6px;font-size:16px}
+  .feat p{margin:0;color:var(--mut);font-size:14px}
+  footer{border-top:1px solid var(--line);padding:24px 0;color:var(--mut);font-size:13px}
+  .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  @media (max-width:760px){.body{grid-template-columns:1fr}.matrix{grid-template-columns:1fr;gap:14px}.arrow{transform:rotate(90deg);text-align:center}.nav-links{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="wave"><span></span><span></span><span></span><span></span></span>SoundFlip</div>
+    <nav class="nav-links"><a href="#convert">Convert</a><a href="#feats">Features</a><a href="#">API</a></nav>
+    <a class="cta" href="#convert">Convert audio</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="convert">
+    <div class="wrap">
+      <h1>Switch audio formats<br>without <span>compromise.</span></h1>
+      <p class="lede">MP3 to WAV, FLAC to OGG — pick your bitrate, sample rate and channels. Lossless codecs stay lossless, the lossy ones come out clean.</p>
+
+      <div class="converter">
+        <div class="matrix">
+          <div class="col">
+            <h4>From</h4>
+            <div class="pills" id="from">
+              <button class="on" data-v="auto">Detect</button>
+              <button data-v="mp3">MP3</button><button data-v="wav">WAV</button><button data-v="flac">FLAC</button><button data-v="ogg">OGG</button><button data-v="m4a">M4A</button>
+            </div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="col">
+            <h4>To</h4>
+            <div class="pills" id="to">
+              <button class="on" data-v="mp3">MP3</button>
+              <button data-v="wav">WAV</button><button data-v="flac">FLAC</button><button data-v="ogg">OGG</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="body">
+          <form class="drop" id="dropzone">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            <h2>Drop your audio file</h2>
+            <p>MP3 · WAV · FLAC · OGG · M4A · up to 200 MB</p>
+            <label class="pickbtn">
+              Pick from device
+              <input type="file" id="picker" accept="audio/*">
+            </label>
+            <div class="meta" id="meta">no file selected</div>
+            <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+            <div class="toast" id="toast"></div>
+          </form>
+
+          <div class="opts">
+            <div class="opt">
+              <label>Bitrate <b id="brv">192 kbps</b></label>
+              <div class="seg" id="br">
+                <button data-v="96">96</button><button data-v="128">128</button>
+                <button class="on" data-v="192">192</button><button data-v="256">256</button><button data-v="320">320</button>
+              </div>
+            </div>
+            <div class="opt">
+              <label>Sample rate <b id="srv">44.1 kHz</b></label>
+              <div class="seg" id="sr">
+                <button data-v="22050">22.05</button>
+                <button class="on" data-v="44100">44.1</button>
+                <button data-v="48000">48</button><button data-v="96000">96</button>
+              </div>
+            </div>
+            <div class="opt">
+              <label>Channels <b id="chv">stereo</b></label>
+              <div class="seg" id="ch">
+                <button data-v="mono">Mono</button>
+                <button class="on" data-v="stereo">Stereo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feats" id="feats">
+    <div class="wrap">
+      <h3>Why SoundFlip</h3>
+      <div class="grid">
+        <div class="feat"><h4>Lossless when you want it</h4><p>FLAC and WAV come through bit-identical — useful when you're chained converting.</p></div>
+        <div class="feat"><h4>Smart bitrate</h4><p>VBR profiles available for MP3 and OGG, or fix CBR if you need predictable file sizes.</p></div>
+        <div class="feat"><h4>Tags preserved</h4><p>ID3v2 / Vorbis comments / FLAC metadata copied across by default. Strip is one click.</p></div>
+        <div class="feat"><h4>No queues</h4><p>Single-file conversions usually finish before the upload progress bar fills.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>© SoundFlip · Audio tools for the rest of us</div>
+    <div><a href="#">Privacy</a> · <a href="#">Terms</a> · <a href="#">Status</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  function bindSeg(id, cb){
+    var s = document.getElementById(id); if(!s) return;
+    s.addEventListener('click', function(e){
+      var b = e.target.closest('button'); if(!b) return; e.preventDefault();
+      s.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on');
+      if(cb) cb(b.dataset.v);
+    });
+  }
+  bindSeg('from'); bindSeg('to');
+  bindSeg('br', function(v){ document.getElementById('brv').textContent = v + ' kbps'; });
+  bindSeg('sr', function(v){ document.getElementById('srv').textContent = (parseInt(v,10)/1000) + ' kHz'; });
+  bindSeg('ch', function(v){ document.getElementById('chv').textContent = v; });
+
+  var dz = document.getElementById('dropzone');
+  var picker = document.getElementById('picker');
+  var bar = document.getElementById('bar');
+  var prog = document.getElementById('progress');
+  var toast = document.getElementById('toast');
+  var meta = document.getElementById('meta');
+
+  function fakeRun(file){
+    toast.classList.remove('on');
+    if(file) meta.textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB';
+    bar.style.width = '0%';
+    prog.classList.add('on');
+    var w = 0;
+    var iv = setInterval(function(){
+      w += 6 + Math.random()*8;
+      if(w >= 90){
+        clearInterval(iv);
+        bar.style.width = '90%';
+        setTimeout(function(){
+          prog.classList.remove('on');
+          toast.textContent = 'The conversion engine is offline for upgrades. Please retry in a few minutes.';
+          toast.classList.add('on');
+        }, 700);
+      } else {
+        bar.style.width = w + '%';
+      }
+    }, 220);
+  }
+
+  picker.addEventListener('change', function(e){ if(e.target.files && e.target.files.length) fakeRun(e.target.files[0]); });
+  ['dragenter','dragover'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.add('drag');}); });
+  ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev, function(e){e.preventDefault();dz.classList.remove('drag');}); });
+  dz.addEventListener('drop', function(e){ if(e.dataTransfer.files && e.dataTransfer.files.length) fakeRun(e.dataTransfer.files[0]); });
+})();
+</script>
+</body>
+</html>
