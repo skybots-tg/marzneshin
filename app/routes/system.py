@@ -1,7 +1,10 @@
 from fastapi import APIRouter, HTTPException
 
 from app.db import crud, get_pool_stats, reconfigure_pool
-from app.db.crud.system import invalidate_subscription_settings_cache
+from app.db.crud.system import (
+    invalidate_subscription_settings_cache,
+    invalidate_notification_events_cache,
+)
 from app.db.models import Admin as DBAdmin, Settings
 from app.db.models import Node
 from app.dependencies import (
@@ -16,6 +19,7 @@ from app.models.node import NodeStatus
 from app.models.settings import (
     SubscriptionSettings,
     TelegramSettings,
+    NotificationEventsSettings,
     DatabasePoolConfig,
     DatabasePoolStats,
     SSHPinStatus,
@@ -71,6 +75,34 @@ def update_telegram_settings(
     settings.telegram = new_telegram
     db.commit()
     return settings.telegram
+
+
+@router.get(
+    "/settings/notification-events", response_model=NotificationEventsSettings
+)
+def get_notification_events_settings(db: DBDep, admin: SudoAdminDep):
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not found")
+    raw = settings.notification_events or {}
+    return NotificationEventsSettings(**raw)
+
+
+@router.put(
+    "/settings/notification-events", response_model=NotificationEventsSettings
+)
+def update_notification_events_settings(
+    db: DBDep,
+    payload: NotificationEventsSettings,
+    admin: SudoAdminDep,
+):
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not found")
+    settings.notification_events = payload.model_dump(mode="json")
+    db.commit()
+    invalidate_notification_events_cache()
+    return payload
 
 
 @router.get("/settings/database", response_model=DatabasePoolStats)

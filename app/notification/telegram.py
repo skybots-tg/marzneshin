@@ -12,7 +12,9 @@ from app.config.env import (
     TELEGRAM_ADMIN_ID,
     TELEGRAM_LOGGER_CHANNEL_ID,
 )
-from app.models.notification import Notification
+from app.db import GetSettingsDB
+from app.db.crud import get_notification_events_cached
+from app.models.notification import Notification, UserNotification
 from app.notification.helper import create_text
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,35 @@ async def send_message(
             logger.error(e)
 
 
+def _is_event_enabled(notif: Notification) -> bool:
+    """Check user-configured per-event toggles for Telegram delivery.
+
+    NULL settings (column never written) means "send everything",
+    matching the behaviour shipped before this feature existed.
+    Non-user notifications (admin alerts, etc.) are not filterable here.
+    """
+    action = getattr(notif, "action", None)
+    if not isinstance(action, UserNotification.Action):
+        return True
+
+    try:
+        with GetSettingsDB() as db:
+            toggles = get_notification_events_cached(db)
+    except Exception:
+        logger.exception(
+            "Failed to load notification-events settings; sending event %s",
+            action.value,
+        )
+        return True
+
+    if not toggles:
+        return True
+
+    return bool(toggles.get(action.value, True))
+
+
 async def send_notification(notif: Notification):
+    if not _is_event_enabled(notif):
+        return
     text = create_text(notif)
     await send_message(text)
