@@ -37,6 +37,7 @@ from app.ai.ssh_runner import (
 )
 from app.ai.ssh_session import get_unlocked_pin, is_session_unlocked
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import canonical_panel_cert_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ async def install_panel_certificate_on_node(
                 "alembic migrations / regenerate via the admin tool."
             )
         }
-    cert_pem = tls.certificate.strip() + "\n"
+    cert_bytes = canonical_panel_cert_bytes(tls)
 
     creds = _load_creds(node_id)
     if creds is None:
@@ -234,7 +235,7 @@ async def install_panel_certificate_on_node(
         client = await asyncio.to_thread(_open_ssh, node_address, creds, 30)
         sftp = await asyncio.to_thread(client.open_sftp)
         try:
-            payload = io.BytesIO(cert_pem.encode("utf-8"))
+            payload = io.BytesIO(cert_bytes)
             await asyncio.to_thread(sftp.putfo, payload, "/tmp/marznode_client_panel.pem")
             await asyncio.to_thread(sftp.chmod, "/tmp/marznode_client_panel.pem", 0o600)
 
