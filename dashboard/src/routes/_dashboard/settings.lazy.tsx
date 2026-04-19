@@ -2,6 +2,7 @@ import { Page, VStack } from '@marzneshin/common/components'
 import { CertificateWidget, SSHPinWidget } from '@marzneshin/modules/settings'
 import { SubscriptionSettingsWidget } from '@marzneshin/modules/settings/subscription'
 import { DatabaseSettingsWidget } from '@marzneshin/modules/settings/database'
+import { NotificationEventsWidget } from '@marzneshin/modules/settings/notifications'
 import { createLazyFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { SudoRoute } from '@marzneshin/libs/sudo-routes'
@@ -15,6 +16,7 @@ export const Settings = () => {
     >
       <VStack className="gap-3">
         <SubscriptionSettingsWidget />
+        <NotificationEventsWidget />
         <CertificateWidget />
       </VStack>
       <VStack className="gap-3">

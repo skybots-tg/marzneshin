@@ -176,6 +176,79 @@
         "delete": "Remove PIN",
         "delete_success": "SSH PIN removed successfully",
         "delete_error": "Failed to remove SSH PIN"
+      },
+      "notifications": {
+        "title": "Telegram notifications",
+        "description": "Choose which events get pushed to Telegram. Webhook delivery and urgent node-down alerts are not affected.",
+        "hint": "Changes apply to all subsequent notifications. Cache refreshes within 30 seconds.",
+        "groups": {
+          "lifecycle": {
+            "title": "User lifecycle",
+            "desc": "Create, update, delete, enable/disable"
+          },
+          "status": {
+            "title": "Status changes",
+            "desc": "Activation and deactivation (incl. auto-expire and limit reached)"
+          },
+          "warnings": {
+            "title": "Warnings & limits",
+            "desc": "Approaching traffic cap, days left, traffic exhausted"
+          },
+          "reset": {
+            "title": "Resets",
+            "desc": "Traffic reset and subscription revoke"
+          }
+        },
+        "events": {
+          "user_created": {
+            "label": "User created",
+            "desc": "A new user was added by an admin"
+          },
+          "user_updated": {
+            "label": "User updated",
+            "desc": "User profile was edited"
+          },
+          "user_activated": {
+            "label": "Activated",
+            "desc": "User became active"
+          },
+          "user_deactivated": {
+            "label": "Deactivated",
+            "desc": "User became inactive (expired, limit reached)"
+          },
+          "user_deleted": {
+            "label": "Deleted",
+            "desc": "User was permanently deleted"
+          },
+          "user_enabled": {
+            "label": "Enabled",
+            "desc": "Admin enabled the user"
+          },
+          "user_disabled": {
+            "label": "Disabled",
+            "desc": "Admin disabled the user"
+          },
+          "data_usage_reset": {
+            "label": "Traffic reset",
+            "desc": "User's used traffic was zeroed"
+          },
+          "subscription_revoked": {
+            "label": "Subscription revoked",
+            "desc": "Subscription URL and UUID were rotated"
+          },
+          "reached_usage_percent": {
+            "label": "Traffic limit warning",
+            "desc": "Used >= NOTIFY_REACHED_USAGE_PERCENT %"
+          },
+          "reached_days_left": {
+            "label": "Expiration warning",
+            "desc": "Days left <= NOTIFY_DAYS_LEFT"
+          },
+          "data_limit_exhausted": {
+            "label": "Traffic exhausted",
+            "desc": "Traffic limit fully consumed"
+          }
+        }
       }
     },
     "login": {

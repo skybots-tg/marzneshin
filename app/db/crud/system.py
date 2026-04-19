@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app.db.models import JWT, TLS, System, Settings
 
 _subscription_settings_cache = {"data": None, "expires": 0}
+_notification_events_cache = {"data": None, "expires": 0}
+_NOTIFICATION_EVENTS_TTL_SECONDS = 30
 
 
 def get_subscription_settings_cached(db: Session):
@@ -27,6 +29,31 @@ def invalidate_subscription_settings_cache():
     """Call this when settings are updated."""
     _subscription_settings_cache["data"] = None
     _subscription_settings_cache["expires"] = 0
+
+
+def get_notification_events_cached(db: Session) -> dict | None:
+    """Get notification-events toggles with short TTL caching.
+
+    Returns the raw JSON dict (or ``None`` when no row exists / column
+    is NULL — meaning "all events enabled").
+    """
+    now = time.time()
+    if (
+        _notification_events_cache["data"] is not None
+        and now < _notification_events_cache["expires"]
+    ):
+        return _notification_events_cache["data"]
+
+    result = db.query(Settings.notification_events).first()
+    value = result[0] if result else None
+    _notification_events_cache["data"] = value
+    _notification_events_cache["expires"] = now + _NOTIFICATION_EVENTS_TTL_SECONDS
+    return value
+
+
+def invalidate_notification_events_cache() -> None:
+    _notification_events_cache["data"] = None
+    _notification_events_cache["expires"] = 0
 
 
 def get_system_usage(db: Session):

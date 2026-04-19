@@ -39,3 +39,4 @@ class Settings(Base):
     telegram = Column(JSON)
     ssh_pin_hash = Column(String(256), nullable=True)
     ai = Column(JSON, nullable=True)
+    notification_events = Column(JSON, nullable=True)

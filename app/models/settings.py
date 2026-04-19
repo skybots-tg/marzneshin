@@ -38,6 +38,28 @@ class TelegramSettings(BaseModel):
     channel_id: int | None
 
 
+class NotificationEventsSettings(BaseModel):
+    """Per-event toggles for Telegram delivery.
+
+    Webhook delivery is intentionally not affected — webhook consumers
+    typically need the full event stream. Critical alerts (node down)
+    are also unconditional and ignore these flags.
+    """
+
+    user_created: bool = True
+    user_updated: bool = True
+    user_activated: bool = True
+    user_deactivated: bool = True
+    user_deleted: bool = True
+    user_enabled: bool = True
+    user_disabled: bool = True
+    data_usage_reset: bool = True
+    subscription_revoked: bool = True
+    reached_usage_percent: bool = True
+    reached_days_left: bool = True
+    data_limit_exhausted: bool = True
+
+
 class Settings(BaseModel):
     subscription: SubscriptionSettings
     telegram: TelegramSettings | None
