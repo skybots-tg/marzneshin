@@ -41,6 +41,7 @@ from app.ai.ssh_runner import (
 )
 from app.ai.ssh_session import get_unlocked_pin, is_session_unlocked
 from app.ai.tool_registry import register_tool
+from app.ai.tools._common import canonical_panel_cert_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -262,10 +263,8 @@ async def verify_panel_certificate(db: Session, node_id: int) -> dict:
                 "migrations / regenerate via the admin tool."
             ),
         }
-    panel_cert_pem = tls.certificate.strip()
-    panel_cert_sha = hashlib.sha256(
-        panel_cert_pem.encode("utf-8")
-    ).hexdigest()
+    panel_cert_bytes = canonical_panel_cert_bytes(tls)
+    panel_cert_sha = hashlib.sha256(panel_cert_bytes).hexdigest()
 
     creds = _maybe_load_creds_for_node(node_id)
     if creds is None:
@@ -274,7 +273,7 @@ async def verify_panel_certificate(db: Session, node_id: int) -> dict:
             "node_name": node_name,
             "ssh_available": False,
             "panel_cert_sha256": panel_cert_sha,
-            "panel_cert_size": len(panel_cert_pem),
+            "panel_cert_size": len(panel_cert_bytes),
             "reason": (
                 "SSH is not unlocked or credentials are missing for "
                 "this node. Call ssh_check_access to see what's missing."
@@ -362,7 +361,7 @@ async def verify_panel_certificate(db: Session, node_id: int) -> dict:
         "node_name": node_name,
         "ssh_available": True,
         "panel_cert_sha256": panel_cert_sha,
-        "panel_cert_size": len(panel_cert_pem),
+        "panel_cert_size": len(panel_cert_bytes),
         "node_client_pem_present": pem_present,
         "node_client_pem_size": pem_size,
         "node_client_pem_sha256": node_sha or None,

@@ -12,8 +12,27 @@ paged tool convention).
 """
 from __future__ import annotations
 
+from typing import Any
+
 DEFAULT_LIST_LIMIT = 20
 MAX_LIST_LIMIT = 100
+
+
+def canonical_panel_cert_bytes(tls: Any) -> bytes:
+    """Return the panel TLS certificate as the exact byte sequence that
+    `install_panel_certificate_on_node` writes to
+    `/var/lib/marznode/client.pem` on the node.
+
+    Centralised so `verify_panel_certificate` and the installer can
+    never disagree on what "the panel cert" means at the byte level.
+    Disagreement of even a single trailing `\\n` makes the installer
+    silently fail to flip `match` to true, which sends the agent down a
+    dead-end loop blaming the panel's TLS for a problem that does not
+    exist.
+    """
+    if tls is None or not getattr(tls, "certificate", None):
+        return b""
+    return tls.certificate.strip().encode("utf-8") + b"\n"
 
 
 def clamp_limit(limit: int, default: int = DEFAULT_LIST_LIMIT, maximum: int = MAX_LIST_LIMIT) -> int:
