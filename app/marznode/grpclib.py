@@ -82,6 +82,33 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     pass
         self._channel.close()
 
+    def _force_close_channel(self) -> None:
+        """Drop the underlying H2 protocol/SSL transport so the next
+        ``__connect__`` call creates a fresh connection.
+
+        Background: when the SSL transport gets torn down by asyncio
+        (e.g. node restart, abrupt TCP RST, or a timeout) the
+        ``_SSLProtocolTransport`` instance may have its ``_ssl_protocol``
+        attribute nulled, while ``H2Protocol.connection_lost`` is never
+        called. From grpclib's point of view ``Channel._connected`` then
+        keeps returning ``True`` (the cached ``handler.connection_lost``
+        flag stays ``False``), so ``__connect__`` short-circuits and
+        every subsequent RPC tries to write through the dead transport,
+        producing::
+
+            AttributeError: 'NoneType' object has no attribute '_write_appdata'
+
+        Calling ``Channel.close()`` clears ``_protocol``, which forces
+        ``_connected -> False`` and lets the monitor loop reconnect on
+        the next iteration.
+        """
+        try:
+            self._channel.close()
+        except Exception:
+            logger.exception(
+                "Node %i: error while force-closing channel", self.id
+            )
+
     async def _monitor_channel(self):
         while state := self._channel._state:
             logger.debug("node %i channel state: %s", self.id, state.value)
@@ -130,6 +157,14 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                         error_msg = f"sync failed: {type(e).__name__}: {e}"
                         logger.warning("Node %i: %s", self.id, error_msg)
                         await self._set_unhealthy(error_msg)
+                        # Sync RPCs (FetchBackends / RepopulateUsers)
+                        # write through ``_transport.write`` which under
+                        # the hood touches ``SSLProtocol._write_appdata``.
+                        # If the SSL transport is half-dead but
+                        # ``connection_lost`` was never fired we'd loop
+                        # forever on the same broken protocol — drop it
+                        # so the next iteration reconnects cleanly.
+                        self._force_close_channel()
                     else:
                         self._streaming_task = asyncio.create_task(
                             self._stream_user_updates()
@@ -173,6 +208,11 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             logger.exception(
                 "node %i: unexpected error in _stream_user_updates", self.id
             )
+            # Same rationale as in _monitor_channel: a stale SSL
+            # transport will keep raising ``_write_appdata`` on every
+            # subsequent stream.send_message; force-recreate the
+            # underlying H2 protocol so the next reconnect is healthy.
+            self._force_close_channel()
         finally:
             self.synced = False
 
@@ -317,6 +357,10 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     "node %i: _set_unhealthy after restart_backend failed",
                     self.id,
                 )
+            # Drop the underlying H2 protocol so the monitor loop
+            # rebuilds the SSL transport instead of hammering the dead
+            # one with every retry from the panel UI.
+            self._force_close_channel()
             raise
         else:
             await asyncio.to_thread(self.set_status, NodeStatus.healthy)
@@ -369,5 +413,9 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         except Exception:
             logger.exception("node %i: resync_users failed", self.id)
             self.synced = False
+            # If the channel is in the half-dead SSL state, every retry
+            # from the panel will keep raising '_write_appdata'. Force
+            # the protocol to be rebuilt before bubbling up.
+            self._force_close_channel()
             raise
         logger.info("Resynced %d users with node %d", len(users), self.id)
