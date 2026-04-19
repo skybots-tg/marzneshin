@@ -38,6 +38,48 @@ def string_to_temp_file(content: str):
     return file
 
 
+def _root_cause(exc: BaseException) -> BaseException:
+    """Walk ``__context__`` / ``__cause__`` to find the most informative
+    underlying exception.
+
+    grpclib has a known cosmetic bug: when the remote side abruptly tears
+    down the H2 stream (``StreamTerminatedError: Connection lost``), the
+    ``async with stream`` ``__aexit__`` calls ``Stream.reset_nowait()``,
+    which in turn does ``self._transport.write(...)`` on an already
+    half-closed SSL transport. asyncio's ``_SSLProtocolTransport.write``
+    then dereferences ``self._ssl_protocol`` (already nulled by a prior
+    ``close()``) and raises::
+
+        AttributeError: 'NoneType' object has no attribute '_write_appdata'
+
+    That AttributeError gets re-raised on top of the *real* cause, which
+    Python preserves in ``__context__`` / ``__cause__``. This helper
+    digs that real cause out so we can log
+    ``StreamTerminatedError: Connection lost`` (= node killed the stream)
+    instead of the misleading ``_write_appdata`` noise.
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    best: BaseException = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        # Prefer anything that isn't the spurious AttributeError or a
+        # generic CancelledError.
+        if not isinstance(cur, (AttributeError, asyncio.CancelledError)):
+            best = cur
+        cur = cur.__cause__ or cur.__context__
+    return best
+
+
+def _is_spurious_appdata_error(exc: BaseException) -> bool:
+    """True iff ``exc`` is the cosmetic ``_write_appdata`` AttributeError
+    raised by grpclib/asyncio on a torn-down SSL transport."""
+    return (
+        isinstance(exc, AttributeError)
+        and "_write_appdata" in str(exc)
+    )
+
+
 class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
     def __init__(
         self,
@@ -154,16 +196,32 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     try:
                         await self._sync()
                     except Exception as e:
-                        error_msg = f"sync failed: {type(e).__name__}: {e}"
+                        # Unwrap the spurious AttributeError(_write_appdata)
+                        # noise so the operator sees the real reason
+                        # (typically ``StreamTerminatedError: Connection
+                        # lost`` = node killed the gRPC stream right after
+                        # accepting our TLS handshake — usually means the
+                        # marznode service on the node is misconfigured /
+                        # crashing on the first RPC, not a panel issue).
+                        real = _root_cause(e)
+                        if _is_spurious_appdata_error(e) and real is not e:
+                            error_msg = (
+                                f"sync failed: {type(real).__name__}: "
+                                f"{real} (node likely rejected the RPC; "
+                                "check marznode logs on that node)"
+                            )
+                        else:
+                            error_msg = (
+                                f"sync failed: {type(e).__name__}: {e}"
+                            )
                         logger.warning("Node %i: %s", self.id, error_msg)
                         await self._set_unhealthy(error_msg)
-                        # Sync RPCs (FetchBackends / RepopulateUsers)
-                        # write through ``_transport.write`` which under
-                        # the hood touches ``SSLProtocol._write_appdata``.
-                        # If the SSL transport is half-dead but
-                        # ``connection_lost`` was never fired we'd loop
-                        # forever on the same broken protocol — drop it
-                        # so the next iteration reconnects cleanly.
+                        # Drop the protocol so the next iteration starts
+                        # from a fresh SSL transport. Even with the
+                        # underlying-cause unwrapping above, we still
+                        # want a clean reconnect because grpclib's
+                        # ``__aexit__`` may have left the channel in a
+                        # half-broken state.
                         self._force_close_channel()
                     else:
                         self._streaming_task = asyncio.create_task(
