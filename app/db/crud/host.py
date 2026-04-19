@@ -240,54 +240,74 @@ def get_nodes_address_in_hosts(
     db: Session, node_ids: list[int], server_ip: str
 ) -> dict[int, bool]:
     """
-    For each node id, return True if at least one of its (non-disabled) hosts
-    has an address that resolves to the node's address.
+    For each node id, return True if at least one non-disabled host anywhere
+    in the system has an address that resolves to the node's address.
 
-    A node without any inbounds is considered "ok" (True) — there is nothing
-    to match against yet, so we don't surface a misleading warning.
+    The check considers every non-disabled host regardless of which inbound it
+    belongs to, so a node is correctly reported as "in hosts" when:
+      - a host is attached to one of its own inbounds (the common case),
+      - it is the second hop of a multihop chain and the chained host lives
+        on (or points to) it,
+      - a universal/external host (inbound_id is NULL or on another node)
+        uses its address.
 
     The {SERVER_IP} placeholder used in host.address is substituted with the
     given marzneshin public IP before comparison, so single-server setups
     where the node IP equals the marzneshin server IP are handled correctly.
+
+    A node without any inbounds is considered "ok" (True) — there is nothing
+    to serve yet, so we don't surface a misleading warning on freshly added
+    nodes.
     """
     if not node_ids:
         return {}
 
-    inbound_node_ids = {
+    node_addresses: dict[int, str | None] = dict(
+        db.query(Node.id, Node.address).filter(Node.id.in_(node_ids)).all()
+    )
+    nodes_with_inbounds: set[int] = {
         nid for (nid,) in db.query(Inbound.node_id)
         .filter(Inbound.node_id.in_(node_ids))
         .distinct()
         .all()
     }
 
-    rows = (
-        db.query(Inbound.node_id, Node.address, InboundHost.address)
-        .join(Node, Inbound.node_id == Node.id)
-        .join(InboundHost, InboundHost.inbound_id == Inbound.id)
-        .filter(Inbound.node_id.in_(node_ids))
+    host_address_rows = (
+        db.query(InboundHost.address)
         .filter(InboundHost.is_disabled == False)
+        .filter(InboundHost.address.isnot(None))
         .all()
     )
 
     server_ip_lower = (server_ip or "").strip().lower()
-    has_match = {nid: False for nid in inbound_node_ids}
-
-    for nid, node_addr, host_addr in rows:
-        if not node_addr or not host_addr:
+    resolved_host_addrs: list[str] = []
+    for (addr,) in host_address_rows:
+        if not addr:
             continue
-        node_addr_l = node_addr.strip().lower()
-        host_addr_l = host_addr.strip().lower()
+        normalized = addr.strip().lower()
+        if not normalized:
+            continue
         if server_ip_lower:
-            host_addr_l = host_addr_l.replace(
+            normalized = normalized.replace(
                 _SERVER_IP_PLACEHOLDER, server_ip_lower
             )
-        if node_addr_l and node_addr_l in host_addr_l:
-            has_match[nid] = True
+        resolved_host_addrs.append(normalized)
 
-    return {
-        nid: True if nid not in inbound_node_ids else has_match.get(nid, False)
-        for nid in node_ids
-    }
+    result: dict[int, bool] = {}
+    for nid in node_ids:
+        if nid not in nodes_with_inbounds:
+            result[nid] = True
+            continue
+        node_addr = node_addresses.get(nid)
+        if not node_addr:
+            result[nid] = True
+            continue
+        node_addr_l = node_addr.strip().lower()
+        if not node_addr_l:
+            result[nid] = True
+            continue
+        result[nid] = any(node_addr_l in ha for ha in resolved_host_addrs)
+    return result
 
 
 _node_coefficients_cache: dict = {"data": None, "expires": 0}

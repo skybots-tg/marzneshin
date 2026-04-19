@@ -21,10 +21,13 @@ export async function fetchDatabaseSettings(): Promise<DatabasePoolStats> {
 
 export const databaseSettingsQueryKey = ["system", "settings", "database"];
 
+const DATABASE_STATS_REFETCH_MS = 10_000;
+
 export const useDatabaseSettingsQuery = () => {
     return useQuery({
         queryKey: databaseSettingsQueryKey,
         queryFn: fetchDatabaseSettings,
-        refetchInterval: 5000,
+        refetchInterval: DATABASE_STATS_REFETCH_MS,
+        refetchIntervalInBackground: false,
     });
 };

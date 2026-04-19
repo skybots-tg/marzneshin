@@ -1,11 +1,21 @@
-import { Page, VStack } from '@marzneshin/common/components'
+import { lazy, Suspense } from 'react'
+import { Page, VStack, Card } from '@marzneshin/common/components'
 import { CertificateWidget, SSHPinWidget } from '@marzneshin/modules/settings'
-import { SubscriptionSettingsWidget } from '@marzneshin/modules/settings/subscription'
 import { DatabaseSettingsWidget } from '@marzneshin/modules/settings/database'
 import { NotificationEventsWidget } from '@marzneshin/modules/settings/notifications'
 import { createLazyFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { SudoRoute } from '@marzneshin/libs/sudo-routes'
+
+const SubscriptionSettingsWidget = lazy(() =>
+  import('@marzneshin/modules/settings/subscription').then((m) => ({
+    default: m.SubscriptionSettingsWidget,
+  })),
+)
+
+const WidgetSkeleton = () => (
+  <Card className="h-64 animate-pulse bg-secondary/30" />
+)
 
 export const Settings = () => {
   const { t } = useTranslation()
@@ -15,7 +25,9 @@ export const Settings = () => {
       className="sm:flex flex-col lg:grid grid-cols-2 gap-3 h-full"
     >
       <VStack className="gap-3">
-        <SubscriptionSettingsWidget />
+        <Suspense fallback={<WidgetSkeleton />}>
+          <SubscriptionSettingsWidget />
+        </Suspense>
         <NotificationEventsWidget />
         <CertificateWidget />
       </VStack>

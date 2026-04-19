@@ -138,8 +138,8 @@ export const NotificationEventsWidget = () => {
                                     className="flex flex-col gap-3"
                                 >
                                     {idx > 0 && <Separator />}
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center justify-between gap-3 px-3">
+                                        <div className="flex flex-col gap-0.5 min-w-0">
                                             <Label className="text-sm font-semibold">
                                                 {t(group.titleKey)}
                                             </Label>
