@@ -54,6 +54,7 @@ export type NodeType = z.infer<typeof NodeSchema> & {
     backends: NodeBackendType[];
     message?: string | null;
     adblock_enabled?: boolean;
+    address_in_hosts?: boolean;
 };
 
 export const DnsProviders = {

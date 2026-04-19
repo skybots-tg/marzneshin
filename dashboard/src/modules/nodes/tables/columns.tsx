@@ -1,5 +1,5 @@
 import { ColumnDef } from "@tanstack/react-table"
-import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation } from "@marzneshin/modules/nodes"
+import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation, useNodesUpdateMutation } from "@marzneshin/modules/nodes"
 import {
     DataTableActionsCell,
     DataTableColumnHeader
@@ -12,12 +12,13 @@ import {
     NoPropogationButton,
     Button,
     Badge,
+    Switch,
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger
 } from "@marzneshin/common/components"
-import { RefreshCw, ArrowLeftRight, Download, Shield } from 'lucide-react';
+import { RefreshCw, ArrowLeftRight, Download, Shield, AlertTriangle } from 'lucide-react';
 import { cn } from "@marzneshin/common/utils";
 import { useState } from "react";
 import { MigrationDialog, UpdateXrayDialog } from "@marzneshin/modules/nodes";
@@ -41,7 +42,68 @@ const ResyncButton = ({ node }: { node: NodeType }) => {
     );
 };
 
+const NodeEnabledSwitch = ({ node }: { node: NodeType }) => {
+    const { mutate: updateNode, isPending } = useNodesUpdateMutation();
+    const isEnabled = node.status !== "disabled";
+
+    const handleToggle = (next: boolean) => {
+        updateNode({
+            ...node,
+            status: next ? "unhealthy" : "disabled",
+        });
+    };
+
+    return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                        <Switch
+                            checked={isEnabled}
+                            disabled={isPending}
+                            onCheckedChange={handleToggle}
+                            aria-label={i18n.t('page.nodes.enabled.toggle')}
+                        />
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                    {isEnabled
+                        ? i18n.t('page.nodes.enabled.on_desc')
+                        : i18n.t('page.nodes.enabled.off_desc')}
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    );
+};
+
+const AddressMissingBadge = () => (
+    <TooltipProvider>
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="inline-flex">
+                    <Badge variant="destructive" className="h-6 gap-1">
+                        <AlertTriangle className="size-3" />
+                        {i18n.t('page.nodes.address_missing.label')}
+                    </Badge>
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+                <p>{i18n.t('page.nodes.address_missing.desc')}</p>
+            </TooltipContent>
+        </Tooltip>
+    </TooltipProvider>
+);
+
 export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[] => ([
+    {
+        id: "enabled",
+        header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.enabled.title')} column={column} />,
+        cell: ({ row }) => (
+            <div onClick={(e) => e.stopPropagation()}>
+                <NodeEnabledSwitch node={row.original} />
+            </div>
+        ),
+    },
     {
         accessorKey: "name",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('name')} column={column} />,
@@ -83,7 +145,12 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
     {
         accessorKey: "address",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('address')} column={column} />,
-        cell: ({ row }) => `${row.original.address}:${row.original.port}`
+        cell: ({ row }) => (
+            <div className="flex items-center gap-1.5 flex-wrap">
+                <span>{`${row.original.address}:${row.original.port}`}</span>
+                {row.original.address_in_hosts === false && <AddressMissingBadge />}
+            </div>
+        ),
     },
     {
         accessorKey: "usage_coefficient",
