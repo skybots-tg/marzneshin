@@ -46,9 +46,12 @@ recent few entries:
 - `kind="connect"` + `timeout` / `refused` → marznode is down or
   firewalled. Failure mode A. Jump to step 3.
 - `node_not_loaded=true` → the panel doesn't have an in-memory
-  client for this node. Either it's disabled, just enabled (give
-  it 15s and retry), or the panel container was restarted after
-  enabling and hasn't reconciled yet.
+  client for this node. This is panel-side registry state, NOT a
+  TLS or network problem. Run `enable_node(node_id)` — that
+  re-instantiates the gRPC client with the current cert/key and
+  registers it. Wait ~15 s, re-check `get_node_info`. Do NOT
+  propose restarting the panel container; `enable_node` does the
+  same thing for one node without affecting the others.
 - empty `errors` → no recent failures recorded. Run
   `diagnose_node_issue` for the broader picture.
 
@@ -57,7 +60,9 @@ recent few entries:
 `verify_panel_certificate(node_id)`. SSH-backed; degrades to a
 report with `ssh_available=false` if SSH is locked.
 
-- `match=true` → mTLS is NOT the cause. Continue to step 2.
+- `match=true` → mTLS is verified end-to-end. Stop considering
+  TLS as a cause; do NOT call `install_panel_certificate_on_node`
+  and do NOT propose a panel restart. Continue to step 2.
 - `match=false` → the panel cert and the node's
   `/var/lib/marznode/client.pem` differ. This is the textbook
   cause of `sync failed: AttributeError: _write_appdata` /

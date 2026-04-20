@@ -1,128 +1,151 @@
 ---
 name: clone-node-from-donor
-description: Make node B look exactly like node A in one go — clone xray config, attach to the same services, push the user set, verify subscriptions. Use when the admin says "сделай как в той ноде", "make this new node identical to X", "copy node Y settings to node Z", or "склонируй ноду 12 на ноду 25". Does NOT install certificates — combine with `install_panel_certificate_on_node` upfront if the new node is a fresh install.
+description: Make node B look exactly like node A in one go — clone xray config, rotate reality keys per-node, attach target inbounds to the donor's services, replicate every donor host onto the target, push the user set, verify subscriptions. Use when the admin says "сделай как в той ноде", "make this new node identical to X", "copy node Y settings to node Z", or "склонируй ноду 12 на ноду 25". Does NOT install certificates — fresh marznode installs already have the right cert in place.
 ---
 # Clone a node from a donor (the "сделай как там" macro)
 
-The admin almost never wants you to walk a 9-step checklist by hand
-for this — they want one call, one confirmation, one report. The
-`onboard_node_from_donor` tool collapses the whole flow into a single
-agent call. Use this skill only to bracket that call with the right
-preflight and post-checks.
+The admin's manual procedure was: copy xray config → regenerate
+reality keys on the new node → propagate inbounds to all services →
+mirror every donor host (IP/port/name + reality params) onto the new
+inbounds. That entire sequence collapses to a single
+`onboard_node_from_donor` call.
 
 ## Inputs
-- `donor_node_id` — the node to copy from. Resolve names with
-  `list_nodes(search="...")`.
+- `donor_node_id` — the node to copy from (resolve with
+  `list_nodes(search="...")`).
 - `target_node_id` — the node to copy onto.
 - `sample_username` (optional but strongly recommended) — any real
-  user the admin trusts; we use it for the subscription verification
-  step.
+  user; we use it for the subscription verification step.
+- `host_remark_pattern` (optional) — string template applied to every
+  cloned host's remark. Supports placeholders `{donor_remark}`,
+  `{target_name}`, `{target_address}`, `{tag}`. Empty pattern =
+  donor remark unchanged.
+  Examples:
+    - `"{donor_remark} → {target_name}"` → "🚀 universal 4 → universal 5"
+    - `"universal {target_name}"` → "universal 5"
+    - `"{donor_remark}"` → keeps donor verbatim (default if you pass
+      empty).
+- `host_address_override` (optional) — override the target host's
+  address. Default = target node's `nodes.address` (the marznode
+  endpoint). Override only if the public-facing endpoint differs
+  from the marznode address (e.g. dedicated TLS domain per node).
+- `regenerate_reality_keys` (default `true`) — rotate reality keys
+  per-node. Leave `true` unless the admin explicitly asks to keep
+  donor keys.
+- `clone_hosts` (default `true`) — leave `true`; otherwise only
+  panel-default placeholder hosts will represent target inbounds in
+  subscriptions.
 
-## Quick path (90% of cases)
+If the admin gave you the donor + target by name and not the remark
+pattern, ask one short question: **"Какой шаблон названия host'ов?
+Например `{donor_remark} → {target_name}` сделает 'universal 4 →
+universal 5'. Или оставим как у донора?"**. One question, then go.
 
-### 1. Preflight: both nodes connected.
+## Happy path — two tool calls
+
+### 1. Confirm both nodes are connected.
 
 `get_node_info(donor_node_id)` AND `get_node_info(target_node_id)`.
-Both must report a non-disabled status. The donor's
-`backends[*].running` must be `true`. If the target's status is
-`unhealthy`, do NOT proceed with the clone — diagnose the target
-first via the `diagnose-node-down` skill (the most common cause for
-a fresh node is mTLS mismatch — fix with
-`install_panel_certificate_on_node` and re-check).
+Both must report `status=healthy`.
+
+If the target is **not** healthy:
+- `enable_node(target_node_id)` — re-instantiates the panel's gRPC
+  client. Wait ~15 s, then re-check.
+- Still not healthy → switch to `diagnose-node-down`. Do NOT call
+  `verify_panel_certificate` / `install_panel_certificate_on_node`
+  proactively from here.
 
 ### 2. Single-call clone.
 
 `onboard_node_from_donor(donor_node_id, target_node_id,
-sample_username="...")`.
+sample_username="...", host_remark_pattern="...")`.
 
-This runs, in one transaction-ish flow:
-1. preflight (both nodes in registry),
-2. `clone_node_config` (xray JSON donor→target, restarts target xray),
-3. `propagate_node_to_services` (every service the donor was in now
-   includes the target's matching inbounds, by tag),
-4. `resync_node_users` (target xray gets the full user set),
-5. subscription verification on `sample_username`.
-
-Read the returned `steps[]`. Each entry has `name` + `ok`.
+Steps it runs (in order, fails fast on first error):
+1. preflight (both nodes in registry).
+2. `clone_node_config` — donor xray JSON → target, restart target
+   xray. The panel's `_sync()` then refreshes target inbound rows.
+3. `regenerate_reality_keys_on_node` on target — rotates
+   `privateKey` + `shortIds` for every vless+reality inbound,
+   restarts xray again with the rotated config. Returns a per-tag
+   mapping `{tag, reality_public_key, reality_short_ids}` that step
+   5 consumes.
+4. `propagate_node_to_services` — every service the donor was in
+   gets the target's matching inbounds (by tag).
+5. `clone_donor_hosts_to_target` — every donor host is cloned onto
+   the target's matching inbound. `address` ← `host_address_override`
+   or target's `nodes.address`. `remark` ← rendered from
+   `host_remark_pattern`. `reality_public_key` /
+   `reality_short_ids` ← step 3 rotation. Same `services` binding
+   as the donor host. Default placeholder hosts on the target are
+   removed first.
+6. `resync_node_users` — push full user set to target xray.
+7. (optional) verify subscription on `sample_username`.
 
 ### 3. Interpret the report.
 
-- `success=true` and step 5 reports `match_in_subscription=true` →
-  **DONE**. Tell the admin: nodes synced, services updated count,
-  user count synced, sample subscription contains target address.
-- `success=false` with `failed_step="preflight"` → at least one
-  node is not in the panel's in-memory registry. Check
-  `get_node_recent_errors` on the failing one.
-- `success=false` with `failed_step="clone_node_config"` → target
-  rejected the xray config. Read the error; usually a port
-  collision the donor doesn't have. Fix the conflict on the
-  target (or change inbound ports in the cloned config) and
+- `success=true` AND `verify_subscription.match_in_subscription=true`
+  → **DONE**. Tell the admin: nodes synced, services updated count,
+  cloned hosts count, user count synced, sample subscription contains
+  target address.
+- `failed_step="preflight"` → run `enable_node` on the failing node,
   retry.
-- `success=false` with `failed_step="propagate_node_to_services"`
-  → DB-level error; bubble it up verbatim.
-- `success=false` with `failed_step="resync_node_users"` → almost
-  always SQL statement timeout for large user sets. Tell the
-  admin to raise `SQLALCHEMY_STATEMENT_TIMEOUT` (60-120s) and
-  restart the panel container, then re-run
-  `resync_node_users(target_node_id)` — no need to redo the
-  whole onboarding.
-- `propagate_warning` step present with `unmatched_donor_tags`
-  populated → the donor had inbound tags that the freshly-cloned
-  target xray config does NOT have. Services using those tags
-  will silently NOT include the new node. Either fix the tag
-  drift in the cloned config (`get_node_config` + `update_node_
-  config`) and re-run `propagate_node_to_services` manually, or
-  warn the admin loudly.
-- `verify_subscription.match_in_subscription=false` → target
-  inbound tags reached the services but the user's subscription
-  doesn't include the new endpoint. Possible causes:
-  (a) the user is not in any service that the donor was in
-  (verify with `inspect_user_subscription` for a different
-  sample),
-  (b) a host bound to the new inbound has `is_disabled=true` or
-  is missing reality_public_key. Run
-  `scan_hosts_for_issues(node_id=target_node_id)` and
-  `validate_host` on the suspects.
-
-## When the new node is a fresh install (no cert yet)
-
-`install_panel_certificate_on_node(target_node_id)` BEFORE step 1.
-Then wait ~15 s, run `get_node_info(target_node_id)` until the
-status flips to `healthy`, then proceed with the quick path.
-
-This is essentially the merged "deploy + clone" workflow:
-
-1. `install_panel_certificate_on_node(target_node_id)` (only
-   needed if `verify_panel_certificate` reported `match=false`
-   or `node_client_pem_present=false`)
-2. wait 15 s
-3. `get_node_info(target_node_id)` until `status=healthy`
-4. `onboard_node_from_donor(donor_node_id, target_node_id,
-   sample_username="...")`
-5. `xray_traffic_health(target_node_id, window_minutes=10)` after
-   ~5 minutes, to confirm clients are actually using the new
-   endpoint and getting `accepted`.
+- `failed_step="clone_node_config"` → target xray rejected the
+  config. Read error, usually port collision the donor doesn't have.
+  Fix and retry.
+- `failed_step="regenerate_reality_keys_on_node"` → target is
+  currently running with the donor's keys (xray was already
+  restarted in step 2). Either re-run the macro with
+  `regenerate_reality_keys=false`, or call
+  `regenerate_reality_keys_on_node(target_node_id)` directly once
+  the underlying issue is fixed.
+- `failed_step="propagate_node_to_services"` → DB error; bubble up.
+- `failed_step="clone_donor_hosts_to_target"` → inbounds are
+  attached to services but target subscriptions only show
+  placeholder hosts. Re-run `clone_donor_hosts_to_target` standalone
+  with the same parameters.
+- `failed_step="resync_node_users"` → almost always SQL statement
+  timeout. Tell the admin to raise `SQLALCHEMY_STATEMENT_TIMEOUT`
+  (60-120s) and restart the panel container, then re-run
+  `resync_node_users(target_node_id)` — no need to redo the whole
+  onboarding.
+- `propagate_warning.unmatched_donor_tags` populated → donor had
+  inbound tags the target xray config doesn't have. Services using
+  those tags will silently NOT include the new node. Either fix tag
+  drift in the cloned config, or warn the admin.
+- `verify_subscription.match_in_subscription=false` → target inbound
+  tags reached services but user's subscription doesn't include the
+  new endpoint. Possible causes:
+  (a) user not in any donor service (try a different sample),
+  (b) clone_donor_hosts step skipped or failed and only placeholder
+  hosts exist (`scan_hosts_for_issues(node_id=target_node_id)`),
+  (c) cloned host has `is_disabled=true` (`validate_host` on the
+  suspect).
 
 ## Stop criteria
 
-- `onboard_node_from_donor` returned `success=true` AND step 5
-  showed the target address in the sample subscription. Report
-  done.
-- A `failed_step` was returned — report the failed step verbatim,
-  the error, and the most likely fix from above. Do NOT silently
-  retry the macro; one or both nodes is in a state where the
-  fix has to happen first.
+- `onboard_node_from_donor` returned `success=true` AND
+  `verify_subscription.match_in_subscription=true`. Report done.
+- A `failed_step` was returned — report it verbatim, plus the
+  most likely fix from above. Do NOT silently retry the macro;
+  fix the underlying issue first.
 
 ## Common pitfalls
 
-- Forgetting the `sample_username` argument means we never
-  actually verify a user sees the new endpoint — the macro will
-  report `success=true` based on internal-only signals. Always
-  pass a sample.
-- "Just redo it" — re-running the macro after a partial failure
-  is *usually* safe (each step is idempotent), but if step 2
-  failed you may have broken xray on the target. Inspect with
-  `get_node_logs(target_node_id, backend="xray")` before retry.
-- Cloning between nodes with mismatched protocol licences (e.g.
-  donor has hysteria2, target only has xray) — the `unmatched_
-  donor_tags` warning is the only signal. Read it.
+- Forgetting `sample_username` — the macro reports `success=true`
+  based on internal-only signals; you never actually see a user's
+  endpoint. Always pass a sample.
+- Running with `regenerate_reality_keys=false` "for safety" — leaks
+  the donor's private key to every cloned node, which defeats the
+  per-node key isolation. Only do this when the admin explicitly
+  asks.
+- Running with `clone_hosts=false` — target inbounds end up with
+  only the placeholder hosts (`address={SERVER_IP}`), so
+  subscriptions don't include the new node properly. Only do this
+  if the admin will create hosts manually.
+- Calling `verify_panel_certificate` / `install_panel_certificate_on_node`
+  proactively before step 1 — burns confirmations and restarts
+  marznode for no reason on fresh installs. Only from
+  `diagnose-node-down` after `enable_node` failed.
+- Cloning between nodes with mismatched protocol licences (donor
+  has hysteria2, target only has xray) — `unmatched_donor_tags`
+  is the only signal. Read it.

@@ -10,13 +10,23 @@ Two tools live here:
   be ``AttributeError: '_write_appdata'`` for hours).
 
 - `onboard_node_from_donor` — the "make this new node look exactly
-  like that one" macro. Runs `clone_node_config` →
-  `propagate_node_to_services` → `resync_node_users` →
-  `inspect_user_subscription` end-to-end, returns a per-step report
-  and stops at the first failure with a clear hint instead of
-  pretending success. Mirrors the `deploy-new-node` skill but
-  collapses it into a single call so the agent doesn't drift on a
-  long checklist.
+  like that one" macro. Mirrors the manual procedure the admin used
+  to do by hand and collapses it into one confirmation:
+    1. preflight (both nodes connected),
+    2. `clone_node_config` (donor's xray JSON wholesale onto target,
+       restart xray; panel auto-syncs target's inbound rows),
+    3. `regenerate_reality_keys_on_node` on target (rotate per-node
+       reality private_key + short_ids; optional, default ON),
+    4. `propagate_node_to_services` (every service the donor was in
+       gets the target's matching inbounds attached by tag),
+    5. `clone_donor_hosts_to_target` (replicate every donor host
+       onto the target's matching inbound, override address +
+       remark + reality_public_key/short_ids from step 3),
+    6. `resync_node_users` (push the user set to target xray),
+    7. optional subscription verification on `sample_username`.
+  Stops at the first hard failure and reports it in `failed_step`
+  so the agent knows exactly where the chain broke without
+  guessing.
 
 Both tools require_confirmation=True — they actually mutate node
 state.
@@ -163,10 +173,24 @@ def _split_marker_sections(stdout: str) -> dict[str, str]:
         "DESTRUCTIVE: ship the panel's current TLS client certificate "
         "(from the `tls` table) into `/var/lib/marznode/client.pem` "
         "on the target node and restart the marznode service so it "
-        "picks up the new trust file. This is the canonical fix when "
-        "`verify_panel_certificate` reports `match=false` — the node "
-        "was provisioned against an older panel cert and now silently "
-        "resets every gRPC stream right after the TLS handshake. "
+        "picks up the new trust file. "
+        "STRICT preconditions — call this ONLY if BOTH hold: "
+        "(a) `verify_panel_certificate(node_id)` just returned "
+        "`match=false` (or `node_client_pem_present=false`), AND "
+        "(b) the same call's `marznode_ssl_envs.SSL_CLIENT_CERT_FILE` "
+        "is the default `/var/lib/marznode/client.pem` (or unset). "
+        "Do NOT call this preemptively during onboarding of a fresh "
+        "marznode install — the marznode installer already places "
+        "the right client.pem, so the node usually goes `healthy` on "
+        "its own within 10-30s of `create_node`. Running this "
+        "preemptively wastes a confirmation prompt and a service "
+        "restart. "
+        "Do NOT call this when `verify_panel_certificate` returned "
+        "`match=true` — there is nothing to fix; running it just "
+        "rewrites the same bytes and restarts marznode for no reason. "
+        "Do NOT use this as a workaround for `node_not_loaded` — "
+        "that's a panel-side registry state, fix it with "
+        "`enable_node`. "
         "What the tool does, in order: "
         "(1) backs up the existing client.pem to "
         "client.pem.bak-<timestamp>, "
@@ -340,28 +364,43 @@ _ = (upload_and_run_script, run_commands_with_creds)
 @register_tool(
     name="onboard_node_from_donor",
     description=(
-        "End-to-end 'make node B look exactly like node A' macro — the "
-        "agent equivalent of the deploy-new-node skill but as a single "
-        "tool call. Useful when the admin says 'set up the new server "
-        "the same as node X' and you don't want to drift across "
-        "multiple confirmation dialogs. Runs, in order: "
-        "(1) sanity-check both nodes are connected, "
-        "(2) clone_node_config (xray JSON from donor → target), "
-        "(3) propagate_node_to_services (attach target's inbounds to "
-        "every service the donor was already in), "
-        "(4) resync_node_users (push the full user set onto target so "
-        "xray accepts them), "
-        "(5) optional inspect_user_subscription on `sample_username` "
-        "to verify the new endpoint actually appears in subscriptions. "
-        "Returns a per-step `steps` report — every step has "
-        "`name`, `ok`, and step-specific fields (e.g. "
-        "`unmatched_donor_tags`, `users_synced`, `match_in_subscription`). "
-        "Stops at the first hard failure and reports it in `failed_step`. "
-        "Does NOT install certs — that is a separate, more invasive "
-        "tool (install_panel_certificate_on_node); call it explicitly "
-        "if verify_panel_certificate first showed a mismatch. "
-        "Requires confirmation (this tool mutates services AND restarts "
-        "xray on the target node)."
+        "End-to-end 'make node B look exactly like node A' macro — "
+        "the single confirmation that replaces the admin's manual "
+        "onboarding checklist. Runs, in order:\n"
+        " (1) preflight: both nodes are in the panel registry,\n"
+        " (2) clone_node_config: donor's xray JSON is shipped to "
+        "target and xray is restarted; the panel's `_sync()` then "
+        "refreshes the target's inbound rows in the DB,\n"
+        " (3) regenerate_reality_keys_on_node on TARGET: rotate "
+        "reality private_key + short_ids per inbound so the new "
+        "node has its own keys (skip with "
+        "`regenerate_reality_keys=false` if the admin explicitly "
+        "wants the donor's keys preserved across nodes),\n"
+        " (4) propagate_node_to_services: every service that "
+        "contained any donor inbound now also contains the target's "
+        "matching inbound (by tag),\n"
+        " (5) clone_donor_hosts_to_target: every donor host is "
+        "cloned onto the target's matching inbound with `address` "
+        "set to `host_address_override` (or `nodes.address` of "
+        "target by default), `remark` rendered from "
+        "`host_remark_pattern` (supports `{donor_remark}`, "
+        "`{target_name}`, `{target_address}`, `{tag}` placeholders; "
+        "empty pattern = donor remark unchanged), and reality keys "
+        "swapped to the freshly rotated values from step 3 "
+        "(skip with `clone_hosts=false`),\n"
+        " (6) resync_node_users: push the full user set onto target "
+        "xray,\n"
+        " (7) optional `verify_subscription` on `sample_username` — "
+        "checks the user's generated subscription contains the "
+        "target address.\n"
+        "Returns a per-step `steps` report — every step has `name`, "
+        "`ok`, and step-specific fields. Stops at the first hard "
+        "failure and reports it in `failed_step`. "
+        "Does NOT install panel TLS certs — that is "
+        "`install_panel_certificate_on_node`, only call it if "
+        "`verify_panel_certificate` actually returned `match=false`. "
+        "Requires confirmation (mutates services + hosts + restarts "
+        "xray on target)."
     ),
     requires_confirmation=True,
 )
@@ -371,7 +410,17 @@ async def onboard_node_from_donor(
     target_node_id: int,
     sample_username: str = "",
     backend: str = "xray",
+    regenerate_reality_keys: bool = True,
+    clone_hosts: bool = True,
+    host_address_override: str = "",
+    host_remark_pattern: str = "",
 ) -> dict:
+    import json
+
+    from app.ai.tools.node_clone_tools import (
+        clone_donor_hosts_to_target,
+        regenerate_reality_keys_on_node,
+    )
     from app.db import crud
     from app.db.models import Service, Inbound
     from app.db.models.core import User
@@ -422,11 +471,13 @@ async def onboard_node_from_donor(
             "failed_step": failed_step,
             "steps": steps,
             "hint": (
-                "Both nodes must be connected (panel sees them in its "
-                "in-memory registry) before cloning. If donor is "
-                "detached, fix that first. If target is detached, "
-                "verify_panel_certificate / install_panel_certificate"
-                "_on_node, then retry."
+                "Both nodes must be connected (panel sees them in "
+                "its in-memory registry) before cloning. The "
+                "deterministic fix for a node that is missing from "
+                "the registry is `enable_node(node_id)` — it forces "
+                "the panel to re-instantiate the gRPC client. Only "
+                "if `enable_node` does not bring the node up should "
+                "you switch to the `diagnose-node-down` skill."
             ),
         }
 
@@ -456,6 +507,56 @@ async def onboard_node_from_donor(
         backend=backend,
         config_size_bytes=len(config) if config else 0,
     )
+
+    # ----- step 2.5: rotate reality keys per-node on TARGET --------------
+    # By default we give the target its own reality private_key /
+    # short_ids — so leak of one node's key does not compromise the
+    # donor or its siblings. Skip with regenerate_reality_keys=False
+    # if the admin explicitly wants the donor's keys preserved.
+    rotated_overrides: list[dict] = []
+    if regenerate_reality_keys:
+        regen_result = await regenerate_reality_keys_on_node(
+            db=db, node_id=target_node_id, backend=backend
+        )
+        if regen_result.get("error"):
+            _step(
+                "regenerate_reality_keys_on_node",
+                ok=False,
+                error=regen_result["error"],
+            )
+            return {
+                "success": False,
+                "failed_step": "regenerate_reality_keys_on_node",
+                "steps": steps,
+                "hint": (
+                    "Reality key rotation failed AFTER xray was "
+                    "already restarted with the donor's config. "
+                    "Target is currently running with the donor's "
+                    "keys. Re-run this macro with "
+                    "regenerate_reality_keys=False to skip rotation, "
+                    "or call regenerate_reality_keys_on_node "
+                    "directly once the underlying issue is fixed."
+                ),
+            }
+        rotated_overrides = regen_result.get("regenerated") or []
+        _step(
+            "regenerate_reality_keys_on_node",
+            ok=True,
+            rotated_inbound_count=len(rotated_overrides),
+            rotated_inbound_tags=[r["tag"] for r in rotated_overrides],
+            skipped=regen_result.get("skipped") or [],
+        )
+    else:
+        _step(
+            "regenerate_reality_keys_on_node",
+            ok=True,
+            skipped=True,
+            note=(
+                "regenerate_reality_keys=False — target keeps "
+                "donor's reality keys. Cloned hosts will embed "
+                "donor pbk/sids."
+            ),
+        )
 
     # ----- step 3: propagate inbounds to services ------------------------
     from app.db import GetDB
@@ -539,6 +640,67 @@ async def onboard_node_from_donor(
                 "expose — services using those tags will NOT include "
                 "the new node. Inspect get_node_config on both, fix "
                 "tag drift, then re-run propagate_node_to_services."
+            ),
+        )
+
+    # ----- step 3.5: clone donor hosts onto target inbounds --------------
+    if clone_hosts:
+        with GetDB() as db_hosts:
+            host_clone_result = await clone_donor_hosts_to_target(
+                db=db_hosts,
+                donor_node_id=donor_node_id,
+                target_node_id=target_node_id,
+                host_address_override=host_address_override,
+                remark_pattern=host_remark_pattern,
+                reality_overrides_json=(
+                    json.dumps(rotated_overrides, ensure_ascii=False)
+                    if rotated_overrides
+                    else ""
+                ),
+                services_inherit=True,
+                delete_placeholder_hosts=True,
+            )
+        if host_clone_result.get("error"):
+            _step(
+                "clone_donor_hosts_to_target",
+                ok=False,
+                error=host_clone_result["error"],
+            )
+            return {
+                "success": False,
+                "failed_step": "clone_donor_hosts_to_target",
+                "steps": steps,
+                "hint": (
+                    "Host cloning failed. Inbounds are already "
+                    "attached to services, but subscriptions for "
+                    "those services will only show placeholder "
+                    "hosts on the target until clone_donor_hosts_"
+                    "to_target succeeds. Re-run it standalone once "
+                    "the underlying issue is fixed."
+                ),
+            }
+        _step(
+            "clone_donor_hosts_to_target",
+            ok=True,
+            target_address_used=host_clone_result.get("target_address_used"),
+            created_hosts_count=len(host_clone_result.get("created_hosts") or []),
+            created_hosts_sample=(host_clone_result.get("created_hosts") or [])[:10],
+            skipped_donor_hosts=host_clone_result.get("skipped_donor_hosts") or [],
+            unmatched_donor_tags=host_clone_result.get("unmatched_donor_tags") or [],
+            deleted_placeholder_host_ids=(
+                host_clone_result.get("deleted_placeholder_host_ids") or []
+            ),
+        )
+    else:
+        _step(
+            "clone_donor_hosts_to_target",
+            ok=True,
+            skipped=True,
+            note=(
+                "clone_hosts=False — only the panel-default "
+                "placeholder hosts will represent target's "
+                "inbounds in subscriptions. Create real hosts by "
+                "hand or re-run with clone_hosts=True."
             ),
         )
 

@@ -101,11 +101,16 @@ async def get_node_recent_errors(
             "node_name": node_name,
             "node_not_loaded": True,
             "hint": (
-                "The panel has no in-memory client for this node — "
-                "either it is disabled, just enabled but the panel "
-                "hasn't picked it up yet, or the panel container was "
-                "restarted after a config change. Wait ~15s and retry, "
-                "or call enable_node."
+                "The panel has no in-memory client for this node. "
+                "This is a panel-side registry state, NOT a TLS or "
+                "network problem — do not propose certificate fixes "
+                "or panel restarts. The deterministic one-call fix "
+                "is `enable_node(node_id)`: it sets the node to "
+                "unhealthy, then re-runs `add_node`, which "
+                "instantiates a fresh gRPC client with the current "
+                "panel cert and registers it. After ~15s the panel "
+                "will reconnect and `get_node_info` will report "
+                "`status=healthy` again."
             ),
         }
 
@@ -240,8 +245,20 @@ def _maybe_load_creds_for_node(node_id: int) -> Optional[dict]:
         "`server_cert_summary` (subject + validity), and "
         "`marznode_ssl_envs` (the SSL_* env vars marznode is using, so "
         "you can spot a path override). "
-        "If `match=false`, run `install_panel_certificate_on_node` "
-        "(after the admin confirms) to fix it in one shot."
+        "Decision rules:\n"
+        " - `match=true` → mTLS is verified end-to-end. STOP "
+        "considering TLS as a cause; do NOT call "
+        "`install_panel_certificate_on_node` and do NOT propose "
+        "restarting the panel. Move on to the next failure mode (sync "
+        "timeout, registry state, xray, etc.).\n"
+        " - `match=false` AND `marznode_ssl_envs.SSL_CLIENT_CERT_FILE = "
+        "/var/lib/marznode/client.pem` (the default) → safe to fix "
+        "with `install_panel_certificate_on_node` in one shot.\n"
+        " - `match=false` BUT `SSL_CLIENT_CERT_FILE` points anywhere "
+        "else → STOP. This tool compared against the wrong file; "
+        "`install_panel_certificate_on_node` will write to the same "
+        "default path and won't help. Report the actual env value to "
+        "the admin."
     ),
     requires_confirmation=False,
 )
@@ -339,21 +356,41 @@ async def verify_panel_certificate(db: Session, node_id: int) -> dict:
             "install_panel_certificate_on_node to ship the panel cert."
         )
     elif not match:
-        advice = (
-            "Certificate fingerprint mismatch — the panel cert and the "
-            "node's trusted client.pem are NOT the same. The TLS "
-            "handshake itself may complete (depending on cipher/"
-            "verify policy on the node), but marznode will reset the "
-            "stream as soon as the first RPC arrives, producing "
-            "'sync failed: ... StreamTerminatedError' loops on the "
-            "panel. Run install_panel_certificate_on_node to fix in "
-            "one shot."
-        )
+        ssl_trust_path = (ssl_envs or {}).get("SSL_CLIENT_CERT_FILE") or ""
+        if ssl_trust_path and ssl_trust_path != "/var/lib/marznode/client.pem":
+            advice = (
+                "Certificate fingerprint mismatch, BUT marznode is "
+                f"configured to trust `{ssl_trust_path}` "
+                "(SSL_CLIENT_CERT_FILE), not the default "
+                "`/var/lib/marznode/client.pem` this tool just "
+                "compared against. install_panel_certificate_on_node "
+                "writes to the default path and will NOT fix this. "
+                "Tell the admin to either remove the env override or "
+                "manually replace the cert at the configured path."
+            )
+        else:
+            advice = (
+                "Certificate fingerprint mismatch — the panel cert "
+                "and the node's trusted client.pem are NOT the same. "
+                "The TLS handshake itself may complete (depending on "
+                "cipher/verify policy on the node), but marznode "
+                "will reset the stream as soon as the first RPC "
+                "arrives, producing 'sync failed: ... "
+                "StreamTerminatedError' loops on the panel. Run "
+                "install_panel_certificate_on_node to fix in one shot."
+            )
     else:
         advice = (
-            "Certificates match — mTLS is not the cause of any sync "
-            "failure here. Check get_node_recent_errors for other "
-            "kinds (e.g. SQL timeout in 'sync')."
+            "Certificates match byte-for-byte — mTLS is verified. "
+            "Do NOT call install_panel_certificate_on_node and do NOT "
+            "ask the admin to restart the panel: the panel's gRPC "
+            "client builds its SSL context from the same cert that "
+            "matched here, there is no separate cache to invalidate. "
+            "If the node still looks disconnected, the cause is "
+            "elsewhere — check get_node_recent_errors for `sync` "
+            "(SQL timeout) or `connect` (network) kinds, or call "
+            "enable_node to force the panel to re-instantiate the "
+            "gRPC client for this node specifically."
         )
 
     return {
