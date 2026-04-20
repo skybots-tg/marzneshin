@@ -88,6 +88,17 @@ Pick the worst offenders (missing `reality_public_key`, missing
    are set on the server side. Mismatch between host `reality_public_key`
    and inbound `realitySettings.privateKey` is a common failure mode.
 
+   For a single-call cross-layer correlation use
+   `verify_inbound_e2e(node_id, inbound_tag=...)`. It runs panel ↔
+   xray ↔ marznode user push ↔ external TCP probe in one shot and
+   pinpoints the exact failing layer + remedy. If `xray_clients_pushed`
+   fails (`clients_count=0`) the inbound has no service binding —
+   fix with `propagate_node_to_services(...,
+   bind_orphan_target_inbounds=true)` then `resync_node_users`.
+   For a fast bird's-eye view of every inbound on a node use
+   `diagnose_node_users(node_id)` — it lists `clients_count` per
+   inbound; the suspects are in `zero_client_inbound_tags`.
+
 6. Apply fixes via `modify_host(host_id, <fields>)`. Typical fixes:
    - Set `reality_public_key` + `reality_short_ids` on a universal host
      that was missing them.

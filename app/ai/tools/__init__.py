@@ -15,5 +15,6 @@ from . import (  # noqa: F401
     node_health_tools,
     node_provision_tools,
     node_clone_tools,
+    node_verify_tools,
     tls_tools,
 )

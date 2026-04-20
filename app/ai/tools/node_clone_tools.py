@@ -49,6 +49,13 @@ _CONFIG_FORMAT_JSON = 1
 # placeholder and our cloned host on the same target inbound.
 _PLACEHOLDER_HOST_ADDRESS = "{SERVER_IP}"
 
+# `flow=xtls-rprx-vision` is only valid for VLESS over raw TCP. Setting
+# it on an xhttp/ws/grpc/etc. inbound makes the client reject the
+# config silently — the link generator omits the host from
+# subscriptions because the combination is invalid. Networks other
+# than these strip the flow on clone.
+_FLOWS_VALID_NETWORKS: frozenset[str] = frozenset({"tcp", "raw"})
+
 # Fields of `InboundHost` that we copy verbatim from donor → target
 # host. Excludes: id (autoincrement), inbound_id (set explicitly to
 # target's inbound), remark/address (override per-call),
@@ -94,6 +101,76 @@ _CLONABLE_HOST_FIELDS: tuple[str, ...] = (
 
 def _b64url_nopad(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+async def _fetch_target_xray_inbound_map(
+    target_node_id: int, backend: str
+) -> tuple[dict[str, dict], Optional[str]]:
+    """Read the target node's live xray config and return
+    `{tag: {network, security, protocol, port}}`. Used to normalize
+    host fields after cloning so e.g. an XHTTP inbound doesn't end up
+    with `flow=xtls-rprx-vision` (TCP-only flow) inherited from a
+    TCP donor host. Returns `({}, None)` quietly if the node is not
+    in the registry — the macro will fall back to no normalization,
+    which preserves the previous behaviour."""
+    from app.marznode import node_registry
+
+    node = node_registry.get(target_node_id)
+    if not node:
+        return {}, None
+    try:
+        config_str, config_format = await node.get_backend_config(name=backend)
+    except Exception as exc:
+        return {}, f"target xray config fetch failed: {exc}"
+    if int(config_format) != _CONFIG_FORMAT_JSON:
+        return {}, None
+    try:
+        parsed = json.loads(config_str)
+    except Exception:
+        return {}, None
+    out: dict[str, dict] = {}
+    for ib in (parsed.get("inbounds") or []):
+        if not isinstance(ib, dict):
+            continue
+        tag = ib.get("tag")
+        if not isinstance(tag, str) or not tag:
+            continue
+        stream = ib.get("streamSettings") or {}
+        out[tag] = {
+            "network": stream.get("network"),
+            "security": stream.get("security"),
+            "protocol": ib.get("protocol"),
+            "port": ib.get("port"),
+        }
+    return out, None
+
+
+def _normalize_host_kwargs_to_target(
+    clone_kwargs: dict, xray_meta: Optional[dict]
+) -> list[str]:
+    """In-place: coerce host fields so they match the target inbound's
+    actual transport. Returns a list of field names that were changed
+    so the caller can report them. No-op when xray_meta is missing."""
+    if not xray_meta:
+        return []
+    network = (xray_meta.get("network") or "").lower() or None
+    protocol = (xray_meta.get("protocol") or "").lower() or None
+
+    changes: list[str] = []
+    if network and clone_kwargs.get("host_network") != network:
+        clone_kwargs["host_network"] = network
+        changes.append("host_network")
+    if protocol and not clone_kwargs.get("host_protocol"):
+        clone_kwargs["host_protocol"] = protocol
+        changes.append("host_protocol")
+    if (
+        network
+        and network not in _FLOWS_VALID_NETWORKS
+        and clone_kwargs.get("flow")
+    ):
+        clone_kwargs["flow"] = None
+        changes.append("flow")
+    return changes
 
 
 def _build_clone_remark(
@@ -328,6 +405,20 @@ async def regenerate_reality_keys_on_node(
         "listed there fall back to the donor host's own values.\n"
         " - `inbound_id` ← the target's inbound that has the same "
         "tag as the donor's inbound for this host.\n"
+        " - `host_network` / `host_protocol` / `flow` ← coerced to "
+        "match the target's LIVE xray inbound (when "
+        "`normalize_to_target_xray=true`, default). Specifically: "
+        "`host_network` is overwritten with xray's `streamSettings."
+        "network` (e.g. donor `tcp` host cloned onto an `xhttp` "
+        "target inbound becomes `xhttp`); `flow=xtls-rprx-vision` is "
+        "stripped on non-tcp/non-raw networks (the flow is TCP-only "
+        "and renders the host invalid in subscriptions otherwise — "
+        "this was the root cause of new XHTTP hosts not appearing on "
+        "UNIVERSAL 4 until they were patched by hand). The list of "
+        "normalized fields is reported per-host in `created_hosts[]."
+        "normalized_fields`. Disable with "
+        "`normalize_to_target_xray=false` only if you want to "
+        "preserve donor field values verbatim (rare).\n"
         "Service binding: each clone is attached to the SAME "
         "`InboundHost.services` rows as the donor host it was cloned "
         "from when `services_inherit=true` (default). Set false to "
@@ -357,6 +448,8 @@ async def clone_donor_hosts_to_target(
     reality_overrides_json: str = "",
     services_inherit: bool = True,
     delete_placeholder_hosts: bool = True,
+    normalize_to_target_xray: bool = True,
+    backend: str = "xray",
 ) -> dict:
     from app.db.models import Inbound, InboundHost, Node
 
@@ -408,6 +501,13 @@ async def clone_donor_hosts_to_target(
     unmatched_tags = sorted(
         {i.tag for i in donor_inbounds} - set(target_by_tag.keys())
     )
+
+    target_xray_meta_by_tag: dict[str, dict] = {}
+    target_xray_meta_error: Optional[str] = None
+    if normalize_to_target_xray:
+        target_xray_meta_by_tag, target_xray_meta_error = (
+            await _fetch_target_xray_inbound_map(target_node_id, backend)
+        )
 
     deleted_placeholder_ids: list[int] = []
     if delete_placeholder_hosts:
@@ -488,6 +588,10 @@ async def clone_donor_hosts_to_target(
             clone_kwargs["reality_public_key"] = dh.reality_public_key
             clone_kwargs["reality_short_ids"] = dh.reality_short_ids
 
+        normalized_fields = _normalize_host_kwargs_to_target(
+            clone_kwargs, target_xray_meta_by_tag.get(tag)
+        )
+
         clone = InboundHost(**clone_kwargs)
         if services_inherit and dh.services:
             clone.services = list(dh.services)
@@ -501,6 +605,7 @@ async def clone_donor_hosts_to_target(
             "port": clone.port,
             "reality_keys_overridden": tag in overrides,
             "services_count": len(clone.services or []),
+            "normalized_fields": normalized_fields,
         })
 
     db.commit()
@@ -515,4 +620,7 @@ async def clone_donor_hosts_to_target(
         "created_hosts": created,
         "skipped_donor_hosts": skipped,
         "unmatched_donor_tags": unmatched_tags,
+        "normalize_to_target_xray": normalize_to_target_xray,
+        "target_xray_inbound_count": len(target_xray_meta_by_tag),
+        "target_xray_meta_warning": target_xray_meta_error,
     }
