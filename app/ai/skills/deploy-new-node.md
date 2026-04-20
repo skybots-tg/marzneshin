@@ -74,14 +74,20 @@ This single call runs:
    `regenerate_reality_keys=false` only if admin explicitly wants
    shared keys with donor).
 4. `propagate_node_to_services` — every service the donor was in
-   gets target's matching inbounds attached.
+   gets target's matching inbounds attached. Orphan target inbounds
+   (zero service bindings) are also bound to the union of donor
+   services so user push reaches them.
 5. `clone_donor_hosts_to_target` — every donor host is cloned onto
    the target's matching inbound. `address` ←
    `host_address_override` or target's `nodes.address`. `remark`
    ← rendered from `host_remark_pattern`. Reality keys ← step 3
-   rotation. Same `services` binding as donor host. Default
-   placeholder hosts on target are removed first.
+   rotation. `host_network` / `flow` are coerced to match the
+   target inbound's actual transport. Same `services` binding as
+   donor host. Default placeholder hosts on target are removed first.
 6. `resync_node_users` — push user set to target xray.
+6.5. `post_deploy_gate` — `verify_inbound_e2e` per target inbound
+   (panel ↔ xray ↔ marznode push). Failures are reported with
+   per-layer remedies; the macro does not abort.
 7. (optional) verify subscription on `sample_username`.
 
 Read the returned `steps[]` array. If `success=true` AND
@@ -98,15 +104,23 @@ real users. If `rejected_ratio` is high with `invalid request user
 id`, run `resync_node_users` once more — sometimes the very first
 user push races with the xray restart.
 
+If `post_deploy_gate` reported failures in step 3, do NOT skip
+this step — first apply each per-failure remedy, then re-run
+`verify_inbound_e2e` on the fixed tags to confirm `ok=true`. Only
+then move on. Most common failure: `panel_service_binding=false`
+on a tag → fix with `propagate_node_to_services(from_node_id=donor,
+to_node_id=new_node_id, bind_orphan_target_inbounds=true)` then
+`resync_node_users(new_node_id)`.
+
 ## Stop criteria
 - All three steps succeeded; the macro's `clone_donor_hosts_to_target`
-  step shows `created_hosts_count > 0`; `verify_subscription` shows
-  the target address in the sample subscription; step 4 (if run)
-  shows accepted traffic.
+  step shows `created_hosts_count > 0`; `post_deploy_gate.failed_
+  inbound_count=0`; `verify_subscription` shows the target address in
+  the sample subscription; step 4 (if run) shows accepted traffic.
 - Report back: new node id and status, services updated count, hosts
-  cloned count (from the macro report), one-line confirmation that
-  subscriptions pick up the new endpoint, and (if collected)
-  accepted/rejected counts.
+  cloned count (from the macro report), post-deploy gate pass count,
+  one-line confirmation that subscriptions pick up the new endpoint,
+  and (if collected) accepted/rejected counts.
 
 ## Common pitfalls
 - Calling `verify_panel_certificate` / `install_panel_certificate_on_node`

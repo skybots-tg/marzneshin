@@ -169,20 +169,33 @@ async def remove_inbounds_from_service(
 @register_tool(
     name="propagate_node_to_services",
     description=(
-        "For every service that currently contains at least one inbound of `from_node_id`, "
-        "add the matching inbounds of `to_node_id` to that service. Matching is done by "
-        "inbound `tag` (case-sensitive). "
-        "Typical use: you just cloned a new VPN node from a donor and want all existing "
-        "services/users to see the new node automatically, without re-creating them or "
-        "editing each service by hand. "
-        "Idempotent — services that already have the matching inbound are reported as "
-        "`services_already_up_to_date`. Donor tags with no counterpart on the target node "
-        "are returned in `unmatched_donor_tags` so the operator can fix them manually."
+        "Propagate the target node's inbounds into every service the donor was in. "
+        "Two passes, both idempotent:\n"
+        "  (1) tag-mapping: for every service that currently contains at least one "
+        "inbound of `from_node_id`, add the `to_node_id` inbound with the SAME tag. "
+        "Donor tags with no counterpart on the target are reported in `unmatched_donor_tags`.\n"
+        "  (2) orphan-binding (when `bind_orphan_target_inbounds=true`, default): every "
+        "target inbound that ended up with ZERO service bindings after pass 1 is bound "
+        "to the FULL union of services touched in pass 1. This catches inbounds that "
+        "exist on the target but have NO matching tag on the donor (e.g. you added a "
+        "new XHTTP variant directly on the target — there is no donor tag to map from, "
+        "but the new inbound still must reach users of those services).\n"
+        "Without pass (2), orphan target inbounds end up invisible to user sync — xray "
+        "is configured but `marznode.RepopulateUsers` pushes 0 clients to them, so "
+        "external probes see TLS but no traffic flows. This was the root cause of the "
+        "'pingable but nothing opens' incidents on UNIVERSAL 4.\n"
+        "Returns: `services_updated`, `services_already_up_to_date`, "
+        "`unmatched_donor_tags`, `orphan_target_inbounds_bound` (per-inbound report of "
+        "what pass 2 attached), `orphan_target_inbounds_skipped` (still unbound after "
+        "both passes — pass 2 had no union services to bind to)."
     ),
     requires_confirmation=True,
 )
 async def propagate_node_to_services(
-    db: Session, from_node_id: int, to_node_id: int
+    db: Session,
+    from_node_id: int,
+    to_node_id: int,
+    bind_orphan_target_inbounds: bool = True,
 ) -> dict:
     from app.db.models import Service, Inbound
 
@@ -237,6 +250,35 @@ async def propagate_node_to_services(
                 "service_name": svc.name,
             })
 
+    orphans_bound: list[dict] = []
+    orphans_skipped: list[dict] = []
+    if bind_orphan_target_inbounds:
+        if any_change:
+            db.flush()
+        union_services = list(services)
+        union_service_ids = {s.id for s in union_services}
+        for inb in target:
+            current_service_ids = {s.id for s in (inb.services or [])}
+            if current_service_ids:
+                continue
+            if not union_service_ids:
+                orphans_skipped.append({
+                    "inbound_id": inb.id,
+                    "inbound_tag": inb.tag,
+                    "reason": (
+                        "no donor services to bind to (donor inbounds "
+                        "were not attached to any service either)"
+                    ),
+                })
+                continue
+            inb.services = list(union_services)
+            any_change = True
+            orphans_bound.append({
+                "inbound_id": inb.id,
+                "inbound_tag": inb.tag,
+                "bound_to_service_ids": sorted(union_service_ids),
+            })
+
     if any_change:
         db.commit()
 
@@ -249,6 +291,8 @@ async def propagate_node_to_services(
         "unmatched_donor_tags": unmatched_tags,
         "services_updated": updated,
         "services_already_up_to_date": already,
+        "orphan_target_inbounds_bound": orphans_bound,
+        "orphan_target_inbounds_skipped": orphans_skipped,
     }
 
 

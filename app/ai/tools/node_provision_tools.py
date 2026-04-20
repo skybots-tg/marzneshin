@@ -390,6 +390,14 @@ _ = (upload_and_run_script, run_commands_with_creds)
         "(skip with `clone_hosts=false`),\n"
         " (6) resync_node_users: push the full user set onto target "
         "xray,\n"
+        " (6.5) post_deploy_gate: run `verify_inbound_e2e` for every "
+        "target inbound (panel ↔ xray ↔ marznode push, no external "
+        "probe). Records per-tag failures in `failures[]` but does "
+        "NOT abort the macro — the admin sees the full report and "
+        "applies the per-failure remedy. The most common gate "
+        "failure is `panel_service_binding`, fixed by re-running "
+        "`propagate_node_to_services(bind_orphan_target_inbounds="
+        "true)`.\n"
         " (7) optional `verify_subscription` on `sample_username` — "
         "checks the user's generated subscription contains the "
         "target address.\n"
@@ -422,7 +430,7 @@ async def onboard_node_from_donor(
         regenerate_reality_keys_on_node,
     )
     from app.db import crud
-    from app.db.models import Service, Inbound
+    from app.db.models import Inbound
     from app.db.models.core import User
     from app.marznode import node_registry
     from app.utils.share import generate_subscription
@@ -560,67 +568,47 @@ async def onboard_node_from_donor(
 
     # ----- step 3: propagate inbounds to services ------------------------
     from app.db import GetDB
+    from app.ai.tools.service_tools import propagate_node_to_services
 
     propagation_payload: dict
     try:
         with GetDB() as db2:
-            donor_inbounds = (
-                db2.query(Inbound).filter(Inbound.node_id == donor_node_id).all()
+            propagation_result = await propagate_node_to_services(
+                db=db2,
+                from_node_id=donor_node_id,
+                to_node_id=target_node_id,
+                bind_orphan_target_inbounds=True,
             )
-            target_inbounds = (
-                db2.query(Inbound).filter(Inbound.node_id == target_node_id).all()
+        if propagation_result.get("error"):
+            _step(
+                "propagate_node_to_services",
+                ok=False,
+                error=propagation_result["error"],
             )
-            target_by_tag = {i.tag: i for i in target_inbounds}
-            donor_tags = [i.tag for i in donor_inbounds]
-            donor_ids = {i.id for i in donor_inbounds}
-            unmatched_tags = sorted({t for t in donor_tags if t not in target_by_tag})
-
-            services = (
-                db2.query(Service)
-                .join(Service.inbounds)
-                .filter(Inbound.id.in_(donor_ids))
-                .distinct()
-                .all()
-            )
-
-            updated: list[dict] = []
-            already: list[dict] = []
-            any_change = False
-            for svc in services:
-                existing_ids = {i.id for i in (svc.inbounds or [])}
-                donor_tags_here = [
-                    i.tag for i in (svc.inbounds or []) if i.node_id == donor_node_id
-                ]
-                to_add = [
-                    target_by_tag[t]
-                    for t in donor_tags_here
-                    if t in target_by_tag
-                    and target_by_tag[t].id not in existing_ids
-                ]
-                if to_add:
-                    svc.inbounds = list(svc.inbounds or []) + to_add
-                    any_change = True
-                    updated.append({
-                        "service_id": svc.id,
-                        "service_name": svc.name,
-                        "added_inbound_tags": [i.tag for i in to_add],
-                    })
-                else:
-                    already.append({
-                        "service_id": svc.id,
-                        "service_name": svc.name,
-                    })
-            if any_change:
-                db2.commit()
-            propagation_payload = {
-                "ok": True,
-                "donor_inbound_tags": donor_tags,
-                "target_inbound_tags": list(target_by_tag.keys()),
-                "unmatched_donor_tags": unmatched_tags,
-                "services_updated_count": len(updated),
-                "services_already_up_to_date_count": len(already),
-                "services_updated_sample": updated[:10],
+            return {
+                "success": False,
+                "failed_step": "propagate_node_to_services",
+                "steps": steps,
             }
+        propagation_payload = {
+            "ok": True,
+            "donor_inbound_tags": propagation_result.get("donor_inbound_tags") or [],
+            "target_inbound_tags": propagation_result.get("target_inbound_tags") or [],
+            "unmatched_donor_tags": propagation_result.get("unmatched_donor_tags") or [],
+            "services_updated_count": len(propagation_result.get("services_updated") or []),
+            "services_already_up_to_date_count": len(
+                propagation_result.get("services_already_up_to_date") or []
+            ),
+            "services_updated_sample": (
+                propagation_result.get("services_updated") or []
+            )[:10],
+            "orphan_target_inbounds_bound": (
+                propagation_result.get("orphan_target_inbounds_bound") or []
+            ),
+            "orphan_target_inbounds_skipped": (
+                propagation_result.get("orphan_target_inbounds_skipped") or []
+            ),
+        }
     except Exception as exc:
         _step("propagate_node_to_services", ok=False, error=str(exc))
         return {
@@ -722,6 +710,80 @@ async def onboard_node_from_donor(
                 "retry. Also check get_node_recent_errors."
             ),
         }
+
+    # ----- step 4.5: post-deploy gate ------------------------------------
+    # Run verify_inbound_e2e for every target inbound. This catches the
+    # silent failure modes the macro used to miss: orphan inbounds with
+    # 0 service bindings (xray running, 0 clients pushed), reality key
+    # drift, port mismatches between hosts and xray, firewall blocking
+    # the xray port. Failures here are reported as `gate_failures` but
+    # do NOT abort the macro — the admin needs the full report to know
+    # what to fix manually.
+    from app.ai.tools.node_verify_tools import verify_inbound_e2e
+
+    gate_failures: list[dict] = []
+    gate_passes: list[dict] = []
+    try:
+        with GetDB() as db_gate:
+            target_tags = [
+                i.tag for i in db_gate.query(Inbound).filter(
+                    Inbound.node_id == target_node_id
+                ).all()
+            ]
+        for tag in target_tags:
+            with GetDB() as db_one:
+                report = await verify_inbound_e2e(
+                    db=db_one,
+                    node_id=target_node_id,
+                    inbound_tag=tag,
+                    backend=backend,
+                    external_probe=False,
+                )
+            entry = {
+                "inbound_tag": tag,
+                "ok": bool(report.get("ok")),
+                "failed_checks": [
+                    {"name": c.get("name"), "remedy": c.get("remedy")}
+                    for c in (report.get("checks") or [])
+                    if not c.get("ok", True)
+                ],
+            }
+            if entry["ok"]:
+                gate_passes.append({"inbound_tag": tag})
+            else:
+                gate_failures.append(entry)
+    except Exception as exc:
+        _step("post_deploy_gate", ok=False, error=str(exc))
+        return {
+            "success": False,
+            "failed_step": "post_deploy_gate",
+            "steps": steps,
+            "hint": (
+                "Post-deploy verification crashed unexpectedly. "
+                "Re-run `verify_inbound_e2e` per tag manually."
+            ),
+        }
+    _step(
+        "post_deploy_gate",
+        ok=not gate_failures,
+        passed_inbound_count=len(gate_passes),
+        failed_inbound_count=len(gate_failures),
+        failures=gate_failures[:20],
+        hint=(
+            None
+            if not gate_failures
+            else (
+                "Some target inbounds failed end-to-end verification. "
+                "Read each failure's `failed_checks[].remedy` and "
+                "apply the fix it suggests. Most common: "
+                "`panel_service_binding` failure → re-run "
+                "`propagate_node_to_services` with "
+                "`bind_orphan_target_inbounds=true`."
+            )
+        ),
+    )
+    if gate_failures:
+        failed_step = "post_deploy_gate"
 
     # ----- step 5: subscription verification -----------------------------
     sample = (sample_username or "").strip()

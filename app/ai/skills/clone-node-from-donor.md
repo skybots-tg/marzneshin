@@ -70,15 +70,24 @@ Steps it runs (in order, fails fast on first error):
    mapping `{tag, reality_public_key, reality_short_ids}` that step
    5 consumes.
 4. `propagate_node_to_services` — every service the donor was in
-   gets the target's matching inbounds (by tag).
+   gets the target's matching inbounds (by tag) AND every orphan
+   target inbound (zero service bindings) is bound to the union of
+   donor services. The orphan-binding pass is what prevents the
+   "xray running, 0 clients pushed" failure mode.
 5. `clone_donor_hosts_to_target` — every donor host is cloned onto
    the target's matching inbound. `address` ← `host_address_override`
    or target's `nodes.address`. `remark` ← rendered from
    `host_remark_pattern`. `reality_public_key` /
-   `reality_short_ids` ← step 3 rotation. Same `services` binding
-   as the donor host. Default placeholder hosts on the target are
+   `reality_short_ids` ← step 3 rotation. `host_network` / `flow` are
+   coerced to match the target inbound's actual transport (e.g. donor
+   TCP host on an XHTTP target inbound: `host_network → xhttp`,
+   `flow=xtls-rprx-vision` is stripped). Same `services` binding as
+   the donor host. Default placeholder hosts on the target are
    removed first.
 6. `resync_node_users` — push full user set to target xray.
+6.5. `post_deploy_gate` — runs `verify_inbound_e2e` for every target
+   inbound. Records per-tag failures but does not abort. Read
+   `steps[].failures` and apply each `failed_checks[].remedy`.
 7. (optional) verify subscription on `sample_username`.
 
 ### 3. Interpret the report.
@@ -108,6 +117,14 @@ Steps it runs (in order, fails fast on first error):
   (60-120s) and restart the panel container, then re-run
   `resync_node_users(target_node_id)` — no need to redo the whole
   onboarding.
+- `failed_step="post_deploy_gate"` → at least one target inbound
+  failed end-to-end verification. Read `steps[].failures` (each entry
+  has `inbound_tag` + a `failed_checks[]` array with per-layer
+  `remedy` strings). Apply the remedies in order. The most common
+  failure is `panel_service_binding` — fix with
+  `propagate_node_to_services(from_node_id=donor, to_node_id=target,
+  bind_orphan_target_inbounds=true)` then `resync_node_users(target)`,
+  then re-run `verify_inbound_e2e` on the failed tags to confirm.
 - `propagate_warning.unmatched_donor_tags` populated → donor had
   inbound tags the target xray config doesn't have. Services using
   those tags will silently NOT include the new node. Either fix tag
@@ -123,11 +140,16 @@ Steps it runs (in order, fails fast on first error):
 
 ## Stop criteria
 
-- `onboard_node_from_donor` returned `success=true` AND
+- `onboard_node_from_donor` returned `success=true`,
+  `post_deploy_gate.failed_inbound_count=0`, AND
   `verify_subscription.match_in_subscription=true`. Report done.
 - A `failed_step` was returned — report it verbatim, plus the
   most likely fix from above. Do NOT silently retry the macro;
   fix the underlying issue first.
+- `post_deploy_gate` reported failures (the macro itself returns
+  `success=true` but `failed_step="post_deploy_gate"`) — apply
+  per-tag remedies, then call `verify_inbound_e2e` on each fixed tag
+  to confirm before reporting done.
 
 ## Common pitfalls
 
