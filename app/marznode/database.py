@@ -58,17 +58,16 @@ class MarzNodeDB:
                 users = crud.get_node_users(db, self.id)
                 if users:
                     user_ids = [u["id"] for u in users]
-                    devices_by_user = device_crud.get_devices_for_users_batch(
-                        db, user_ids, is_blocked=False
+                    fingerprints_by_user = (
+                        device_crud.get_fingerprints_by_user_ids(
+                            db, user_ids, is_blocked=False
+                        )
                     )
-                    if devices_by_user:
-                        users_by_id = {u["id"]: u for u in users}
-                        for uid, devices in devices_by_user.items():
-                            target = users_by_id.get(uid)
-                            if target is not None:
-                                target["allowed_fingerprints"] = [
-                                    d.fingerprint for d in devices
-                                ]
+                    if fingerprints_by_user:
+                        for u in users:
+                            fps = fingerprints_by_user.get(u["id"])
+                            if fps:
+                                u["allowed_fingerprints"] = fps
         finally:
             _release_node_db()
 

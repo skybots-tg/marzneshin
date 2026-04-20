@@ -135,6 +135,13 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
                         username=user.username,
                         key=user.key,
                     )
+                    device_limit = user_update.get("device_limit")
+                    if device_limit is not None:
+                        user_proto.device_limit = device_limit
+                        user_proto.enforce_device_limit = True
+                    fingerprints = user_update.get("allowed_fingerprints")
+                    if fingerprints:
+                        user_proto.allowed_fingerprints.extend(fingerprints)
 
                     await stream.write(
                         UserData(
@@ -215,18 +222,25 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         updates = []
         for u in users_data:
             user_proto = User(
-                id=u["id"], 
-                username=u["username"], 
+                id=u["id"],
+                username=u["username"],
                 key=u["key"],
             )
-            
+            device_limit = u.get("device_limit")
+            if device_limit is not None:
+                user_proto.device_limit = device_limit
+                user_proto.enforce_device_limit = True
+            fingerprints = u.get("allowed_fingerprints")
+            if fingerprints:
+                user_proto.allowed_fingerprints.extend(fingerprints)
+
             updates.append(
                 UserData(
                     user=user_proto,
                     inbounds=[Inbound(tag=t) for t in u["inbounds"]],
                 )
             )
-        
+
         await self._stub.RepopulateUsers(UsersData(users_data=updates))
 
     async def fetch_users_stats(self):

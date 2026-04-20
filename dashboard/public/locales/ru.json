@@ -549,6 +549,7 @@
       "security-settings": "Настройки безопасности",
       "allowed-ips": "Разрешенные IP",
       "allowed-ips-placeholder": "127.0.0.1,...",
+      "address-placeholder": "1.2.3.4 (Enter или ',' чтобы добавить ещё)",
       "camouflage-settings": "Настройки маскировки",
       "fragment": {
 	"interval": "Интервал",

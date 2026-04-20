@@ -399,10 +399,18 @@ def create_config(
         if coeff > 0:
             remark = f"[кончился трафик] {remark}"
 
+    host_addresses = [
+        addr.strip() for addr in (host.address or "").split(",") if addr.strip()
+    ]
+    if len(host_addresses) > 1:
+        chosen_address = host_addresses[user_id % len(host_addresses)]
+    else:
+        chosen_address = host.address
+
     data = V2Data(
         host.inbound.protocol.value if host.inbound else host.host_protocol,
         remark,
-        host.address.format_map(format_variables),
+        chosen_address.format_map(format_variables),
         host.port or inbound.get("port", 0),
         transport_type=network,
         sni=sni,

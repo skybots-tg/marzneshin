@@ -2,7 +2,8 @@ from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -46,14 +47,20 @@ class Inbound(_message.Message):
     def __init__(self, tag: _Optional[str] = ..., config: _Optional[str] = ...) -> None: ...
 
 class User(_message.Message):
-    __slots__ = ("id", "username", "key")
+    __slots__ = ("id", "username", "key", "device_limit", "allowed_fingerprints", "enforce_device_limit")
     ID_FIELD_NUMBER: _ClassVar[int]
     USERNAME_FIELD_NUMBER: _ClassVar[int]
     KEY_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_LIMIT_FIELD_NUMBER: _ClassVar[int]
+    ALLOWED_FINGERPRINTS_FIELD_NUMBER: _ClassVar[int]
+    ENFORCE_DEVICE_LIMIT_FIELD_NUMBER: _ClassVar[int]
     id: int
     username: str
     key: str
-    def __init__(self, id: _Optional[int] = ..., username: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
+    device_limit: int
+    allowed_fingerprints: _containers.RepeatedScalarFieldContainer[str]
+    enforce_device_limit: bool
+    def __init__(self, id: _Optional[int] = ..., username: _Optional[str] = ..., key: _Optional[str] = ..., device_limit: _Optional[int] = ..., allowed_fingerprints: _Optional[_Iterable[str]] = ..., enforce_device_limit: bool = ...) -> None: ...
 
 class UserData(_message.Message):
     __slots__ = ("user", "inbounds")

@@ -70,7 +70,7 @@ def check_user_on_node(node_id: int, user_id: int = None):
             
             # Проверяем через get_node_users
             node_users = crud.get_node_users(db, node_id)
-            user_found = any(rel[0] == user_id for rel in node_users)
+            user_found = any(u["id"] == user_id for u in node_users)
             
             if user_found:
                 print(f"✅ Пользователь {user.username} ПОПАДАЕТ на ноду {node.name}")
@@ -119,11 +119,13 @@ def check_user_on_node(node_id: int, user_id: int = None):
                 print("   - Нет пользователей, связанных с этими сервисами")
                 print("   - Все пользователи не активированы или достигли лимита")
             else:
-                for rel in node_users:
-                    user_id, username, key, inbound = rel
-                    user = crud.get_user_by_id(db, user_id)
-                    print(f"   - {username} (ID: {user_id})")
-                    print(f"     Инбаунд: {inbound.tag}")
+                for entry in node_users:
+                    uid = entry["id"]
+                    username = entry["username"]
+                    tags = entry["inbounds"]
+                    user = crud.get_user_by_id(db, uid)
+                    print(f"   - {username} (ID: {uid})")
+                    print(f"     Инбаунды: {', '.join(tags) if tags else '—'}")
                     if user:
                         print(f"     Activated: {user.activated}, Limit reached: {user.data_limit_reached}")
 
