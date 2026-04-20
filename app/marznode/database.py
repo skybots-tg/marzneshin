@@ -55,34 +55,24 @@ class MarzNodeDB:
 
         try:
             with GetDB() as db:
-                relations = crud.get_node_users(db, self.id)
-                users = dict()
-                for rel in relations:
-                    if not users.get(rel[0]):
-                        users[rel[0]] = dict(
-                            username=rel[1],
-                            id=rel[0],
-                            key=rel[2],
-                            inbounds=[],
-                            device_limit=rel[4],
-                            allowed_fingerprints=[],
-                        )
-                    users[rel[0]]["inbounds"].append(rel[3].tag)
-
+                users = crud.get_node_users(db, self.id)
                 if users:
-                    user_ids = list(users.keys())
+                    user_ids = [u["id"] for u in users]
                     devices_by_user = device_crud.get_devices_for_users_batch(
                         db, user_ids, is_blocked=False
                     )
-                    for uid, devices in devices_by_user.items():
-                        if uid in users:
-                            users[uid]["allowed_fingerprints"] = [
-                                d.fingerprint for d in devices
-                            ]
+                    if devices_by_user:
+                        users_by_id = {u["id"]: u for u in users}
+                        for uid, devices in devices_by_user.items():
+                            target = users_by_id.get(uid)
+                            if target is not None:
+                                target["allowed_fingerprints"] = [
+                                    d.fingerprint for d in devices
+                                ]
         finally:
             _release_node_db()
 
-        return list(users.values())
+        return users
 
     def store_backends(self, backends):
         if not _acquire_node_db():
