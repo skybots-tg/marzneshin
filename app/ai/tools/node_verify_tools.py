@@ -19,6 +19,12 @@ Tools here:
 - `verify_inbound_e2e` — comprehensive single-inbound check across
   all four layers. Returns a structured `checks` array with per-layer
   pass/fail + remedy hint for the first failing layer.
+
+- `verify_donor_target_parity` — cross-node diff of live xray configs:
+  inbounds (by tag + port), outbounds (by tag + endpoint signature),
+  routing rules (multiset of compact signatures). Catches the silent
+  drift `clone_node_config` itself can't see — donor was edited
+  after the clone, or one side was hand-tweaked.
 """
 from __future__ import annotations
 
@@ -210,6 +216,223 @@ async def diagnose_node_users(
 
 def _build_e2e_check(name: str, ok: bool, **payload) -> dict:
     return {"name": name, "ok": ok, **payload}
+
+
+def _outbound_signature(outbound: dict) -> tuple:
+    """Compact signature of an outbound's externally-observable shape:
+    protocol + first server address/port (when applicable). Used to
+    decide whether two outbounds with the same tag actually route to
+    the same place."""
+    proto = outbound.get("protocol")
+    settings = outbound.get("settings") or {}
+    servers: list[tuple] = []
+    vnext = settings.get("vnext") if isinstance(settings, dict) else None
+    if isinstance(vnext, list):
+        for s in vnext:
+            if not isinstance(s, dict):
+                continue
+            servers.append((s.get("address"), s.get("port")))
+    plain_servers = settings.get("servers") if isinstance(settings, dict) else None
+    if isinstance(plain_servers, list):
+        for s in plain_servers:
+            if not isinstance(s, dict):
+                continue
+            servers.append((s.get("address"), s.get("port")))
+    return (proto, tuple(sorted(servers, key=lambda x: (str(x[0] or ""), x[1] or 0))))
+
+
+def _routing_rule_signature(rule: dict) -> tuple:
+    """Compact, order-independent signature of a routing rule. We
+    compare these as multisets between donor and target to detect
+    routing drift after a clone."""
+    if not isinstance(rule, dict):
+        return ("invalid",)
+    inbound_tag = rule.get("inboundTag")
+    if isinstance(inbound_tag, list):
+        inbound_tag = tuple(sorted(str(t) for t in inbound_tag))
+    elif inbound_tag is not None:
+        inbound_tag = (str(inbound_tag),)
+    else:
+        inbound_tag = ()
+    return (
+        rule.get("type"),
+        inbound_tag,
+        rule.get("outboundTag") or rule.get("balancerTag") or None,
+        tuple(sorted(rule.get("domain") or [])) if isinstance(rule.get("domain"), list) else None,
+        tuple(sorted(rule.get("ip") or [])) if isinstance(rule.get("ip"), list) else None,
+        rule.get("network"),
+        rule.get("protocol") if not isinstance(rule.get("protocol"), list)
+        else tuple(sorted(rule.get("protocol"))),
+    )
+
+
+@register_tool(
+    name="verify_donor_target_parity",
+    description=(
+        "Diff the LIVE xray configs of donor and target nodes after a "
+        "clone, surfacing the gaps that `clone_node_config` itself "
+        "cannot detect (it just ships the donor blob — if a per-node "
+        "tweak landed on one side later, parity is silently broken).\n"
+        "Three groups are compared:\n"
+        "  * inbounds — by `tag`. Reports `inbound_tags_only_on_donor`, "
+        "`inbound_tags_only_on_target`, "
+        "`inbound_tag_port_mismatches` (same tag, different "
+        "`port` — clients pointed at the donor's port will time out "
+        "on the target).\n"
+        "  * outbounds — by `tag` AND signature (protocol + server "
+        "address/port). Reports `outbound_tags_only_on_donor` (donor "
+        "has a bridge target lacks — routing rules pointing at it "
+        "will silently fall through to `direct`), "
+        "`outbound_tags_only_on_target`, and "
+        "`outbound_signature_mismatches` (same tag, different "
+        "endpoint).\n"
+        "  * routing rules — order-independent multiset comparison. "
+        "Reports `routing_rules_only_on_donor` and "
+        "`routing_rules_only_on_target` as compact signature tuples. "
+        "Drift here usually means `clone_node_config` did its job "
+        "but a hand-edit on one side wasn't replayed.\n"
+        "Cheap (two gRPC reads, no writes), no confirmation. Use "
+        "right after `clone_node_config` and again any time the "
+        "admin reports 'this node was working yesterday'."
+    ),
+    requires_confirmation=False,
+)
+async def verify_donor_target_parity(
+    db: Session, donor_node_id: int, target_node_id: int, backend: str = "xray"
+) -> dict:
+    if donor_node_id == target_node_id:
+        return {"error": "donor and target must differ"}
+
+    db.close()
+
+    from app.marznode import node_registry
+
+    donor_node = node_registry.get(donor_node_id)
+    target_node = node_registry.get(target_node_id)
+    if donor_node is None:
+        return {"error": f"Donor node {donor_node_id} is not in registry"}
+    if target_node is None:
+        return {"error": f"Target node {target_node_id} is not in registry"}
+
+    async def _read(node, label: str) -> tuple[Optional[dict], Optional[str]]:
+        try:
+            cfg_str, cfg_format = await node.get_backend_config(name=backend)
+        except Exception as exc:
+            return None, f"{label} get_backend_config failed: {exc}"
+        if int(cfg_format) != _CONFIG_FORMAT_JSON:
+            return None, f"{label} config is not JSON (format={int(cfg_format)})"
+        try:
+            return json.loads(cfg_str), None
+        except Exception as exc:
+            return None, f"{label} config parse failed: {exc}"
+
+    donor_cfg, derr = await _read(donor_node, "donor")
+    if derr:
+        return {"error": derr}
+    target_cfg, terr = await _read(target_node, "target")
+    if terr:
+        return {"error": terr}
+
+    donor_inbounds = {
+        ib.get("tag"): ib
+        for ib in (donor_cfg.get("inbounds") or [])
+        if isinstance(ib, dict) and ib.get("tag")
+    }
+    target_inbounds = {
+        ib.get("tag"): ib
+        for ib in (target_cfg.get("inbounds") or [])
+        if isinstance(ib, dict) and ib.get("tag")
+    }
+
+    inbounds_only_donor = sorted(set(donor_inbounds) - set(target_inbounds))
+    inbounds_only_target = sorted(set(target_inbounds) - set(donor_inbounds))
+    inbound_port_mismatches = []
+    for tag in sorted(set(donor_inbounds) & set(target_inbounds)):
+        d_port = donor_inbounds[tag].get("port")
+        t_port = target_inbounds[tag].get("port")
+        if d_port != t_port:
+            inbound_port_mismatches.append({
+                "tag": tag,
+                "donor_port": d_port,
+                "target_port": t_port,
+            })
+
+    donor_outbounds = {
+        ob.get("tag"): ob
+        for ob in (donor_cfg.get("outbounds") or [])
+        if isinstance(ob, dict) and ob.get("tag")
+    }
+    target_outbounds = {
+        ob.get("tag"): ob
+        for ob in (target_cfg.get("outbounds") or [])
+        if isinstance(ob, dict) and ob.get("tag")
+    }
+    outbounds_only_donor = sorted(set(donor_outbounds) - set(target_outbounds))
+    outbounds_only_target = sorted(set(target_outbounds) - set(donor_outbounds))
+    outbound_signature_mismatches = []
+    for tag in sorted(set(donor_outbounds) & set(target_outbounds)):
+        ds = _outbound_signature(donor_outbounds[tag])
+        ts = _outbound_signature(target_outbounds[tag])
+        if ds != ts:
+            outbound_signature_mismatches.append({
+                "tag": tag,
+                "donor_signature": list(ds),
+                "target_signature": list(ts),
+            })
+
+    donor_rules = (donor_cfg.get("routing") or {}).get("rules") or []
+    target_rules = (target_cfg.get("routing") or {}).get("rules") or []
+    donor_rule_sigs = [_routing_rule_signature(r) for r in donor_rules]
+    target_rule_sigs = [_routing_rule_signature(r) for r in target_rules]
+
+    from collections import Counter
+    donor_counter = Counter(map(lambda s: json.dumps(s, default=list), donor_rule_sigs))
+    target_counter = Counter(map(lambda s: json.dumps(s, default=list), target_rule_sigs))
+    rules_only_donor = []
+    rules_only_target = []
+    for sig, count in donor_counter.items():
+        diff = count - target_counter.get(sig, 0)
+        if diff > 0:
+            rules_only_donor.append({"signature": json.loads(sig), "count": diff})
+    for sig, count in target_counter.items():
+        diff = count - donor_counter.get(sig, 0)
+        if diff > 0:
+            rules_only_target.append({"signature": json.loads(sig), "count": diff})
+
+    in_sync = (
+        not inbounds_only_donor
+        and not inbounds_only_target
+        and not inbound_port_mismatches
+        and not outbounds_only_donor
+        and not outbounds_only_target
+        and not outbound_signature_mismatches
+        and not rules_only_donor
+        and not rules_only_target
+    )
+
+    return {
+        "donor_node_id": donor_node_id,
+        "target_node_id": target_node_id,
+        "in_sync": in_sync,
+        "inbound_tags_only_on_donor": inbounds_only_donor,
+        "inbound_tags_only_on_target": inbounds_only_target,
+        "inbound_tag_port_mismatches": inbound_port_mismatches,
+        "outbound_tags_only_on_donor": outbounds_only_donor,
+        "outbound_tags_only_on_target": outbounds_only_target,
+        "outbound_signature_mismatches": outbound_signature_mismatches,
+        "routing_rules_only_on_donor": rules_only_donor[:50],
+        "routing_rules_only_on_target": rules_only_target[:50],
+        "donor_summary": {
+            "inbound_count": len(donor_inbounds),
+            "outbound_count": len(donor_outbounds),
+            "rule_count": len(donor_rules),
+        },
+        "target_summary": {
+            "inbound_count": len(target_inbounds),
+            "outbound_count": len(target_outbounds),
+            "rule_count": len(target_rules),
+        },
+    }
 
 
 @register_tool(

@@ -85,10 +85,25 @@ Steps it runs (in order, fails fast on first error):
    the donor host. Default placeholder hosts on the target are
    removed first.
 6. `resync_node_users` — push full user set to target xray.
+6.4. `ensure_node_firewall_for_xray_inbounds` — opens every xray
+   inbound port in UFW on the target. Skipped silently when SSH is
+   locked or creds missing (the admin will then have to open the
+   ports manually). Idempotent — already-open ports are reported,
+   no duplicate rules. Disable with `open_firewall=false` only when
+   the firewall is managed out-of-band (cloud security group,
+   dedicated ufw script).
 6.5. `post_deploy_gate` — runs `verify_inbound_e2e` for every target
    inbound. Records per-tag failures but does not abort. Read
    `steps[].failures` and apply each `failed_checks[].remedy`.
 7. (optional) verify subscription on `sample_username`.
+
+Optional standalone follow-up: `verify_donor_target_parity(donor_node_id,
+target_node_id)`. Cheap (2 gRPC reads, no writes). Surfaces drift
+between donor and target xray live configs — inbound tags only on
+one side, outbounds with the same tag pointing at different
+endpoints, routing rules added on one side but not the other. Run
+this any time the admin reports "this node was working yesterday"
+or after a hand-edit on either side.
 
 ### 3. Interpret the report.
 
@@ -117,6 +132,14 @@ Steps it runs (in order, fails fast on first error):
   (60-120s) and restart the panel container, then re-run
   `resync_node_users(target_node_id)` — no need to redo the whole
   onboarding.
+- `ensure_node_firewall_for_xray_inbounds` returned
+  `ssh_available=false` → SSH wasn't unlocked when the macro ran;
+  the firewall step was skipped. If clients can't reach new ports,
+  unlock SSH and re-run `ensure_node_firewall_for_xray_inbounds`
+  standalone. If it returned `ufw_active=false`, the node has UFW
+  installed but disabled — every port is currently open at the OS
+  level, no action needed unless the admin wants to enable UFW
+  (which this tool will NOT do automatically).
 - `failed_step="post_deploy_gate"` → at least one target inbound
   failed end-to-end verification. Read `steps[].failures` (each entry
   has `inbound_tag` + a `failed_checks[]` array with per-layer
