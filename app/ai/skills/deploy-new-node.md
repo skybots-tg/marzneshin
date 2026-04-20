@@ -85,6 +85,11 @@ This single call runs:
    target inbound's actual transport. Same `services` binding as
    donor host. Default placeholder hosts on target are removed first.
 6. `resync_node_users` — push user set to target xray.
+6.4. `ensure_node_firewall_for_xray_inbounds` — opens xray inbound
+   ports in UFW on the target. Skipped silently when SSH is locked
+   or creds missing. Idempotent. Disable with `open_firewall=false`
+   only when firewall is managed out-of-band (cloud SG, dedicated
+   ufw script).
 6.5. `post_deploy_gate` — `verify_inbound_e2e` per target inbound
    (panel ↔ xray ↔ marznode push). Failures are reported with
    per-layer remedies; the macro does not abort.

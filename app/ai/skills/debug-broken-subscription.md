@@ -98,6 +98,17 @@ Pick the worst offenders (missing `reality_public_key`, missing
    For a fast bird's-eye view of every inbound on a node use
    `diagnose_node_users(node_id)` — it lists `clients_count` per
    inbound; the suspects are in `zero_client_inbound_tags`.
+   If `external_tcp_probe.ok=false` while panel + xray + marznode
+   layers are all green, the firewall is dropping the inbound port.
+   Fix with `ensure_node_firewall_for_xray_inbounds(node_id,
+   dry_run=false)` — opens every xray inbound port in UFW
+   (idempotent, requires SSH unlocked).
+   If the suspect node was recently cloned from a donor and the
+   subscription line for the cloned node looks subtly different
+   from the donor's working line, run
+   `verify_donor_target_parity(donor_node_id, target_node_id)` —
+   surfaces drift in inbound ports, outbound endpoints and
+   routing rules between the two configs.
 
 6. Apply fixes via `modify_host(host_id, <fields>)`. Typical fixes:
    - Set `reality_public_key` + `reality_short_ids` on a universal host

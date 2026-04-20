@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 from app.ai.session_context import get_current_session_id
 from app.ai.ssh_runner import (
     decrypt_node_credentials,
+    run_command_with_creds,
     run_commands_with_creds,
     upload_and_run_script,
 )
@@ -390,6 +391,13 @@ _ = (upload_and_run_script, run_commands_with_creds)
         "(skip with `clone_hosts=false`),\n"
         " (6) resync_node_users: push the full user set onto target "
         "xray,\n"
+        " (6.4) ensure_node_firewall_for_xray_inbounds: open every "
+        "xray inbound port in UFW on the target. Skipped silently "
+        "when SSH is locked or creds are missing (the admin will "
+        "have to open ports manually). Idempotent — already-open "
+        "ports are reported, no duplicate rules. Disable with "
+        "`open_firewall=false` only when the firewall is managed "
+        "out-of-band (cloud security group, separate ufw script).\n"
         " (6.5) post_deploy_gate: run `verify_inbound_e2e` for every "
         "target inbound (panel ↔ xray ↔ marznode push, no external "
         "probe). Records per-tag failures in `failures[]` but does "
@@ -422,6 +430,7 @@ async def onboard_node_from_donor(
     clone_hosts: bool = True,
     host_address_override: str = "",
     host_remark_pattern: str = "",
+    open_firewall: bool = True,
 ) -> dict:
     import json
 
@@ -711,6 +720,64 @@ async def onboard_node_from_donor(
             ),
         }
 
+    # ----- step 4.4: open firewall for xray inbound ports ---------------
+    # Skipped silently when SSH is locked / creds missing — historically
+    # this is the most common "pingable but nothing opens" cause and the
+    # admin used to open ports by hand after each onboarding.
+    if open_firewall:
+        creds_present = _load_creds(target_node_id) is not None
+        if not creds_present:
+            _step(
+                "ensure_node_firewall_for_xray_inbounds",
+                ok=True,
+                skipped=True,
+                reason=(
+                    "SSH not unlocked or no creds for target node; "
+                    "firewall step skipped. If clients can't reach "
+                    "new ports, unlock SSH and run "
+                    "ensure_node_firewall_for_xray_inbounds manually."
+                ),
+            )
+        else:
+            try:
+                with GetDB() as db_fw:
+                    fw_result = await ensure_node_firewall_for_xray_inbounds(
+                        db=db_fw,
+                        node_id=target_node_id,
+                        dry_run=False,
+                        backend=backend,
+                    )
+            except Exception as exc:
+                _step(
+                    "ensure_node_firewall_for_xray_inbounds",
+                    ok=False,
+                    error=str(exc),
+                )
+                fw_result = None
+            if fw_result is not None:
+                fw_ok = (
+                    not fw_result.get("error")
+                    and fw_result.get("ssh_available", True)
+                )
+                _step(
+                    "ensure_node_firewall_for_xray_inbounds",
+                    ok=fw_ok,
+                    ufw_present=fw_result.get("ufw_present"),
+                    ufw_active=fw_result.get("ufw_active"),
+                    applied_ports=fw_result.get("applied_ports") or [],
+                    already_open_ports=fw_result.get("already_open_ports") or [],
+                    missing_ports=fw_result.get("missing_ports") or [],
+                    note=fw_result.get("note"),
+                    error=fw_result.get("error"),
+                )
+    else:
+        _step(
+            "ensure_node_firewall_for_xray_inbounds",
+            ok=True,
+            skipped=True,
+            reason="open_firewall=False explicitly requested.",
+        )
+
     # ----- step 4.5: post-deploy gate ------------------------------------
     # Run verify_inbound_e2e for every target inbound. This catches the
     # silent failure modes the macro used to miss: orphan inbounds with
@@ -832,3 +899,323 @@ async def onboard_node_from_donor(
         "failed_step": failed_step,
         "steps": steps,
     }
+
+
+# =============================================================================
+# 3. Firewall — open xray inbound ports via UFW
+# =============================================================================
+
+
+# Probe UFW state and the listening ports xray currently exposes.
+# Output is parsed by `_parse_firewall_probe`. We rely on iproute2's
+# `ss` instead of `netstat` because every modern marznode image ships
+# with ss, while netstat is missing on slim Debians.
+_FIREWALL_PROBE_SCRIPT = r"""set +e
+echo '### marker'
+echo 'OK'
+echo '### ufw_present'
+if command -v ufw >/dev/null 2>&1; then echo 'YES'; else echo 'NO'; fi
+echo '### ufw_status_raw'
+ufw status 2>/dev/null
+echo '### ss_listen'
+if command -v ss >/dev/null 2>&1; then
+  ss -ltnp 2>/dev/null | awk 'NR>1 {print $4}'
+else
+  echo 'no-ss'
+fi
+echo '### end'
+"""
+
+
+# `ufw allow <port>/tcp` is idempotent and safe; ufw will print
+# "Skipping adding existing rule" on duplicates. We do NOT touch
+# `ufw enable` because enabling a previously-inactive firewall while
+# the admin only had implicit accept-all rules can blackhole the box.
+_UFW_ALLOW_TEMPLATE = "ufw allow {port}/tcp"
+
+
+def _parse_firewall_probe(stdout: str) -> dict:
+    sections = _split_marker_sections(stdout)
+    ufw_present = (sections.get("ufw_present") or "").strip() == "YES"
+    raw_status = sections.get("ufw_status_raw") or ""
+    status_lower = raw_status.lower()
+    ufw_active = "status: active" in status_lower
+    allowed_tcp_ports: set[int] = set()
+    for line in raw_status.splitlines():
+        token = line.strip().split()
+        if not token:
+            continue
+        first = token[0]
+        if "/tcp" not in first.lower():
+            continue
+        port_str = first.split("/", 1)[0]
+        if port_str.isdigit():
+            allowed_tcp_ports.add(int(port_str))
+    listening_ports: set[int] = set()
+    listening_localhost_only: set[int] = set()
+    for line in (sections.get("ss_listen") or "").splitlines():
+        addr = line.strip()
+        if not addr or ":" not in addr:
+            continue
+        host, _, port_str = addr.rpartition(":")
+        if not port_str.isdigit():
+            continue
+        port = int(port_str)
+        host_clean = host.strip("[]")
+        if host_clean in {"127.0.0.1", "::1"}:
+            listening_localhost_only.add(port)
+        else:
+            listening_ports.add(port)
+    return {
+        "ufw_present": ufw_present,
+        "ufw_active": ufw_active,
+        "ufw_allowed_tcp_ports": sorted(allowed_tcp_ports),
+        "listening_public_ports": sorted(listening_ports),
+        "listening_localhost_ports": sorted(listening_localhost_only),
+        "ufw_status_raw_tail": "\n".join(raw_status.splitlines()[:30]),
+    }
+
+
+@register_tool(
+    name="ensure_node_firewall_for_xray_inbounds",
+    description=(
+        "Open every xray inbound port in the node's UFW firewall. "
+        "This was the missing step that left ELITE 3 (node 28) and "
+        "the new UNIVERSAL 4/UNIVERSAL 5 inbounds 'pingable but "
+        "nothing opens' — xray was listening, marznode pushed users, "
+        "but UFW dropped SYN packets on the new high ports. "
+        "Workflow: (1) read live xray config to enumerate inbound "
+        "`port`s (and `listen` — localhost-bound ports are skipped), "
+        "(2) SSH onto the node, probe `ufw status` and `ss -ltnp` "
+        "for the actual listening map, (3) compute the diff: ports "
+        "in xray-config but not in `ufw allow`. "
+        "When `dry_run=true` (default false): only reports the diff, "
+        "no SSH writes. Set explicitly to true when scoping changes "
+        "before applying. "
+        "When `dry_run=false`: runs `ufw allow <port>/tcp` for every "
+        "missing port. Idempotent (ufw skips duplicates). Does NOT "
+        "run `ufw enable` — if the firewall is inactive on the node, "
+        "the diff is reported but no rules are added (would be a "
+        "no-op until the admin enables ufw). "
+        "Returns `applied_ports`, `would_apply_ports` (dry-run), "
+        "`already_open_ports`, `xray_inbound_ports`, "
+        "`listening_public_ports`, `listening_localhost_ports`, "
+        "`ufw_active`, `ufw_present`, plus per-port `apply_results` "
+        "with the actual ufw stdout. "
+        "Requires SSH unlocked. Requires confirmation (mutates "
+        "firewall state)."
+    ),
+    requires_confirmation=True,
+)
+async def ensure_node_firewall_for_xray_inbounds(
+    db: Session,
+    node_id: int,
+    dry_run: bool = False,
+    backend: str = "xray",
+) -> dict:
+    import json
+    import time
+
+    from app.db import crud
+    from app.marznode import node_registry
+
+    node_row = crud.get_node_by_id(db, node_id)
+    if not node_row:
+        return {"error": f"Node {node_id} not found"}
+    node_address = node_row.address
+    node_name = node_row.name
+
+    creds = _load_creds(node_id)
+    if creds is None:
+        return {
+            "node_id": node_id,
+            "node_name": node_name,
+            "ssh_available": False,
+            "reason": (
+                "SSH is not unlocked or credentials are missing for "
+                "this node. Call ssh_check_access first."
+            ),
+        }
+
+    db.close()
+
+    node = node_registry.get(node_id)
+    if not node:
+        return {
+            "node_id": node_id,
+            "node_name": node_name,
+            "error": (
+                f"Node {node_id} is not in the panel registry; "
+                "cannot read xray config to enumerate ports. Call "
+                "enable_node first."
+            ),
+        }
+    try:
+        config_str, config_format = await node.get_backend_config(name=backend)
+    except Exception as exc:
+        return {
+            "node_id": node_id,
+            "node_name": node_name,
+            "error": f"Failed to fetch xray config: {exc}",
+        }
+    if int(config_format) != 1:
+        return {
+            "node_id": node_id,
+            "node_name": node_name,
+            "error": (
+                f"Xray config is not JSON (format={int(config_format)}); "
+                "cannot enumerate inbound ports."
+            ),
+        }
+    try:
+        cfg = json.loads(config_str)
+    except Exception as exc:
+        return {
+            "node_id": node_id,
+            "node_name": node_name,
+            "error": f"Xray config is not valid JSON: {exc}",
+        }
+
+    public_xray_ports: list[dict] = []
+    localhost_xray_ports: list[dict] = []
+    for ib in (cfg.get("inbounds") or []):
+        if not isinstance(ib, dict):
+            continue
+        port = ib.get("port")
+        if not isinstance(port, int):
+            continue
+        listen = (ib.get("listen") or "").strip()
+        entry = {"port": port, "tag": ib.get("tag"), "listen": listen or "0.0.0.0"}
+        if listen in {"127.0.0.1", "::1", "localhost"}:
+            localhost_xray_ports.append(entry)
+        else:
+            public_xray_ports.append(entry)
+
+    public_port_numbers = sorted({e["port"] for e in public_xray_ports})
+
+    started = time.monotonic()
+    try:
+        result = await asyncio.to_thread(
+            run_command_with_creds,
+            host=node_address,
+            creds=creds,
+            command=_FIREWALL_PROBE_SCRIPT,
+            timeout=30,
+        )
+    except PermissionError as exc:
+        return {
+            "node_id": node_id,
+            "ssh_available": False,
+            "reason": f"SSH auth failed: {exc}",
+        }
+    except TimeoutError:
+        return {"node_id": node_id, "ssh_available": True, "timeout": True}
+    except Exception as exc:
+        return {
+            "node_id": node_id,
+            "ssh_available": False,
+            "reason": f"SSH probe failed: {exc}",
+        }
+
+    probe = _parse_firewall_probe(result.stdout)
+    already_open = sorted(set(public_port_numbers) & set(probe["ufw_allowed_tcp_ports"]))
+    missing = sorted(set(public_port_numbers) - set(probe["ufw_allowed_tcp_ports"]))
+
+    base_response = {
+        "node_id": node_id,
+        "node_name": node_name,
+        "ssh_available": True,
+        "ufw_present": probe["ufw_present"],
+        "ufw_active": probe["ufw_active"],
+        "xray_inbound_ports": public_port_numbers,
+        "skipped_localhost_only": localhost_xray_ports,
+        "listening_public_ports": probe["listening_public_ports"],
+        "listening_localhost_ports": probe["listening_localhost_ports"],
+        "already_open_ports": already_open,
+        "missing_ports": missing,
+        "ufw_status_raw_tail": probe["ufw_status_raw_tail"],
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+    }
+
+    if not probe["ufw_present"]:
+        base_response["note"] = (
+            "ufw is not installed on this node — nothing to do. "
+            "If the host has another firewall (firewalld, iptables, "
+            "cloud security group), open the missing_ports there."
+        )
+        return base_response
+
+    if not probe["ufw_active"]:
+        base_response["note"] = (
+            "ufw is installed but INACTIVE — every port is currently "
+            "open at the OS level (the panel just enumerated which "
+            "rules exist, not whether they apply). No changes "
+            "applied. The admin should decide whether to `ufw enable` "
+            "the firewall first; this tool will NOT do that "
+            "automatically (enabling on a remote box without "
+            "explicit allow rules for SSH is dangerous)."
+        )
+        return base_response
+
+    if not missing:
+        base_response["note"] = (
+            "All xray inbound ports are already in `ufw allow` — "
+            "no changes needed."
+        )
+        return base_response
+
+    if dry_run:
+        base_response["dry_run"] = True
+        base_response["would_apply_ports"] = missing
+        base_response["note"] = (
+            f"dry_run=true: {len(missing)} port(s) would be opened. "
+            "Re-run with `dry_run=false` to apply."
+        )
+        return base_response
+
+    apply_commands = [_UFW_ALLOW_TEMPLATE.format(port=p) for p in missing]
+    try:
+        apply_result = await asyncio.to_thread(
+            run_commands_with_creds,
+            host=node_address,
+            creds=creds,
+            commands=apply_commands,
+            timeout=60,
+        )
+    except PermissionError as exc:
+        return {
+            **base_response,
+            "applied": False,
+            "reason": f"SSH auth failed during apply: {exc}",
+        }
+    except TimeoutError:
+        return {**base_response, "applied": False, "timeout_during_apply": True}
+    except Exception as exc:
+        return {
+            **base_response,
+            "applied": False,
+            "reason": f"SSH apply failed: {exc}",
+        }
+
+    apply_payloads: list[dict] = []
+    for port, item in zip(missing, apply_result or []):
+        apply_payloads.append({
+            "port": port,
+            "exit_code": item.exit_code,
+            "stdout_tail": (item.stdout or "").splitlines()[-3:],
+            "stderr_tail": (item.stderr or "").splitlines()[-3:],
+        })
+
+    base_response.update({
+        "dry_run": False,
+        "applied": True,
+        "applied_ports": missing,
+        "apply_results": apply_payloads,
+        "next_step_hint": (
+            "Re-run this tool with dry_run=true to verify "
+            "missing_ports is now empty, or call "
+            "verify_inbound_e2e(node_id, inbound_tag=...) per "
+            "affected tag to confirm external_tcp_probe passes."
+        ),
+    })
+    return base_response
