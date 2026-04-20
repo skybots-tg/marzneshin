@@ -356,7 +356,24 @@ async def disable_node(db: Session, node_id: int) -> dict:
 
 @register_tool(
     name="enable_node",
-    description="Enable a previously disabled node and reconnect it",
+    description=(
+        "Force the panel to (re)connect to a node by re-instantiating "
+        "its in-memory gRPC client with the current panel cert/key. "
+        "Use in any of these situations:\n"
+        " - the node is `disabled` in the panel and the admin wants "
+        "it back online;\n"
+        " - `get_node_recent_errors` reported `node_not_loaded=true` "
+        "(the node row exists but the panel's NodeRegistry has no "
+        "client for it — typical right after a config change or a "
+        "panel restart, when nodes_startup hasn't reconciled this "
+        "specific node yet);\n"
+        " - the node is stuck in `unhealthy` / `NODE_DISCONNECTED` "
+        "while the underlying marznode + mTLS are actually fine, and "
+        "you need to drop the panel-side gRPC channel and rebuild it.\n"
+        "This is the targeted, single-node equivalent of restarting "
+        "the panel container — never propose a panel restart as a "
+        "fix; call this instead."
+    ),
     requires_confirmation=True,
 )
 async def enable_node(db: Session, node_id: int) -> dict:
