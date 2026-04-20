@@ -1,7 +1,7 @@
 import json
 from typing import List
 
-from sqlalchemy import and_, update, select
+from sqlalchemy import and_, or_, update, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import (
@@ -101,101 +101,78 @@ def ensure_node_inbounds(db: Session, inbounds: List[Inbound], node_id: int):
     db.commit()
 
 
-_USER_ID_CHUNK = 5000
+_NODE_USERS_YIELD_PER = 2000
 
 
 def get_node_users(db: Session, node_id: int) -> list[dict]:
     """Return users that should be active on `node_id`, in repopulate format.
 
-    The legacy implementation issued a single
-    ``users x users_services x services x inbounds_services x inbounds``
-    join with ``DISTINCT`` and materialised the full ``Inbound`` row
-    (including the heavy ``config`` JSON) for every cartesian-product row.
-    On large deployments this routinely tripped ``max_statement_time``
-    during ``resync_users``.
+    Single index-friendly JOIN that walks
+    ``inbounds → inbounds_services → users_services → users`` driven by the
+    ``Inbound.node_id`` index. ``Inbound.config`` is never selected (only the
+    ``tag`` is needed by the gRPC payload), so the cartesian-product blow-up
+    that previously tripped ``max_statement_time`` on big installs is gone.
 
-    The new path runs four small index-friendly queries and stitches the
-    result in Python (O(n+m) where n=users on the node, m=inbounds on the
-    node). Only the inbound *tag* is fetched — ``Inbound.config`` is never
-    loaded because the gRPC payload only needs the tag.
+    The data-limit predicate is rewritten as
+    ``data_limit IS NULL OR used_traffic < data_limit`` — the SARGable
+    equivalent of the ``data_limit_reached`` hybrid expression — so MariaDB
+    can evaluate it without dereferencing the hybrid's CASE.
+
+    Rows are streamed via ``yield_per`` and de-duplicated per ``user_id``
+    in Python (``inbound_tag`` may repeat when a user reaches the same
+    inbound through multiple services).
     """
-    node = db.query(Node).filter(Node.id == node_id).first()
+    node = db.query(Node.usage_coefficient).filter(Node.id == node_id).first()
     if not node:
         return []
-
-    inbound_rows = (
-        db.query(Inbound.id, Inbound.tag)
-        .filter(Inbound.node_id == node_id)
-        .all()
-    )
-    if not inbound_rows:
-        return []
-    inbound_id_to_tag: dict[int, str] = {r[0]: r[1] for r in inbound_rows}
-    inbound_ids: list[int] = list(inbound_id_to_tag)
-
-    svc_to_inbound_ids: dict[int, list[int]] = {}
-    svc_inbound_rows = (
-        db.query(
-            inbounds_services.c.service_id, inbounds_services.c.inbound_id
-        )
-        .filter(inbounds_services.c.inbound_id.in_(inbound_ids))
-        .all()
-    )
-    for sid, iid in svc_inbound_rows:
-        svc_to_inbound_ids.setdefault(sid, []).append(iid)
-    if not svc_to_inbound_ids:
-        return []
-
-    service_ids: list[int] = list(svc_to_inbound_ids)
-    user_to_services: dict[int, set[int]] = {}
-    user_service_rows = (
-        db.query(users_services.c.user_id, users_services.c.service_id)
-        .filter(users_services.c.service_id.in_(service_ids))
-        .all()
-    )
-    for uid, sid in user_service_rows:
-        user_to_services.setdefault(uid, set()).add(sid)
-    if not user_to_services:
-        return []
-
-    user_ids = list(user_to_services)
     enforce_quota = node.usage_coefficient > 0
 
-    user_rows: list[tuple[int, str, str, int]] = []
-    for offset in range(0, len(user_ids), _USER_ID_CHUNK):
-        chunk = user_ids[offset:offset + _USER_ID_CHUNK]
-        q = (
-            db.query(User.id, User.username, User.key, User.device_limit)
-            .filter(User.id.in_(chunk))
-            .filter(User.activated == True)
+    query = (
+        db.query(
+            User.id,
+            User.username,
+            User.key,
+            User.device_limit,
+            Inbound.tag,
         )
-        if enforce_quota:
-            q = q.filter(User.data_limit_reached == False)
-        user_rows.extend(q.all())
+        .join(users_services, users_services.c.user_id == User.id)
+        .join(
+            inbounds_services,
+            inbounds_services.c.service_id == users_services.c.service_id,
+        )
+        .join(Inbound, Inbound.id == inbounds_services.c.inbound_id)
+        .filter(Inbound.node_id == node_id)
+        .filter(User.activated == True)
+    )
+    if enforce_quota:
+        query = query.filter(
+            or_(User.data_limit.is_(None), User.used_traffic < User.data_limit)
+        )
 
-    out: list[dict] = []
-    for uid, username, key, device_limit in user_rows:
-        seen_iids: set[int] = set()
-        tags: list[str] = []
-        for sid in user_to_services.get(uid, ()):
-            for iid in svc_to_inbound_ids.get(sid, ()):
-                if iid in seen_iids:
-                    continue
-                seen_iids.add(iid)
-                tags.append(inbound_id_to_tag[iid])
-        if not tags:
-            continue
-        out.append(
-            {
+    users_by_id: dict[int, dict] = {}
+    seen_tags_by_id: dict[int, set[str]] = {}
+
+    for uid, username, key, device_limit, tag in query.yield_per(
+        _NODE_USERS_YIELD_PER
+    ):
+        entry = users_by_id.get(uid)
+        if entry is None:
+            entry = {
                 "id": uid,
                 "username": username,
                 "key": key,
                 "device_limit": device_limit,
-                "inbounds": tags,
+                "inbounds": [],
                 "allowed_fingerprints": [],
             }
-        )
-    return out
+            users_by_id[uid] = entry
+            seen_tags_by_id[uid] = set()
+        seen = seen_tags_by_id[uid]
+        if tag not in seen:
+            seen.add(tag)
+            entry["inbounds"].append(tag)
+
+    return list(users_by_id.values())
 
 
 def get_user_hosts(db: Session, user_id: int):

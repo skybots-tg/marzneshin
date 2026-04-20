@@ -556,6 +556,7 @@
       "security-settings": "Security Settings",
       "allowed-ips": "Allowed Ips",
       "allowed-ips-placeholder": "127.0.0.1,...",
+      "address-placeholder": "1.2.3.4 (Enter or ',' to add another)",
       "camouflage-settings": "Camouflage Settings",
       "fragment": {
         "interval": "Interval",

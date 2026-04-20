@@ -135,28 +135,36 @@ def delete_device(db: Session, device_id: int) -> bool:
     return True
 
 
-def get_devices_for_users_batch(
+def get_fingerprints_by_user_ids(
     db: Session,
     user_ids: List[int],
-    is_blocked: Optional[bool] = None
-) -> dict[int, List[UserDevice]]:
-    """Get devices for multiple users in a single query, grouped by user_id."""
+    is_blocked: Optional[bool] = None,
+) -> dict[int, List[str]]:
+    """Return ``{user_id: [fingerprint, ...]}`` for the given users.
+
+    Tuple-only query — does NOT materialise ``UserDevice`` ORM rows. This
+    is the hot path during ``MarzNodeDB.list_users()``: on installs with
+    10k+ users the previous full-ORM hydrate was the dominant cost
+    (every ``UserDevice`` has JSON ``meta`` + relationships and forced
+    SQLAlchemy to instantiate thousands of objects under
+    ``max_statement_time``).
+    """
     if not user_ids:
         return {}
-    
-    query = db.query(UserDevice).filter(UserDevice.user_id.in_(user_ids))
-    
+
+    query = db.query(UserDevice.user_id, UserDevice.fingerprint).filter(
+        UserDevice.user_id.in_(user_ids)
+    )
     if is_blocked is not None:
         query = query.filter(UserDevice.is_blocked == is_blocked)
-    
-    devices = query.all()
-    
-    result: dict[int, List[UserDevice]] = {}
-    for device in devices:
-        if device.user_id not in result:
-            result[device.user_id] = []
-        result[device.user_id].append(device)
-    
+
+    result: dict[int, List[str]] = {}
+    for user_id, fingerprint in query.yield_per(2000):
+        bucket = result.get(user_id)
+        if bucket is None:
+            bucket = []
+            result[user_id] = bucket
+        bucket.append(fingerprint)
     return result
 
 
