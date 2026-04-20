@@ -52,6 +52,7 @@ def modify_user(
     db: Session, db_user: User, modifications: UserModify, admin: Admin
 ) -> User:
     active_before = db_user.is_active
+    device_limit_before = db_user.device_limit
     old_inbounds = {(i.node_id, i.protocol, i.tag) for i in db_user.inbounds}
 
     new_user = crud.update_user(
@@ -62,8 +63,14 @@ def modify_user(
     active_after = new_user.is_active
     new_inbounds = {(i.node_id, i.protocol, i.tag) for i in new_user.inbounds}
     inbound_change = old_inbounds != new_inbounds
+    device_limit_changed = new_user.device_limit != device_limit_before
 
-    if (inbound_change and new_user.is_active) or active_before != active_after:
+    needs_push = (
+        (inbound_change and new_user.is_active)
+        or active_before != active_after
+        or (device_limit_changed and new_user.is_active)
+    )
+    if needs_push:
         node_ops.update_user(
             new_user, old_inbounds, remove=not db_user.is_active, db=db
         )
