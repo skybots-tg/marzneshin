@@ -407,6 +407,7 @@ def create_user(
         .filter(Service.id.in_(service_ids))
         .all(),
         data_limit=(user.data_limit or None),
+        device_limit=user.device_limit,
         admin=admin,
         data_limit_reset_strategy=user.data_limit_reset_strategy,
         note=user.note,
@@ -460,6 +461,13 @@ def update_user(
 
     if modify.usage_duration is not None:
         dbuser.usage_duration = modify.usage_duration
+
+    # device_limit: true PATCH semantics — distinguish "field omitted" from
+    # "field set to null". Cannot use ``is not None`` like data_limit does,
+    # because here ``0`` and ``None`` are BOTH valid values with distinct
+    # meanings (``0`` = block all new devices, ``None`` = unlimited).
+    if "device_limit" in modify.model_fields_set:
+        dbuser.device_limit = modify.device_limit
 
     if modify.service_ids is not None:
         if allowed_services is not None:
