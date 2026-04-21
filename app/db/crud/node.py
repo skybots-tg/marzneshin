@@ -277,6 +277,14 @@ def update_node_status(
     version: str = None,
 ):
     db_node = db.query(Node).where(Node.id == node_id).first()
+    if db_node is None:
+        return
+    # Operator-disabled nodes must stay disabled. The background monitor
+    # may still emit healthy/unhealthy transitions for in-flight RPCs
+    # while the connection is being torn down; ignore those so we don't
+    # silently re-enable a node the operator just turned off.
+    if db_node.status == NodeStatus.disabled:
+        return
     db_node.status = status
     if message:
         db_node.message = message
