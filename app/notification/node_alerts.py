@@ -27,8 +27,16 @@ async def notify_node_unhealthy(
     """Send an urgent Telegram alert when a node becomes unhealthy.
 
     Respects a per-node cooldown so admins aren't spammed when a node
-    flaps or retries frequently.
+    flaps or retries frequently. Skips alerts for nodes that are no
+    longer registered (operator disabled or removed them) — otherwise
+    in-flight error handlers in the monitor loop would keep spamming
+    after the node was turned off.
     """
+    from app.marznode.registry import node_registry
+
+    if node_id not in node_registry:
+        return
+
     now = time.monotonic()
     last_notified = _unhealthy_cooldowns.get(node_id, 0)
     if now - last_notified < NODE_UNHEALTHY_ALERT_COOLDOWN:

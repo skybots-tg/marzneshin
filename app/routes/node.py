@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Annotated, Optional
+from typing import Annotated
 
 import sqlalchemy
 from fastapi import APIRouter, Body, Depends, Query
@@ -192,29 +192,37 @@ async def remove_node(node_id: int, db: DBDep, admin: SudoAdminDep):
 
 
 # Порядок и человекочитаемые имена шагов для SSE-удаления.
-# Ключи id совпадают с tablename в crud.remove_node + два виртуальных шага.
+# Detach идёт ПЕРВЫМ: иначе фоновый монитор узла продолжает дёргать
+# те же usage-таблицы (set_status / list_users / store_backends),
+# конкурируя за ``_node_db_sem`` и блокируя batched-deletes ниже.
+# Ключи id совпадают с tablename в crud.remove_node + один виртуальный шаг.
 _DELETE_STEPS: list[dict] = [
+    {"id": "marznode_detach", "name": "Detach from marznode"},
     {"id": "node_user_usages_daily", "name": "Per-user daily usage"},
     {"id": "node_usages_daily", "name": "Node daily usage"},
     {"id": "node_user_usages", "name": "Per-user hourly usage"},
     {"id": "node_usages", "name": "Node hourly usage"},
     {"id": "nodes", "name": "Node record"},
-    {"id": "marznode_detach", "name": "Detach from marznode"},
 ]
+
+_SSE_HEARTBEAT_SECONDS = 10
+_MARZNODE_DETACH_TIMEOUT = 30
 
 
 @router.post("/{node_id}/delete-stream")
-async def remove_node_stream(node_id: int, db: DBDep, admin: SudoAdminDep):
+async def remove_node_stream(node_id: int, admin: SudoAdminDep):
     """Delete a node while streaming per-step progress over SSE.
 
-    Удаление связанных usage-таблиц выполняется батчами (см. crud.remove_node),
-    и для каждой таблицы генерируются события step_start / progress / step_done,
-    что позволяет UI показывать поэтапный прогресс вместо «висящего» запроса.
+    Порядок: detach gRPC-соединения → батч-удаление usage-таблиц
+    → удаление самой записи. Каждая фаза эмитит step_start / progress /
+    step_done, плюс между ними идёт SSE-heartbeat, чтобы прокси не
+    закрывали idle-соединение во время длинных батчей.
     """
 
-    def _preload():
-        db_node = crud.get_node_by_id(db, node_id)
-        return db_node.name if db_node else None
+    def _preload() -> str | None:
+        with GetDB() as db:
+            db_node = crud.get_node_by_id(db, node_id)
+            return db_node.name if db_node else None
 
     node_name = await asyncio.to_thread(_preload)
     if node_name is None:
@@ -223,11 +231,24 @@ async def remove_node_stream(node_id: int, db: DBDep, admin: SudoAdminDep):
     def _send(event_type: str, data: dict) -> str:
         return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+    def _step(step_id: str, status: str, *, done: int = 0, total: int = 0) -> str:
+        return _send(
+            "step_update",
+            {
+                "step": {
+                    "id": step_id,
+                    "status": status,
+                    "done": done,
+                    "total": total,
+                }
+            },
+        )
+
     async def event_generator():
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
-        def put(evt: dict) -> None:
+        def put(evt: dict | None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, evt)
 
         steps = [
@@ -236,83 +257,90 @@ async def remove_node_stream(node_id: int, db: DBDep, admin: SudoAdminDep):
         ]
         yield _send("steps", {"steps": steps})
 
-        def _db_work():
+        # --- Step 1: detach the node from the gRPC pool first. -------
+        # Stops the background monitor so it can't update_node_status /
+        # list_users / store_backends concurrently with the deletes.
+        yield _step("marznode_detach", "in_progress")
+        try:
+            await asyncio.wait_for(
+                marznode.operations.remove_node(node_id),
+                timeout=_MARZNODE_DETACH_TIMEOUT,
+            )
+            yield _step("marznode_detach", "success")
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Node %s: marznode detach exceeded %ds; continuing with DB delete",
+                node_id, _MARZNODE_DETACH_TIMEOUT,
+            )
+            yield _step("marznode_detach", "error")
+            yield _send(
+                "log",
+                {"message": f"marznode detach timed out after {_MARZNODE_DETACH_TIMEOUT}s"},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Node %s: marznode detach failed: %s", node_id, exc,
+            )
+            yield _step("marznode_detach", "error")
+            yield _send("log", {"message": f"marznode detach failed: {exc}"})
+
+        # --- Step 2: delete DB rows in a worker thread. --------------
+        # A fresh GetDB() session is opened inside the thread so we
+        # never share a SQLAlchemy session across threads (it isn't
+        # thread-safe and was a likely source of the earlier hangs).
+        def _db_work() -> None:
             try:
-                db_node = crud.get_node_by_id(db, node_id)
-                if not db_node:
-                    put({"kind": "fatal", "message": "Node not found"})
-                    return
-                crud.remove_node(db, db_node, on_progress=put)
+                with GetDB() as db:
+                    db_node = crud.get_node_by_id(db, node_id)
+                    if not db_node:
+                        put({"kind": "fatal", "message": "Node not found"})
+                        return
+                    crud.remove_node(db, db_node, on_progress=put)
             except Exception as exc:
                 logger.exception("Failed to remove node %s from DB", node_id)
                 put({"kind": "fatal", "message": str(exc)})
             finally:
-                try:
-                    db.close()
-                except Exception:
-                    pass
                 put(None)
 
         task = asyncio.create_task(asyncio.to_thread(_db_work))
 
         db_success = True
-        failed_step: Optional[str] = None
 
         try:
             while True:
-                evt = await queue.get()
+                # Heartbeat: yield an SSE comment if no event for a
+                # while, so intermediate proxies don't kill the idle
+                # connection during long batched deletes.
+                try:
+                    evt = await asyncio.wait_for(
+                        queue.get(), timeout=_SSE_HEARTBEAT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+
                 if evt is None:
                     break
 
                 kind = evt.get("kind")
                 if kind == "step_start":
-                    yield _send(
-                        "step_update",
-                        {
-                            "step": {
-                                "id": evt["table"],
-                                "status": "in_progress",
-                                "done": 0,
-                                "total": evt.get("total", 0),
-                            }
-                        },
+                    yield _step(
+                        evt["table"], "in_progress",
+                        done=0, total=evt.get("total", 0),
                     )
                 elif kind == "progress":
-                    yield _send(
-                        "step_update",
-                        {
-                            "step": {
-                                "id": evt["table"],
-                                "status": "in_progress",
-                                "done": evt.get("done", 0),
-                                "total": evt.get("total", 0),
-                            }
-                        },
+                    yield _step(
+                        evt["table"], "in_progress",
+                        done=evt.get("done", 0), total=evt.get("total", 0),
                     )
                 elif kind == "step_done":
-                    yield _send(
-                        "step_update",
-                        {
-                            "step": {
-                                "id": evt["table"],
-                                "status": "success",
-                                "done": evt.get("done", 0),
-                                "total": evt.get("total", 0),
-                            }
-                        },
+                    yield _step(
+                        evt["table"], "success",
+                        done=evt.get("done", 0), total=evt.get("total", 0),
                     )
                 elif kind == "step_error":
                     db_success = False
-                    failed_step = evt.get("table")
-                    yield _send(
-                        "step_update",
-                        {
-                            "step": {
-                                "id": evt["table"],
-                                "status": "error",
-                            }
-                        },
-                    )
+                    yield _step(evt["table"], "error")
                 elif kind == "fatal":
                     db_success = False
                     yield _send("error", {"message": evt.get("message", "")})
@@ -323,11 +351,6 @@ async def remove_node_stream(node_id: int, db: DBDep, admin: SudoAdminDep):
             raise
 
         if not db_success:
-            if failed_step:
-                yield _send(
-                    "step_update",
-                    {"step": {"id": "marznode_detach", "status": "pending"}},
-                )
             yield _send(
                 "complete",
                 {
@@ -336,31 +359,6 @@ async def remove_node_stream(node_id: int, db: DBDep, admin: SudoAdminDep):
                 },
             )
             return
-
-        yield _send(
-            "step_update",
-            {"step": {"id": "marznode_detach", "status": "in_progress"}},
-        )
-        try:
-            await marznode.operations.remove_node(node_id)
-            yield _send(
-                "step_update",
-                {"step": {"id": "marznode_detach", "status": "success"}},
-            )
-        except Exception as exc:
-            logger.warning(
-                "Node %s removed from DB but marznode detach failed: %s",
-                node_id,
-                exc,
-            )
-            yield _send(
-                "step_update",
-                {"step": {"id": "marznode_detach", "status": "error"}},
-            )
-            yield _send(
-                "log",
-                {"message": f"marznode detach failed: {exc}"},
-            )
 
         logger.info("Node `%s` deleted", node_name)
         yield _send(
