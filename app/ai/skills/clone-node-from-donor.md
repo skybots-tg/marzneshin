@@ -46,14 +46,30 @@ universal 5'. Или оставим как у донора?"**. One question, th
 ### 1. Confirm both nodes are connected.
 
 `get_node_info(donor_node_id)` AND `get_node_info(target_node_id)`.
-Both must report `status=healthy`.
+Both must report `status=healthy` AND `connected=true`. The
+`onboard_node_from_donor` preflight checks BOTH the registry
+(`connected=true`) AND DB status — donor failures are the same
+trap as target failures.
 
-If the target is **not** healthy:
-- `enable_node(target_node_id)` — re-instantiates the panel's gRPC
-  client. Wait ~15 s, then re-check.
-- Still not healthy → switch to `diagnose-node-down`. Do NOT call
-  `verify_panel_certificate` / `install_panel_certificate_on_node`
-  proactively from here.
+If EITHER node fails preflight:
+- Run `enable_node(<failing_node_id>)` FIRST — re-instantiates the
+  panel's in-memory gRPC client without touching the host. Wait
+  ~15 s, then re-check `get_node_info`. This applies equally to
+  donor and target — the preflight does NOT discriminate. Do NOT
+  jump to SSH on the donor just because the macro fails on
+  `donor_status: unhealthy` / `donor not in registry`; the donor
+  is almost always fine and only the panel's view of it is stale.
+- Still not healthy after `enable_node` → call
+  `diagnose_node_issue(<failing_node_id>)` and switch to
+  `diagnose-node-down`. Pay attention to a
+  `PANEL_REGISTRY_DESYNC` verdict — that means the panel runs
+  multi-worker and `enable_node` only fixed one worker; the macro
+  may still hit a different worker on the next call. Tell the
+  admin to set `UVICORN_WORKERS=1` and restart the panel
+  container, then retry the clone.
+- Do NOT call `verify_panel_certificate` /
+  `install_panel_certificate_on_node` proactively from here, and
+  do NOT request SSH on the donor before `enable_node` was tried.
 
 ### 2. Single-call clone.
 
@@ -111,8 +127,18 @@ or after a hand-edit on either side.
   → **DONE**. Tell the admin: nodes synced, services updated count,
   cloned hosts count, user count synced, sample subscription contains
   target address.
-- `failed_step="preflight"` → run `enable_node` on the failing node,
-  retry.
+- `failed_step="preflight"` → look at the report's
+  `donor_connected` / `target_connected` and `donor_status` /
+  `target_status`. Run `enable_node` on the failing side
+  (donor and target are equally valid candidates — do NOT assume
+  the failure is always on the target). Wait ~15 s and retry the
+  macro. If the same preflight failure keeps coming back across
+  retries, the panel is multi-worker — call
+  `diagnose_node_issue(<failing_node_id>)`; a
+  `PANEL_REGISTRY_DESYNC` verdict confirms it. Have the admin
+  drop `UVICORN_WORKERS` to 1 and restart the panel container,
+  then retry. NEVER request SSH on a preflight failure before
+  `enable_node` was tried.
 - `failed_step="clone_node_config"` → target xray rejected the
   config. Read error, usually port collision the donor doesn't have.
   Fix and retry.

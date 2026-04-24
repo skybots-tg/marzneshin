@@ -93,8 +93,29 @@ Act on the verdict:
   the drop numbers from `signals`, suggest rotating SNI,
   switching to a different port / protocol / node. Do NOT run
   more SSH probes — you cannot fix DPI from the panel.
-- `NODE_UNREACHABLE` / `NODE_DISCONNECTED` → marznode itself is
-  down (failure mode A). Proceed to step 3.
+- `PANEL_REGISTRY_DESYNC` → DB shows healthy and TCP works, but
+  THIS panel worker has no in-memory client. The node itself is
+  fine — this is purely panel-side state. Run
+  `enable_node(node_id)` (no SSH, no confirmation prompts to
+  the admin about restarts), wait ~15 s, re-check
+  `get_node_info`. If the discrepancy keeps coming back, the
+  panel is almost certainly running with `UVICORN_WORKERS > 1`
+  (each worker has its own NodeRegistry singleton): tell the
+  admin to set `UVICORN_WORKERS=1` in `.env` and restart the
+  panel container. NEVER ask for SSH on this verdict.
+- `NODE_UNREACHABLE` → panel cannot even TCP-connect. marznode
+  itself is down (failure mode A). Proceed to step 3.
+- `NODE_DISCONNECTED` → TCP works but the panel's gRPC client
+  for this node is missing. **First** run `enable_node(node_id)`
+  (no SSH needed — re-instantiates the in-memory client with
+  the current cert/key). Wait ~15 s, then call
+  `get_node_recent_errors` again:
+  * If `node_not_loaded=true` is gone and no new errors → fixed.
+  * If you now see real `kind=sync`/`kind=ssl` failures →
+    failure mode A or C. Proceed to step 1.5 (TLS) or step 3
+    (marznode itself). NOW SSH is justified.
+  Do NOT request SSH on this verdict before running
+  `enable_node`.
 - `XRAY_DOWN` / `CONFIG_ERROR` → failure mode B. Proceed to
   step 4.
 - `INCONCLUSIVE` → tell the admin what's missing (usually SSH

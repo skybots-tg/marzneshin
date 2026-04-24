@@ -479,6 +479,11 @@ async def onboard_node_from_donor(
     )
     if not step1["ok"]:
         failed_step = "preflight"
+        missing_ids: list[int] = []
+        if donor_node is None:
+            missing_ids.append(donor_node_id)
+        if target_node is None:
+            missing_ids.append(target_node_id)
         return {
             "donor_node_id": donor_node_id,
             "donor_name": donor_name,
@@ -487,14 +492,31 @@ async def onboard_node_from_donor(
             "success": False,
             "failed_step": failed_step,
             "steps": steps,
+            "missing_from_registry": missing_ids,
+            "next_action": [
+                f"enable_node({nid})" for nid in missing_ids
+            ],
             "hint": (
                 "Both nodes must be connected (panel sees them in "
-                "its in-memory registry) before cloning. The "
-                "deterministic fix for a node that is missing from "
-                "the registry is `enable_node(node_id)` — it forces "
-                "the panel to re-instantiate the gRPC client. Only "
-                "if `enable_node` does not bring the node up should "
-                "you switch to the `diagnose-node-down` skill."
+                "its in-memory registry) before cloning. The node(s) "
+                f"missing from the registry: {missing_ids}. "
+                "The deterministic, no-SSH fix is "
+                "`enable_node(node_id)` for EACH missing node — it "
+                "forces the panel to re-instantiate the gRPC "
+                "client with the current cert/key. Apply this to "
+                "donor AND target — donor failures are not a "
+                "reason to ask the admin for SSH on the donor "
+                "host. Wait ~15 s after each call and retry the "
+                "macro. If the same preflight failure keeps "
+                "coming back, the panel is likely running with "
+                "`UVICORN_WORKERS > 1` and each worker has its "
+                "own NodeRegistry; ask the admin to set "
+                "`UVICORN_WORKERS=1` and restart the panel "
+                "container. Only if `enable_node` returns errors "
+                "OR the verdict from `diagnose_node_issue` is NOT "
+                "PANEL_REGISTRY_DESYNC / NODE_DISCONNECTED should "
+                "you switch to the `diagnose-node-down` skill "
+                "with SSH probes."
             ),
         }
 
