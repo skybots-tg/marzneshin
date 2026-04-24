@@ -125,7 +125,12 @@ async def test_node_xray(db: Session, node_id: int) -> dict:
         "`test_node_xray`. "
         "Returns a structured report with a `verdict` field: "
         "'NODE_UNREACHABLE' (panel cannot even TCP-connect to gRPC port), "
-        "'NODE_DISCONNECTED' (panel was connected but gRPC dropped), "
+        "'NODE_DISCONNECTED' (panel was connected but gRPC dropped — fix "
+        "with `enable_node` first, SSH only as fallback), "
+        "'PANEL_REGISTRY_DESYNC' (TCP works AND DB says healthy AND UI shows "
+        "healthy, but THIS panel worker has no in-memory client — almost "
+        "always multi-worker UVICORN_WORKERS>1; fix with `enable_node`, "
+        "NEVER SSH), "
         "'XRAY_DOWN' (ssh shows xray process missing), "
         "'CONFIG_ERROR' (xray logs show parse/listen errors), "
         "'LIKELY_DPI' (everything on the node is healthy but traffic has "
@@ -520,14 +525,73 @@ def _synthesize_verdict(
         )
 
     if tcp.get("reachable") and not panel_grpc_connected:
+        # The panel's in-memory NodeRegistry has no client for this node,
+        # but the gRPC port is reachable. This is almost ALWAYS a panel-
+        # side state issue, not a marznode crash:
+        #
+        #   * Right after panel startup before nodes_startup finished
+        #     reconciling this row;
+        #   * After a transient `disable_node` → `enable_node` round-trip
+        #     left the registry empty in this worker;
+        #   * Multi-worker deploy (UVICORN_WORKERS > 1): each worker has
+        #     its OWN NodeRegistry singleton (Python module-level dict);
+        #     the AI request landed on a worker that doesn't have a
+        #     client for this node, while the worker that handles UI
+        #     requests does (so DB shows healthy and UI shows healthy).
+        #
+        # The deterministic, no-SSH fix is `enable_node(node_id)`. Only
+        # if THAT does not bring the node back is SSH justified.
+        if panel_status == "healthy":
+            return (
+                "PANEL_REGISTRY_DESYNC",
+                "high",
+                (
+                    "DB status is `healthy` (UI agrees) but THIS panel "
+                    "worker has no in-memory gRPC client for the node — "
+                    "the registry and the DB disagree. Almost always "
+                    "means the panel is running multi-worker "
+                    "(UVICORN_WORKERS > 1) and you hit a worker whose "
+                    "NodeRegistry is missing this row, while another "
+                    "worker holds it. Marznode itself is fine — TCP to "
+                    "the gRPC port works and DB status came from a "
+                    "successful sync done by the other worker. "
+                    "Fix in this order, NO SSH needed: "
+                    "(1) `enable_node(node_id)` — re-instantiates the "
+                    "gRPC client on the worker handling this request "
+                    "(may have to be retried a few times to hit each "
+                    "worker, since each call lands on whichever worker "
+                    "the load balancer picks). "
+                    "(2) If `enable_node` does not stick across calls, "
+                    "ask the admin to set `UVICORN_WORKERS=1` (the "
+                    "panel's NodeRegistry is in-process and not "
+                    "designed to be shared across workers) and restart "
+                    "the panel container. "
+                    "Do NOT propose SSH for this verdict — the node "
+                    "isn't broken."
+                ),
+            )
         return (
             "NODE_DISCONNECTED",
             "high",
             (
-                "gRPC port is reachable but the panel session is not connected. "
-                "Marznode process may be crashed or in a restart loop. If SSH is "
-                "unlocked, call test_node_xray for details; otherwise ask the admin "
-                "to unlock SSH or restart marznode."
+                "gRPC port is reachable but THIS panel worker's "
+                "NodeRegistry has no client for the node, and DB "
+                "status is not `healthy` either. "
+                "Fix in this order: "
+                "(1) `enable_node(node_id)` FIRST — this is the "
+                "panel-side, no-SSH fix that re-instantiates the gRPC "
+                "client with the current cert/key. Wait ~15 s, then "
+                "re-check `get_node_info` and `get_node_recent_errors`. "
+                "It resolves the common 'panel didn't fully reload "
+                "this node after restart / a previous "
+                "disable→enable cycle' case. "
+                "(2) Only if `enable_node` does NOT bring the node up "
+                "(`get_node_recent_errors` then shows real `kind=sync` "
+                "/ `kind=ssl` failures, not `node_not_loaded`), THEN "
+                "SSH is justified — call `test_node_xray` to look at "
+                "marznode/xray on the host. "
+                "Do NOT ask the admin to unlock SSH before trying "
+                "`enable_node`."
             ),
         )
 
