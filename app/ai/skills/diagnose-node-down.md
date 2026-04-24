@@ -94,15 +94,15 @@ Act on the verdict:
   switching to a different port / protocol / node. Do NOT run
   more SSH probes — you cannot fix DPI from the panel.
 - `PANEL_REGISTRY_DESYNC` → DB shows healthy and TCP works, but
-  THIS panel worker has no in-memory client. The node itself is
-  fine — this is purely panel-side state. Run
-  `enable_node(node_id)` (no SSH, no confirmation prompts to
-  the admin about restarts), wait ~15 s, re-check
-  `get_node_info`. If the discrepancy keeps coming back, the
-  panel is almost certainly running with `UVICORN_WORKERS > 1`
-  (each worker has its own NodeRegistry singleton): tell the
-  admin to set `UVICORN_WORKERS=1` in `.env` and restart the
-  panel container. NEVER ask for SSH on this verdict.
+  the panel's in-memory NodeRegistry has no client for this
+  node. The node host itself is fine — this is purely panel
+  internal state. Run `enable_node(node_id)` (no SSH needed),
+  wait ~15 s, re-check `get_node_info` and
+  `get_node_recent_errors`. If `enable_node` itself returns an
+  error, report it verbatim — that error IS the original cause
+  of the missing registry entry (cert load failure, address
+  parse error, etc.). NEVER ask for SSH on this verdict before
+  `enable_node` was tried; the host is not the problem.
 - `NODE_UNREACHABLE` → panel cannot even TCP-connect. marznode
   itself is down (failure mode A). Proceed to step 3.
 - `NODE_DISCONNECTED` → TCP works but the panel's gRPC client

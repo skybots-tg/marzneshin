@@ -128,9 +128,9 @@ async def test_node_xray(db: Session, node_id: int) -> dict:
         "'NODE_DISCONNECTED' (panel was connected but gRPC dropped — fix "
         "with `enable_node` first, SSH only as fallback), "
         "'PANEL_REGISTRY_DESYNC' (TCP works AND DB says healthy AND UI shows "
-        "healthy, but THIS panel worker has no in-memory client — almost "
-        "always multi-worker UVICORN_WORKERS>1; fix with `enable_node`, "
-        "NEVER SSH), "
+        "healthy, but the panel's in-memory NodeRegistry has no client — "
+        "the panel lost the entry without updating the DB; fix with "
+        "`enable_node`, NEVER SSH — the node host isn't broken), "
         "'XRAY_DOWN' (ssh shows xray process missing), "
         "'CONFIG_ERROR' (xray logs show parse/listen errors), "
         "'LIKELY_DPI' (everything on the node is healthy but traffic has "
@@ -527,47 +527,61 @@ def _synthesize_verdict(
     if tcp.get("reachable") and not panel_grpc_connected:
         # The panel's in-memory NodeRegistry has no client for this node,
         # but the gRPC port is reachable. This is almost ALWAYS a panel-
-        # side state issue, not a marznode crash:
+        # side state bug, not a marznode crash. The panel runs as a
+        # single uvicorn process (Server(Config(...)).serve() in
+        # app/marzneshin.py — the `workers` field is silently ignored
+        # for that codepath, so multi-worker is NOT a possible cause
+        # in this deployment), so a missing registry entry means the
+        # one and only NodeRegistry literally lost this node. Common
+        # mechanisms:
         #
-        #   * Right after panel startup before nodes_startup finished
-        #     reconciling this row;
-        #   * After a transient `disable_node` → `enable_node` round-trip
-        #     left the registry empty in this worker;
-        #   * Multi-worker deploy (UVICORN_WORKERS > 1): each worker has
-        #     its OWN NodeRegistry singleton (Python module-level dict);
-        #     the AI request landed on a worker that doesn't have a
-        #     client for this node, while the worker that handles UI
-        #     requests does (so DB shows healthy and UI shows healthy).
+        #   * `nodes_startup()` raised on an earlier node in the loop
+        #     and never reached this one (the loop in app/tasks/nodes.py
+        #     has no try/except around `add_node`, so a single bad node
+        #     poisons reconciliation for every node after it);
+        #   * `add_node()` for this node raised between its internal
+        #     `remove_node()` and the final `node_registry.register()`,
+        #     leaving the entry blanked but never restored;
+        #   * an earlier `disable_node`/`enable_node` round-trip
+        #     errored on the re-add half.
         #
-        # The deterministic, no-SSH fix is `enable_node(node_id)`. Only
-        # if THAT does not bring the node back is SSH justified.
+        # In all three cases the fix is identical and panel-side only:
+        # call `enable_node(node_id)` to force a fresh
+        # `add_node` round. SSH is NOT justified for this verdict —
+        # marznode on the host is fine, TCP works, the host-side has
+        # nothing to do with whether the panel's Python dict has an
+        # entry for it.
         if panel_status == "healthy":
             return (
                 "PANEL_REGISTRY_DESYNC",
                 "high",
                 (
-                    "DB status is `healthy` (UI agrees) but THIS panel "
-                    "worker has no in-memory gRPC client for the node — "
-                    "the registry and the DB disagree. Almost always "
-                    "means the panel is running multi-worker "
-                    "(UVICORN_WORKERS > 1) and you hit a worker whose "
-                    "NodeRegistry is missing this row, while another "
-                    "worker holds it. Marznode itself is fine — TCP to "
-                    "the gRPC port works and DB status came from a "
-                    "successful sync done by the other worker. "
-                    "Fix in this order, NO SSH needed: "
-                    "(1) `enable_node(node_id)` — re-instantiates the "
-                    "gRPC client on the worker handling this request "
-                    "(may have to be retried a few times to hit each "
-                    "worker, since each call lands on whichever worker "
-                    "the load balancer picks). "
-                    "(2) If `enable_node` does not stick across calls, "
-                    "ask the admin to set `UVICORN_WORKERS=1` (the "
-                    "panel's NodeRegistry is in-process and not "
-                    "designed to be shared across workers) and restart "
-                    "the panel container. "
-                    "Do NOT propose SSH for this verdict — the node "
-                    "isn't broken."
+                    "DB status is `healthy` (UI agrees) but the "
+                    "panel's in-memory NodeRegistry has no gRPC "
+                    "client for this node. Marznode on the host is "
+                    "fine — TCP to the gRPC port works and the "
+                    "`healthy` row in the DB came from a successful "
+                    "sync that ran earlier in the same panel process. "
+                    "The registry then lost the entry without the DB "
+                    "being updated (the `_monitor_channel` that "
+                    "writes status only runs while the registry has "
+                    "a client). Most likely cause: `nodes_startup` "
+                    "raised on an earlier node and skipped the rest, "
+                    "OR a previous `add_node` for this node failed "
+                    "between its internal `remove_node` and the final "
+                    "`register` call. "
+                    "Fix, no SSH needed: "
+                    "(1) `enable_node(node_id)` — forces a fresh "
+                    "`add_node` and re-registers the client. Wait "
+                    "~15 s, re-check `get_node_info` and "
+                    "`get_node_recent_errors`. "
+                    "(2) If `enable_node` itself returns an error, "
+                    "report that error verbatim to the admin — "
+                    "that error IS the original cause of the "
+                    "missing entry (e.g. cert load failure). Only "
+                    "then is host-side investigation warranted. "
+                    "Do NOT propose SSH purely on the basis of "
+                    "this verdict — the node host isn't broken."
                 ),
             )
         return (
