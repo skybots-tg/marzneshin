@@ -61,12 +61,11 @@ If EITHER node fails preflight:
   is almost always fine and only the panel's view of it is stale.
 - Still not healthy after `enable_node` → call
   `diagnose_node_issue(<failing_node_id>)` and switch to
-  `diagnose-node-down`. Pay attention to a
-  `PANEL_REGISTRY_DESYNC` verdict — that means the panel runs
-  multi-worker and `enable_node` only fixed one worker; the macro
-  may still hit a different worker on the next call. Tell the
-  admin to set `UVICORN_WORKERS=1` and restart the panel
-  container, then retry the clone.
+  `diagnose-node-down`. A `PANEL_REGISTRY_DESYNC` verdict at
+  this point means `enable_node` itself errored (cert load
+  failure, etc.) — read its error, fix that, then retry. Do
+  NOT request SSH purely because of `PANEL_REGISTRY_DESYNC`;
+  the node host is not broken in that case.
 - Do NOT call `verify_panel_certificate` /
   `install_panel_certificate_on_node` proactively from here, and
   do NOT request SSH on the donor before `enable_node` was tried.
@@ -129,16 +128,15 @@ or after a hand-edit on either side.
   target address.
 - `failed_step="preflight"` → look at the report's
   `donor_connected` / `target_connected` and `donor_status` /
-  `target_status`. Run `enable_node` on the failing side
-  (donor and target are equally valid candidates — do NOT assume
-  the failure is always on the target). Wait ~15 s and retry the
-  macro. If the same preflight failure keeps coming back across
-  retries, the panel is multi-worker — call
-  `diagnose_node_issue(<failing_node_id>)`; a
-  `PANEL_REGISTRY_DESYNC` verdict confirms it. Have the admin
-  drop `UVICORN_WORKERS` to 1 and restart the panel container,
-  then retry. NEVER request SSH on a preflight failure before
-  `enable_node` was tried.
+  `target_status`, plus the explicit `missing_from_registry` /
+  `next_action` fields. Run `enable_node` on each missing side
+  (donor and target are equally valid candidates — do NOT
+  assume the failure is always on the target). Wait ~15 s and
+  retry the macro. If `enable_node` itself errors, that error
+  IS the cause — read it, fix the underlying issue (e.g.
+  certificate load failure, address parse error), then retry.
+  NEVER request SSH on a preflight failure before `enable_node`
+  was tried — the node host is not the cause.
 - `failed_step="clone_node_config"` → target xray rejected the
   config. Read error, usually port collision the donor doesn't have.
   Fix and retry.
