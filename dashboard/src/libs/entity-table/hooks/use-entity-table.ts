@@ -28,6 +28,7 @@ interface UseEntityTableProps<TData, TValue> {
     pageIndex: number;
     pageSize: number;
     onPaginationChange: OnChangeFn<PaginationState>;
+    getRowId?: (row: TData, index: number) => string;
 }
 
 export const useEntityTable = <TData, TValue>({
@@ -40,6 +41,7 @@ export const useEntityTable = <TData, TValue>({
     pageIndex,
     pageSize,
     onPaginationChange,
+    getRowId,
 }: UseEntityTableProps<TData, TValue>) =>
     useReactTable({
         data: data.entities,
@@ -48,6 +50,7 @@ export const useEntityTable = <TData, TValue>({
         manualSorting,
         pageCount: data.pageCount + 1,
         autoResetPageIndex: false,
+        getRowId,
         onPaginationChange,
         onSortingChange: sorting.setSorting,
         getCoreRowModel: getCoreRowModel(),
