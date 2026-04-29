@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { DataTableViewOptions } from "./components";
 import { useQuery } from "@tanstack/react-query";
-import { RowSelectionState, ColumnDef } from "@tanstack/react-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { EntityTableContext } from "./contexts";
 import { TableSearch, DataTablePagination, EntityDataTable } from "./components";
 import {
@@ -41,13 +41,12 @@ export function SelectableEntityTable<T extends { id: number }>({
     entityKey,
     parentEntityKey,
     parentEntityId,
-    existingEntityIds,
 }: SelectableEntityTableProps<T>) {
     const columnPrimaryFilter = usePrimaryFiltering({ column: primaryFilter });
     const filters = useFilters();
     const sorting = useSorting();
     const visibility = useVisibility();
-    const { selectedRow, setSelectedRow } = rowSelection;
+    const { selectedRow } = rowSelection;
     const { setSelectedEntity } = entitySelection;
     const { onPaginationChange, pageIndex, pageSize } = usePagination({ entityKey });
     const query: SelectableQueryKey = [
@@ -81,32 +80,17 @@ export function SelectableEntityTable<T extends { id: number }>({
         visibility,
         sorting,
         onPaginationChange,
+        getRowId: (row) => String(row.id),
     });
 
     useEffect(() => {
-        setSelectedRow((selected) => {
-            const updatedSelected: RowSelectionState = { ...selected };
-            for (const [i, fetchedEntity] of data.entities.entries()) {
-                if (existingEntityIds.includes(fetchedEntity.id)) {
-                    updatedSelected[i] = true;
-                } else {
-                    updatedSelected[i] = false;
-                }
-            }
-            return updatedSelected;
-        });
+        const ids = Object.entries(selectedRow)
+            .filter(([, value]) => value === true)
+            .map(([key]) => Number(key))
+            .filter((id) => Number.isFinite(id));
 
-    }, [data, setSelectedRow, existingEntityIds]);
-
-    useEffect(() => {
-        const selectedRowId = Object.keys(selectedRow).filter(key => selectedRow[key] === true).map(Number);
-
-        setSelectedEntity(
-            selectedRowId
-                .map(id => data.entities[id]?.id)
-                .filter(id => id !== null && id !== undefined)
-        );
-    }, [data, setSelectedEntity, setSelectedRow, existingEntityIds, selectedRow]);
+        setSelectedEntity(ids);
+    }, [selectedRow, setSelectedEntity]);
 
 
     const contextValue = useMemo(
