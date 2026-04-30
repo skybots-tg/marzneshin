@@ -4,6 +4,7 @@ export * from "./logs.socket";
 export * from "./settings.query";
 export * from "./nodes-usage.query";
 export * from "./backend-stats.query";
+export * from "./system-stats.query";
 export * from "./settings.mutate";
 export * from "./update-node.mutate";
 export * from "./create-node.mutate";

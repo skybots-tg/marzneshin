@@ -1,5 +1,5 @@
 import { ColumnDef } from "@tanstack/react-table"
-import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation, useNodesUpdateMutation } from "@marzneshin/modules/nodes"
+import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation, useNodesUpdateMutation, SystemStatsCell } from "@marzneshin/modules/nodes"
 import {
     DataTableActionsCell,
     DataTableColumnHeader
@@ -22,6 +22,18 @@ import { RefreshCw, ArrowLeftRight, Download, Shield, AlertTriangle } from 'luci
 import { cn } from "@marzneshin/common/utils";
 import { useState } from "react";
 import { MigrationDialog, UpdateXrayDialog } from "@marzneshin/modules/nodes";
+
+const NodeNameCell = ({ node }: { node: NodeType }) => (
+    <span className="inline-flex items-baseline gap-1.5">
+        <span>{node.name}</span>
+        <span
+            className="text-[10px] font-mono text-muted-foreground/70 select-all"
+            title={i18n.t('page.nodes.id_hint', { id: node.id })}
+        >
+            #{node.id}
+        </span>
+    </span>
+);
 
 const ResyncButton = ({ node }: { node: NodeType }) => {
     const { mutate: resync, isPending } = useNodesResyncMutation();
@@ -107,6 +119,7 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
     {
         accessorKey: "name",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('name')} column={column} />,
+        cell: ({ row }) => <NodeNameCell node={row.original} />,
     },
     {
         accessorKey: "status",
@@ -149,6 +162,15 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
             <div className="flex items-center gap-1.5 flex-wrap">
                 <span>{`${row.original.address}:${row.original.port}`}</span>
                 {row.original.address_in_hosts === false && <AddressMissingBadge />}
+            </div>
+        ),
+    },
+    {
+        id: "resources",
+        header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.system.title')} column={column} />,
+        cell: ({ row }) => (
+            <div onClick={(e) => e.stopPropagation()}>
+                <SystemStatsCell node={row.original} />
             </div>
         ),
     },

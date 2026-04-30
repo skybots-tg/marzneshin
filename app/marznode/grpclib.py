@@ -27,6 +27,7 @@ from .marznode_pb2 import (
     UserDevicesRequest,
     UserDevicesHistory,
     AllUsersDevices,
+    SystemStats,
 )
 from ..models.node import NodeStatus
 
@@ -525,3 +526,15 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             self._force_close_channel()
             raise
         logger.info("Resynced %d users with node %d", len(users), self.id)
+
+    async def get_system_stats(self) -> SystemStats:
+        """Fetch CPU/RAM/disk snapshot. Older nodes raise NotImplementedError."""
+        try:
+            response: SystemStats = await self._stub.GetSystemStats(Empty())
+            return response
+        except GRPCError as e:
+            if "content-type" in str(e).lower() or e.status.value == 12:
+                raise NotImplementedError(
+                    "Node does not support GetSystemStats — update the node software"
+                ) from e
+            raise

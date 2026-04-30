@@ -108,6 +108,31 @@ message AllUsersDevices {
   repeated UserDevicesHistory users = 1;
 }
 
+// Снимок системных метрик ноды (CPU / RAM / диск / load avg / uptime).
+// Кэшируется на стороне ноды, поэтому частые опросы безопасны.
+message SystemStats {
+  double cpu_percent = 1;
+  uint32 cpu_count = 2;
+
+  uint64 mem_total = 3;
+  uint64 mem_used = 4;
+  uint64 mem_available = 5;
+  double mem_percent = 6;
+
+  uint64 disk_total = 7;
+  uint64 disk_used = 8;
+  uint64 disk_free = 9;
+  double disk_percent = 10;
+
+  double load_avg_1 = 11;
+  double load_avg_5 = 12;
+  double load_avg_15 = 13;
+
+  uint64 uptime_seconds = 14;
+  int64 collected_at = 15;
+  string disk_path = 16;
+}
+
 service MarzService {
   rpc SyncUsers(stream UserData) returns (Empty);
   rpc RepopulateUsers(UsersData) returns (Empty);
@@ -119,4 +144,5 @@ service MarzService {
   rpc GetBackendStats(Backend) returns (BackendStats);
   rpc FetchUserDevices(UserDevicesRequest) returns (UserDevicesHistory);
   rpc FetchAllDevices(Empty) returns (AllUsersDevices);
+  rpc GetSystemStats(Empty) returns (SystemStats);
 }

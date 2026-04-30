@@ -366,6 +366,23 @@
         "label": "Not in hosts",
         "desc": "This node's address does not appear in any of its hosts. Clients won't connect to this node — add a host pointing to this address."
       },
+      "id_hint": "Node ID: {{id}}",
+      "system": {
+        "title": "Resources",
+        "cpu": "CPU",
+        "ram": "RAM",
+        "disk": "Disk",
+        "cores": "cores",
+        "disk_path": "Path",
+        "load_avg": "Load avg (1/5/15)",
+        "uptime": "Uptime",
+        "loading": "Loading…",
+        "offline": "Node offline",
+        "unavailable": "Unavailable",
+        "unsupported_short": "Update node",
+        "unsupported_desc": "This node runs an old marznode build that doesn't expose system stats. Update marznode on the host to enable this widget.",
+        "cached_hint": "Refreshes every 30 s · cached on node and panel"
+      },
       "devices": {
         "title": "Device History",
         "active_only": "Show active only",
