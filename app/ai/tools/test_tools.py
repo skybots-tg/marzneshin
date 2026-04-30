@@ -64,11 +64,15 @@ async def test_host_reachability(
     db.close()
     if not address or not address.strip():
         return {"error": "address must not be empty"}
-    if port <= 0 or port > 65535:
-        return {"error": f"Port out of range: {port}"}
+    try:
+        port_int = int(port)
+    except (TypeError, ValueError):
+        return {"error": f"Port must be an integer, got: {port!r}"}
+    if port_int <= 0 or port_int > 65535:
+        return {"error": f"Port out of range: {port_int}"}
 
     timeout_sec = max(1, min(int(timeout_sec or 5), 15))
-    return await _tcp_probe(address.strip(), int(port), timeout_sec)
+    return await _tcp_probe(address.strip(), port_int, timeout_sec)
 
 
 @register_tool(

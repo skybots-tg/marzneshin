@@ -107,7 +107,81 @@ def get_all_tools() -> list[ToolDefinition]:
     return [entry["definition"] for entry in _registry.values()]
 
 
-def _make_invoke(handler: Callable[..., Coroutine]):
+def _coerce_scalar(value: Any, json_type: str) -> Any:
+    """Coerce a scalar JSON value to the type declared in the schema.
+
+    LLMs (especially via Responses API) often emit `"123"` for an
+    `integer`-typed parameter, or `"true"` for a `boolean`. We normalize
+    those here so handlers can rely on their type annotations instead of
+    sprinkling defensive `int(x)` everywhere. Unrecognized inputs are
+    returned unchanged so the handler can produce its own error.
+    """
+    if value is None:
+        return None
+    if json_type == "integer":
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.lstrip("-").isdigit():
+                return int(stripped)
+        return value
+    if json_type == "number":
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError:
+                return value
+        return value
+    if json_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            low = value.strip().lower()
+            if low in ("true", "1", "yes"):
+                return True
+            if low in ("false", "0", "no"):
+                return False
+        return value
+    if json_type == "string":
+        if isinstance(value, str):
+            return value
+        return str(value)
+    return value
+
+
+def _coerce_args(args: dict, schema: dict) -> dict:
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    coerced: dict[str, Any] = {}
+    for key, value in args.items():
+        prop = properties.get(key)
+        if not isinstance(prop, dict):
+            coerced[key] = value
+            continue
+        json_type = prop.get("type")
+        if json_type == "array" and isinstance(value, list):
+            item_schema = prop.get("items") or {}
+            item_type = item_schema.get("type") if isinstance(item_schema, dict) else None
+            if item_type:
+                coerced[key] = [_coerce_scalar(v, item_type) for v in value]
+            else:
+                coerced[key] = value
+        elif isinstance(json_type, str):
+            coerced[key] = _coerce_scalar(value, json_type)
+        else:
+            coerced[key] = value
+    return coerced
+
+
+def _make_invoke(handler: Callable[..., Coroutine], schema: dict):
     """Build an `on_invoke_tool` coroutine for the SDK.
 
     Opens a fresh DB session per call so that tool handlers that call
@@ -120,6 +194,9 @@ def _make_invoke(handler: Callable[..., Coroutine]):
             args = json.loads(input_json) if input_json else {}
         except json.JSONDecodeError as e:
             return json.dumps({"error": f"Invalid arguments JSON: {str(e)}"})
+
+        if isinstance(args, dict):
+            args = _coerce_args(args, schema)
 
         try:
             with GetDB() as db:
@@ -143,7 +220,7 @@ def build_function_tools() -> list[FunctionTool]:
                 name=td.name,
                 description=td.description,
                 params_json_schema=td.parameters,
-                on_invoke_tool=_make_invoke(handler),
+                on_invoke_tool=_make_invoke(handler, td.parameters),
                 strict_json_schema=False,
                 needs_approval=td.requires_confirmation,
             )
