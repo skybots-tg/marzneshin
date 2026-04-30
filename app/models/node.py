@@ -146,3 +146,36 @@ class SSHCredentials(BaseModel):
     ssh_port: int = 22
     ssh_password: str | None = None
     ssh_key: str | None = None
+
+
+class NodeSystemStats(BaseModel):
+    """Snapshot of CPU / RAM / disk / load avg metrics from a node.
+
+    Numbers are intentionally compact and dimensionless on the client
+    side: bytes for memory/disk, percent (0-100) for utilisation. The
+    snapshot is cached both on the node (``CACHE_TTL_SECONDS`` in
+    ``marznode/utils/system_stats.py``) and on the panel (`_TTL` in
+    ``app/marznode/system_stats_cache.py``) so frequent UI polling
+    never hits the node more than a couple of times per minute.
+    """
+
+    cpu_percent: float = Field(ge=0)
+    cpu_count: int = Field(ge=0)
+
+    mem_total: int = Field(ge=0)
+    mem_used: int = Field(ge=0)
+    mem_available: int = Field(ge=0)
+    mem_percent: float = Field(ge=0)
+
+    disk_total: int = Field(ge=0)
+    disk_used: int = Field(ge=0)
+    disk_free: int = Field(ge=0)
+    disk_percent: float = Field(ge=0)
+    disk_path: str = ""
+
+    load_avg_1: float = Field(ge=0)
+    load_avg_5: float = Field(ge=0)
+    load_avg_15: float = Field(ge=0)
+
+    uptime_seconds: int = Field(ge=0)
+    collected_at: int = Field(ge=0)

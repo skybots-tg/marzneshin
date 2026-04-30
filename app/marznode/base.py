@@ -42,3 +42,7 @@ class MarzNodeBase(ABC):
     async def resync_users(self) -> None:
         """Force resync all users with the node"""
         pass
+
+    async def get_system_stats(self):
+        """Fetch a snapshot of system metrics (CPU/RAM/disk) from the node."""
+        pass

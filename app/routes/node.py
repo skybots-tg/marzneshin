@@ -37,8 +37,10 @@ from app.models.node import (
     DeviceInfoWithUser,
     UserDevicesResponse,
     AllUsersDevicesResponse,
+    NodeSystemStats,
 )
 from app.models.system import TrafficUsageSeries
+from app.marznode import system_stats_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nodes", tags=["Node"])
@@ -186,6 +188,7 @@ async def remove_node(node_id: int, db: DBDep, admin: SudoAdminDep):
 
     node_name, removed_id = await asyncio.to_thread(_db_work)
     await marznode.operations.remove_node(removed_id)
+    system_stats_cache.invalidate(removed_id)
 
     logger.info("Node `%s` deleted", node_name)
     return {}
@@ -411,6 +414,59 @@ async def resync_node_users(node_id: int, db: DBDep, admin: SudoAdminDep):
 
     logger.info("Users resynced on node `%s`", node_name)
     return {"status": "ok", "message": f"Users resynced on node {node_name}"}
+
+
+@router.get("/{node_id}/system", response_model=NodeSystemStats)
+async def get_node_system_stats(node_id: int, admin: SudoAdminDep):
+    """Return CPU/RAM/disk/load-avg snapshot for a node.
+
+    Cheap to call: results are cached on the panel for a few seconds
+    and on the node itself for ~10 seconds, so even aggressive UI
+    polling produces only a handful of /proc reads per minute per node.
+
+    Returns 404 if the node is not currently connected, 501 if the
+    node is connected but runs an old marznode build that doesn't
+    expose the GetSystemStats RPC, and 502 if the gRPC call itself
+    fails.
+    """
+    node = marznode.nodes.get(node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    async def _fetch() -> NodeSystemStats:
+        response = await node.get_system_stats()
+        return NodeSystemStats(
+            cpu_percent=response.cpu_percent,
+            cpu_count=response.cpu_count,
+            mem_total=response.mem_total,
+            mem_used=response.mem_used,
+            mem_available=response.mem_available,
+            mem_percent=response.mem_percent,
+            disk_total=response.disk_total,
+            disk_used=response.disk_used,
+            disk_free=response.disk_free,
+            disk_percent=response.disk_percent,
+            disk_path=response.disk_path or "",
+            load_avg_1=response.load_avg_1,
+            load_avg_5=response.load_avg_5,
+            load_avg_15=response.load_avg_15,
+            uptime_seconds=response.uptime_seconds,
+            collected_at=response.collected_at,
+        )
+
+    try:
+        return await system_stats_cache.get_or_fetch(node_id, _fetch)
+    except NotImplementedError as exc:
+        logger.warning("Node %s: GetSystemStats unsupported: %s", node_id, exc)
+        raise HTTPException(
+            status_code=501,
+            detail="This node does not expose system stats. Update marznode on the host.",
+        )
+    except Exception as exc:
+        logger.error("Node %s: GetSystemStats failed: %s", node_id, exc)
+        raise HTTPException(
+            status_code=502, detail="Failed to fetch system stats from node"
+        )
 
 
 @router.get("/{node_id}/usage", response_model=TrafficUsageSeries)

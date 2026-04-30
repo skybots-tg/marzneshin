@@ -54,6 +54,10 @@ class MarzServiceBase(abc.ABC):
     async def FetchAllDevices(self, stream: 'grpclib.server.Stream[app.marznode.marznode_pb2.Empty, app.marznode.marznode_pb2.AllUsersDevices]') -> None:
         pass
 
+    @abc.abstractmethod
+    async def GetSystemStats(self, stream: 'grpclib.server.Stream[app.marznode.marznode_pb2.Empty, app.marznode.marznode_pb2.SystemStats]') -> None:
+        pass
+
     def __mapping__(self) -> typing.Dict[str, grpclib.const.Handler]:
         return {
             '/marznode.MarzService/SyncUsers': grpclib.const.Handler(
@@ -115,6 +119,12 @@ class MarzServiceBase(abc.ABC):
                 grpclib.const.Cardinality.UNARY_UNARY,
                 app.marznode.marznode_pb2.Empty,
                 app.marznode.marznode_pb2.AllUsersDevices,
+            ),
+            '/marznode.MarzService/GetSystemStats': grpclib.const.Handler(
+                self.GetSystemStats,
+                grpclib.const.Cardinality.UNARY_UNARY,
+                app.marznode.marznode_pb2.Empty,
+                app.marznode.marznode_pb2.SystemStats,
             ),
         }
 
@@ -181,4 +191,10 @@ class MarzServiceStub:
             '/marznode.MarzService/FetchAllDevices',
             app.marznode.marznode_pb2.Empty,
             app.marznode.marznode_pb2.AllUsersDevices,
+        )
+        self.GetSystemStats = grpclib.client.UnaryUnaryMethod(
+            channel,
+            '/marznode.MarzService/GetSystemStats',
+            app.marznode.marznode_pb2.Empty,
+            app.marznode.marznode_pb2.SystemStats,
         )

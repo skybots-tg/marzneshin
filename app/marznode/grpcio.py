@@ -23,6 +23,7 @@ from .marznode_pb2 import (
     UserDevicesRequest,
     UserDevicesHistory,
     AllUsersDevices,
+    SystemStats,
 )
 from .marznode_pb2_grpc import MarzServiceStub
 from ..models.node import NodeStatus
@@ -348,3 +349,15 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
             self.synced = False
             raise
         logger.info("Resynced %d users with node %d", len(users), self.id)
+
+    async def get_system_stats(self) -> SystemStats:
+        """Fetch CPU/RAM/disk snapshot. Older nodes raise NotImplementedError."""
+        try:
+            response: SystemStats = await self._stub.GetSystemStats(Empty())
+            return response
+        except RpcError as e:
+            if hasattr(e, 'code') and callable(e.code) and e.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise NotImplementedError(
+                    "Node does not support GetSystemStats — update the node software"
+                ) from e
+            raise

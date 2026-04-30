@@ -5,3 +5,4 @@ export * from './nodes-usage-widget';
 export * from './dialogs';
 export * from './router-context';
 export * from './devices';
+export * from './system-stats';
