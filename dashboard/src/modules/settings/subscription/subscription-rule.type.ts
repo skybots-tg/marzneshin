@@ -12,5 +12,7 @@ export type SubscriptionSettingsType = {
     profile_title: string;
     support_link: string;
     update_interval: number;
+    host_remark_adblock_suffix_enabled?: boolean;
+    host_remark_adblock_suffix_text?: string;
     rules: SubscriptionRuleType[];
 }

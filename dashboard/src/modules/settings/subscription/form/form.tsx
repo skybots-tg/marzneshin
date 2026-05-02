@@ -21,6 +21,7 @@ import {
     SupportLinkField,
     UpdateIntervalField,
     PlaceholderRemarkField,
+    AdblockSuffixField,
 } from "./fields";
 import { NoRulesAlert } from "./no-rules-alert";
 import {
@@ -93,6 +94,8 @@ export function SubscriptionRulesForm() {
                     name="shuffle_configs"
                     label={t("page.settings.subscription-settings.shuffle-configs")}
                 />
+                <Separator className="my-3" />
+                <AdblockSuffixField />
                 <Separator className="my-3" />
                 <h4 className="text-lg mt-2">
                     {t("page.settings.subscription-settings.subscription-title")}

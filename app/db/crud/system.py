@@ -6,7 +6,9 @@ from app.db.models import JWT, TLS, System, Settings
 
 _subscription_settings_cache = {"data": None, "expires": 0}
 _notification_events_cache = {"data": None, "expires": 0}
+_adblock_node_ids_cache: dict = {"data": None, "expires": 0}
 _NOTIFICATION_EVENTS_TTL_SECONDS = 30
+_ADBLOCK_NODE_IDS_TTL_SECONDS = 30
 
 
 def get_subscription_settings_cached(db: Session):
@@ -54,6 +56,39 @@ def get_notification_events_cached(db: Session) -> dict | None:
 def invalidate_notification_events_cache() -> None:
     _notification_events_cache["data"] = None
     _notification_events_cache["expires"] = 0
+
+
+def get_adblock_node_ids_cached(db: Session) -> frozenset[int]:
+    """Return the set of node IDs that have ``adblock_enabled=True``.
+
+    Used by ``app.utils.share`` to decide whether to append the
+    "NO ADS" suffix to a host remark in generated subscriptions.
+    Cached briefly so re-rendering subscriptions for many users does
+    not hammer the DB.
+    """
+    from app.db.models.node_filtering import NodeFilteringConfig
+
+    now = time.time()
+    if (
+        _adblock_node_ids_cache["data"] is not None
+        and now < _adblock_node_ids_cache["expires"]
+    ):
+        return _adblock_node_ids_cache["data"]
+
+    rows = (
+        db.query(NodeFilteringConfig.node_id)
+        .filter(NodeFilteringConfig.adblock_enabled.is_(True))
+        .all()
+    )
+    value: frozenset[int] = frozenset(r[0] for r in rows)
+    _adblock_node_ids_cache["data"] = value
+    _adblock_node_ids_cache["expires"] = now + _ADBLOCK_NODE_IDS_TTL_SECONDS
+    return value
+
+
+def invalidate_adblock_node_ids_cache() -> None:
+    _adblock_node_ids_cache["data"] = None
+    _adblock_node_ids_cache["expires"] = 0
 
 
 def get_system_usage(db: Session):

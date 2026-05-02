@@ -104,6 +104,25 @@ def generate_subscription_template(
     )
 
 
+def _load_subscription_settings_or_none() -> SubscriptionSettings | None:
+    """Best-effort load of subscription settings for runtime decisions.
+
+    Failures (no DB row, validation errors, malformed JSON) downgrade to
+    ``None`` rather than breaking subscription rendering — features that
+    depend on these settings (e.g. adblock-suffix) just stay disabled.
+    """
+    try:
+        from app.db.crud.system import get_subscription_settings_cached
+
+        with GetDB() as db:
+            raw = get_subscription_settings_cached(db)
+        if raw is None:
+            return None
+        return SubscriptionSettings.model_validate(raw)
+    except Exception:
+        return None
+
+
 def generate_subscription(
     user: "UserResponse",
     config_format: Literal["links", "xray", "clash-meta", "clash", "sing-box"],
@@ -115,15 +134,19 @@ def generate_subscription(
     service_ids: list[int] = None,
     data_limit_reached: bool = False,
     node_coefficients: dict[int, float] | None = None,
+    subscription_settings: SubscriptionSettings | None = None,
 ) -> str:
     """
     Generate subscription config for user.
-    
+
     Args:
         hosts: Pre-loaded hosts (for performance - avoids extra DB query)
         service_ids: Pre-loaded service IDs (used if hosts not provided)
         data_limit_reached: Whether user's data limit is reached
         node_coefficients: Mapping of node_id -> usage_coefficient
+        subscription_settings: Pre-loaded settings; loaded lazily from
+            the cache if not supplied. Used to drive opt-in features
+            like the adblock-suffix on host remarks.
     """
     extra_data = UserResponse.model_validate(user).model_dump(
         exclude={"subscription_url", "services", "inbounds"}
@@ -151,6 +174,8 @@ def generate_subscription(
         configs = [placeholder_config]
 
     else:
+        if subscription_settings is None:
+            subscription_settings = _load_subscription_settings_or_none()
         configs = generate_user_configs(
             user.inbounds,
             user.key,
@@ -161,6 +186,7 @@ def generate_subscription(
             service_ids=service_ids,
             data_limit_reached=data_limit_reached,
             node_coefficients=node_coefficients,
+            subscription_settings=subscription_settings,
         )
 
     subscription_handler.add_proxies(configs)
@@ -266,6 +292,36 @@ def setup_format_variables(extra_data: dict) -> dict:
     return format_variables
 
 
+def _resolve_adblock_context(
+    subscription_settings: SubscriptionSettings | None,
+) -> tuple[frozenset[int], str]:
+    """Return ``(adblock_node_ids, suffix_text)`` for remark post-processing.
+
+    When the feature is disabled (or settings cannot be loaded), the
+    returned set is empty so the caller short-circuits without ever
+    appending a suffix. Settings come from the cached subscription
+    settings row to avoid a per-host DB hit.
+    """
+    if subscription_settings is None or not getattr(
+        subscription_settings, "host_remark_adblock_suffix_enabled", False
+    ):
+        return frozenset(), ""
+
+    suffix_text = (
+        getattr(subscription_settings, "host_remark_adblock_suffix_text", "")
+        or ""
+    )
+    if not suffix_text:
+        return frozenset(), ""
+
+    from app.db.crud.system import get_adblock_node_ids_cached
+
+    with GetDB() as db:
+        node_ids = get_adblock_node_ids_cached(db)
+
+    return node_ids, suffix_text
+
+
 def generate_user_configs(
     inbounds: list,
     key: str,
@@ -276,23 +332,29 @@ def generate_user_configs(
     service_ids: list[int] = None,
     data_limit_reached: bool = False,
     node_coefficients: dict[int, float] | None = None,
+    subscription_settings: SubscriptionSettings | None = None,
 ) -> Union[List, str]:
     """
     Generate user configs from hosts.
-    
+
     Args:
         hosts: Pre-loaded hosts list (recommended for performance)
         service_ids: Pre-loaded service IDs (used if hosts not provided)
         data_limit_reached: Whether user's data limit is reached
         node_coefficients: Mapping of node_id -> usage_coefficient
+        subscription_settings: Pre-loaded settings; required to apply the
+            adblock-suffix feature (otherwise it is silently skipped).
     """
     salt = secrets.token_hex(8)
     configs = []
 
-    # Use pre-loaded hosts if available, otherwise fetch (fallback)
     if hosts is None:
         with GetDB() as db:
             hosts = get_hosts_for_user(db, user_id, service_ids=service_ids)
+
+    adblock_node_ids, adblock_suffix_text = _resolve_adblock_context(
+        subscription_settings
+    )
 
     for host in hosts:
         # Skip hosts with default "Marz" remark — они не должны попадать
@@ -306,16 +368,34 @@ def generate_user_configs(
             host, key, format_variables, salt, user_id, chained_hosts,
             data_limit_reached=data_limit_reached,
             node_coefficients=node_coefficients,
+            adblock_node_ids=adblock_node_ids,
+            adblock_suffix_text=adblock_suffix_text,
         )
         configs.append(data)
 
     return configs
 
 
+def _host_touches_adblock_node(host, adblock_node_ids: frozenset[int]) -> bool:
+    """True if the host's ingress *or* exit node has adblock enabled."""
+    inbound = getattr(host, "inbound", None)
+    if inbound is None:
+        return False
+    ingress = getattr(inbound, "node_id", None)
+    if ingress is not None and ingress in adblock_node_ids:
+        return True
+    egress = getattr(inbound, "exit_node_id", None)
+    if egress is not None and egress in adblock_node_ids:
+        return True
+    return False
+
+
 def create_config(
     host, key, format_variables, salt, user_id, next_hosts: list | None = None,
     data_limit_reached: bool = False,
     node_coefficients: dict[int, float] | None = None,
+    adblock_node_ids: frozenset[int] | None = None,
+    adblock_suffix_text: str = "",
 ):
     if next_hosts is None:
         next_hosts = []
@@ -398,6 +478,16 @@ def create_config(
         coeff = node_coefficients.get(host.inbound.node_id, 1.0)
         if coeff > 0:
             remark = f"[кончился трафик] {remark}"
+
+    # Append the adblock-suffix (e.g. " NO ADS") whenever any node
+    # involved in routing this host's traffic has adblock_enabled=True.
+    if (
+        adblock_suffix_text
+        and adblock_node_ids
+        and _host_touches_adblock_node(host, adblock_node_ids)
+        and not remark.endswith(adblock_suffix_text)
+    ):
+        remark = f"{remark}{adblock_suffix_text}"
 
     host_addresses = [
         addr.strip() for addr in (host.address or "").split(",") if addr.strip()
