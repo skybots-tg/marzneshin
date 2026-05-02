@@ -51,7 +51,22 @@ class Inbound(Base):
     tag = Column(String(256), nullable=False)
     config = Column(String(512), nullable=False)
     node_id = Column(Integer, ForeignKey("nodes.id"), index=True)
-    node = relationship("Node", back_populates="inbounds")
+    node = relationship(
+        "Node", back_populates="inbounds", foreign_keys=[node_id]
+    )
+    # Bridge inbounds tunnel traffic out through a different node. When
+    # ``exit_node_id`` is set, the subscription layer treats both
+    # ``node_id`` (ingress) and ``exit_node_id`` (egress) as participating
+    # nodes — currently used for the per-node adblock-suffix feature
+    # (``SubscriptionSettings.host_remark_adblock_suffix_enabled``).
+    # Direct (non-bridge) inbounds keep this NULL.
+    exit_node_id = Column(
+        Integer,
+        ForeignKey("nodes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    exit_node = relationship("Node", foreign_keys=[exit_node_id])
     services = relationship(
         "Service", secondary=inbounds_services, back_populates="inbounds"
     )

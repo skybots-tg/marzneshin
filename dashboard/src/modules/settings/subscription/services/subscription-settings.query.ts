@@ -18,6 +18,8 @@ export const useSubscriptionSettingsQuery = () => {
             profile_title: "",
             support_link: "",
             update_interval: 0,
+            host_remark_adblock_suffix_enabled: false,
+            host_remark_adblock_suffix_text: " NO ADS",
             rules: [],
         },
     });

@@ -29,6 +29,14 @@ class SubscriptionSettings(BaseModel):
     placeholder_if_disabled: bool = True
     placeholder_remark: str = "disabled"
     exclude_unhealthy_nodes: bool = False
+    # When enabled, the host remark in the generated subscription gets
+    # ``host_remark_adblock_suffix_text`` appended whenever the host's
+    # ingress *or* exit node has ``adblock_enabled=True`` in its
+    # NodeFilteringConfig. Editing the suffix text does not require
+    # restarting xray on the nodes — it is applied at subscription
+    # render time only.
+    host_remark_adblock_suffix_enabled: bool = False
+    host_remark_adblock_suffix_text: str = " NO ADS"
     rules: list[SubscriptionRule]
 
 

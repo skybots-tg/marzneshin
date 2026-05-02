@@ -24,6 +24,7 @@ from app.utils.crypto import (
     decrypt_credentials,
     verify_pin,
 )
+from app.db.crud.system import invalidate_adblock_node_ids_cache
 from app.utils.xray_config_patcher import patch_config_enable, patch_config_disable
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ async def update_filtering(
         if not node:
             raise HTTPException(404, "Node not found")
         cfg = crud.update_filtering_config(db, node_id, update)
+        invalidate_adblock_node_ids_cache()
         marznode_ref = marznode.nodes.get(node_id)
         if not marznode_ref:
             return NodeFilteringConfigResponse.model_validate(cfg), None, None
