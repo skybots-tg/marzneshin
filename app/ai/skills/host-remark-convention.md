@@ -1,6 +1,6 @@
 ---
 name: host-remark-convention
-description: Create or edit a host's `remark` field while preserving the installation's existing naming convention (emoji, variation selectors, numbering scheme like "UNIVERSAL 3 / UNIVERSAL 4"). Use whenever the admin asks to add a new host or change the remark on existing ones — especially if they say "same as the others", "next one after X", "replace X with Y across all universal hosts". The point is to NEVER invent a remark from scratch or retype emoji — always copy from an existing sibling.
+description: Create or edit a host's `remark` field while preserving the installation's existing naming convention (emoji, variation selectors, numbering scheme like "UNIVERSAL 3 / UNIVERSAL 4"). MUST be loaded whenever the admin asks to add a new host, edit an existing remark, or run a bulk substring replace across hosts ("replace X with Y across all hosts", "shorten country names to ISO codes", "rename Франция to FR everywhere", "add 'beta' suffix to every UNIVERSAL 4 remark"). The point is to NEVER invent a remark from scratch and NEVER retype emoji from your own chat output — always copy from an existing sibling or use the bulk-replace tools so the string travels through SQL, not through your tokenizer.
 ---
 # Follow the installation's host-remark convention
 
@@ -13,6 +13,11 @@ description: Create or edit a host's `remark` field while preserving the install
   drops those invisible codepoints and produces a visually-identical
   but subtly different string. The admin will notice when sorting
   breaks.
+- This is not theoretical: every chat character you write is encoded
+  through your tokenizer. Round-tripping `🇩🇪⚡️` through chat very often
+  yields `🇩🇪⚡` (no U+FE0F) on the way out. The DB then stores a
+  visually identical but byte-different string, and `==` comparisons,
+  ORDER BY, and external tooling start producing surprising results.
 
 ## Rule: always copy from an existing sibling, never reconstruct.
 
@@ -35,7 +40,7 @@ description: Create or edit a host's `remark` field while preserving the install
    ...)` without re-asking for confirmation — the write tool has
    its own modal.
 
-## Editing the remark on an EXISTING host
+## Editing the remark on a SINGLE existing host
 
 1. `get_host_info(host_id)` — treat the returned `remark` as the
    literal source of truth.
@@ -46,19 +51,52 @@ description: Create or edit a host's `remark` field while preserving the install
 3. `modify_host(host_id, remark=<edited>)`. Do not pass
    `clear_fields=["remark"]` — remark is required.
 
-## "Replace X with Y across all universal hosts"
+## "Replace X with Y across many hosts" — USE THE BULK TOOLS
 
-1. `list_hosts(universal_only=true, limit=100)`. Walk pages until
-   `truncated=false` / `next_offset=null`.
+This is the case where freelancing with `modify_host` per-host is most
+likely to corrupt emoji and most likely to drown the admin in approval
+modals. There are dedicated tools that perform the substring edit
+inside the database — the matched substring never travels through your
+output.
 
-2. For each host whose `remark` contains X:
-   - Compute new remark as `old_remark.replace(X, Y)` — literal
-     substring, do NOT attempt a regex unless the admin explicitly
-     said regex.
-   - `modify_host(host_id, remark=<new>)`.
+1. **Preview first** with `preview_remark_replace(old=..., new=...,
+   scope=...)`:
+   - `old` and `new` are LITERAL substrings — not regex.
+   - `scope` is `'all'` (default), `'universal'`, or `'non_universal'`.
+   - Optional narrowing: `inbound_id`, `node_id`, `case_sensitive`.
+   - Returns each affected host's exact `before` / `after` straight
+     from the DB.
 
-3. Summarise afterwards: how many hosts were touched, how many
-   were skipped because they did not contain X.
+2. **Show the diff** to the admin. You may quote the `before` /
+   `after` from the tool result inside single backticks — those
+   strings came from SQL, not from you, so emoji codepoints survive.
+   Do NOT retype the diff manually; cite the tool result.
+
+3. **Apply** with `bulk_replace_in_remarks(old=..., new=...,
+   scope=...)` — same arg shape as the preview, single transaction,
+   single approval modal for the whole batch.
+   - The tool refuses to run if more than `max_changes` rows would
+     change (default 200) — narrow the scope or raise the cap if
+     that is intentional.
+   - On success it returns the same `{host_id, before, after}`
+     shape you can summarise back to the admin.
+
+4. **Do NOT** loop `modify_host` for this case. 50+ individual
+   approval modals is hostile UX, and every per-host edit forces
+   you to retype the remark from your output, which is exactly the
+   emoji-corruption bug we are avoiding.
+
+### Worked example: shorten country names to ISO codes
+- Admin: "Замени названия у hosts. Вместо полного названия страны —
+  сокращение, например Франция → FR".
+- Plan, in order:
+  1. `preview_remark_replace(old="Франция", new="FR")` — show diff.
+  2. `preview_remark_replace(old="Германия", new="DE")` — show diff.
+  3. ... (one per country).
+  4. `bulk_replace_in_remarks(old="Франция", new="FR")`,
+     `bulk_replace_in_remarks(old="Германия", new="DE")`, ...
+- Each `bulk_replace_in_remarks` produces ONE approval modal. The
+  admin sees a single yes/no per country, not per host.
 
 ## Never do
 - Never invent new emoji. If the admin says "add a German flag" and
@@ -69,6 +107,10 @@ description: Create or edit a host's `remark` field while preserving the install
   through your tokenizer is already lossy; adding normalisation
   makes it worse.
 - Never paste the final remark back into chat with your own
-  emoji output — copy from the tool's returned string and show it
-  between backticks so the admin can visually verify codepoints
-  survived.
+  emoji output as a "preview". Either cite the tool's returned
+  string in single backticks, or skip the preview entirely and
+  rely on the approval modal — the modal shows the exact remark
+  argument the way the API will see it.
+- Never re-ask "should I apply now?" between the preview and the
+  bulk-write call. The bulk-write has its own modal; that is the
+  approval point. Asking in chat just burns a turn.
