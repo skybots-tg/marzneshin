@@ -4,6 +4,7 @@ from . import (  # noqa: F401
     user_tools,
     diag_tools,
     host_tools,
+    host_bulk_tools,
     service_tools,
     device_tools,
     admin_tools,
