@@ -211,7 +211,10 @@ class Node(Base):
     port = Column(Integer)
     xray_version = Column(String(32))
     inbounds = relationship(
-        "Inbound", back_populates="node", cascade="all, delete"
+        "Inbound",
+        back_populates="node",
+        cascade="all, delete",
+        foreign_keys="[Inbound.node_id]",
     )
     backends = relationship(
         "Backend", back_populates="node", cascade="all, delete"
