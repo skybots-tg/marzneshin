@@ -19,6 +19,7 @@ RUN corepack enable
 COPY . .
 
 # pnpm store кешируется между сборками.
+RUN pnpm config set onlyBuiltDependencies '@swc/core' 'esbuild' --global
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
     make dashboard-deps && make dashboard-build
 
