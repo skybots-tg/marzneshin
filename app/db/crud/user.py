@@ -499,6 +499,25 @@ def reset_user_data_usage(db: Session, dbuser: User):
     return dbuser
 
 
+def cap_user_traffic(db: Session, dbuser: User, traffic_bytes: int | None = None):
+    """Set used_traffic to an exact value.
+
+    If *traffic_bytes* is ``None``, caps to *data_limit* (100% usage).
+    Raises ValueError when no data_limit is set and no explicit value given.
+    """
+    if traffic_bytes is not None:
+        dbuser.used_traffic = traffic_bytes
+    else:
+        if dbuser.data_limit is None:
+            raise ValueError("Cannot cap to 100%: user has no data_limit set")
+        dbuser.used_traffic = dbuser.data_limit
+
+    db.add(dbuser)
+    db.commit()
+    db.refresh(dbuser)
+    return dbuser
+
+
 def revoke_user_sub(db: Session, dbuser: User):
     dbuser.key = secrets.token_hex(16)
     dbuser.sub_revoked_at = datetime.utcnow()

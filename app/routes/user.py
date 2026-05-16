@@ -20,6 +20,7 @@ from app.dependencies import (
 )
 from app.models.service import ServiceResponse
 from app.models.user import (
+    UserCapTraffic,
     UserCreate,
     UserModify,
     UserResponse,
@@ -172,6 +173,17 @@ def reset_user_data_usage(
     modify_access: ModifyUsersAccess,
 ):
     return user_service.reset_data_usage(db, db_user, admin)
+
+
+@router.post("/{username}/cap_traffic", response_model=UserResponse)
+def cap_user_traffic(
+    db_user: UserDep,
+    db: DBDep,
+    admin: AdminDep,
+    modify_access: ModifyUsersAccess,
+    body: UserCapTraffic = UserCapTraffic(),
+):
+    return user_service.cap_traffic(db, db_user, admin, body.traffic_bytes)
 
 
 @router.post("/{username}/enable", response_model=UserResponse)

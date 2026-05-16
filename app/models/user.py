@@ -53,7 +53,7 @@ class User(BaseModel):
     activation_deadline: datetime | None = Field(None)
     key: str = Field(default_factory=lambda: secrets.token_hex(16))
     data_limit: int | None = Field(
-        ge=0, default=None, description="data_limit can be 0 or greater"
+        ge=0, default=32212254720, description="data_limit in bytes, default 30 GB"
     )
     data_limit_reset_strategy: UserDataUsageResetStrategy = (
         UserDataUsageResetStrategy.no_reset
@@ -108,7 +108,7 @@ class UserCreate(User):
                 "expire_strategy": "start_on_first_use",
                 "usage_duration": 86400 * 14,
                 "activation_deadline": "2024-11-03T20:30:00",
-                "data_limit": 0,
+                "data_limit": 32212254720,
                 "data_limit_reset_strategy": "no_reset",
                 "note": "",
             }
@@ -152,6 +152,14 @@ class UserResponse(User):
     traffic_reset_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserCapTraffic(BaseModel):
+    traffic_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description="Exact traffic value in bytes. If omitted, caps to data_limit (100%).",
+    )
 
 
 class UserNodeUsageSeries(BaseModel):
