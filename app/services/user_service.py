@@ -173,6 +173,29 @@ def reset_data_usage(db: Session, db_user: User, admin: Admin) -> User:
     return db_user
 
 
+def cap_traffic(
+    db: Session, db_user: User, admin: Admin, traffic_bytes: int | None = None
+) -> User:
+    """Roll back used_traffic to data_limit (100%) or an explicit byte value."""
+    try:
+        db_user = crud.cap_user_traffic(db, db_user, traffic_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if db_user.is_active:
+        node_ops.update_user(db_user, db=db)
+        db_user.activated = True
+        db.commit()
+
+    logger.info(
+        "User `%s` traffic capped to %d bytes by `%s`",
+        db_user.username,
+        db_user.used_traffic,
+        admin.username,
+    )
+    return db_user
+
+
 def enable_user(db: Session, db_user: User, admin: Admin) -> User:
     if db_user.enabled:
         raise HTTPException(409, "User is already enabled")
