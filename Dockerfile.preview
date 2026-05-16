@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && apt-get install -y --no-install-recommends make git ca-certificates
 
 # pnpm без глобальной установки
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 COPY . .
 
