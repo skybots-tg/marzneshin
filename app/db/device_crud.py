@@ -3,10 +3,11 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from ipaddress import IPv4Address, IPv6Address, ip_address
 
-from sqlalchemy import func, desc, and_, or_
+from sqlalchemy import func, desc, and_, or_, literal_column, union_all, cast, Date
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import UserDevice, UserDeviceIP, UserDeviceTraffic, User, Node
+from app.db.models.device import UserDeviceTrafficDaily, UserDeviceTrafficWeekly
 
 
 # ============================================================================
@@ -471,43 +472,64 @@ def create_or_update_traffic(
 
 
 def get_device_total_traffic(db: Session, device_id: int) -> dict:
-    """Get total traffic statistics for a device"""
-    result = db.query(
-        func.sum(UserDeviceTraffic.upload_bytes).label('total_upload'),
-        func.sum(UserDeviceTraffic.download_bytes).label('total_download'),
-        func.sum(UserDeviceTraffic.connect_count).label('total_connects'),
-    ).filter(
-        UserDeviceTraffic.device_id == device_id
-    ).first()
-    
+    """Get total traffic statistics for a device across all time tiers."""
+    T, D, W = UserDeviceTraffic, UserDeviceTrafficDaily, UserDeviceTrafficWeekly
+
+    q_5min = (
+        db.query(
+            func.coalesce(func.sum(T.upload_bytes), 0),
+            func.coalesce(func.sum(T.download_bytes), 0),
+            func.coalesce(func.sum(T.connect_count), 0),
+        ).filter(T.device_id == device_id).first()
+    )
+    q_daily = (
+        db.query(
+            func.coalesce(func.sum(D.upload_bytes), 0),
+            func.coalesce(func.sum(D.download_bytes), 0),
+            func.coalesce(func.sum(D.connect_count), 0),
+        ).filter(D.device_id == device_id).first()
+    )
+    q_weekly = (
+        db.query(
+            func.coalesce(func.sum(W.upload_bytes), 0),
+            func.coalesce(func.sum(W.download_bytes), 0),
+            func.coalesce(func.sum(W.connect_count), 0),
+        ).filter(W.device_id == device_id).first()
+    )
+
     return {
-        'total_upload_bytes': result.total_upload or 0,
-        'total_download_bytes': result.total_download or 0,
-        'total_connect_count': result.total_connects or 0,
+        'total_upload_bytes': q_5min[0] + q_daily[0] + q_weekly[0],
+        'total_download_bytes': q_5min[1] + q_daily[1] + q_weekly[1],
+        'total_connect_count': q_5min[2] + q_daily[2] + q_weekly[2],
     }
 
 
 def get_devices_total_traffic_batch(db: Session, device_ids: List[int]) -> dict[int, dict]:
-    """Get total traffic statistics for multiple devices in one query."""
+    """Get total traffic statistics for multiple devices across all tiers."""
     if not device_ids:
         return {}
     
-    rows = db.query(
-        UserDeviceTraffic.device_id,
-        func.sum(UserDeviceTraffic.upload_bytes).label('total_upload'),
-        func.sum(UserDeviceTraffic.download_bytes).label('total_download'),
-        func.sum(UserDeviceTraffic.connect_count).label('total_connects'),
-    ).filter(
-        UserDeviceTraffic.device_id.in_(device_ids)
-    ).group_by(UserDeviceTraffic.device_id).all()
-    
     result = {did: {'total_upload_bytes': 0, 'total_download_bytes': 0, 'total_connect_count': 0} for did in device_ids}
-    for row in rows:
-        result[row.device_id] = {
-            'total_upload_bytes': row.total_upload or 0,
-            'total_download_bytes': row.total_download or 0,
-            'total_connect_count': row.total_connects or 0,
-        }
+
+    for Model, did_col, up_col, dn_col, cc_col in [
+        (UserDeviceTraffic, UserDeviceTraffic.device_id,
+         UserDeviceTraffic.upload_bytes, UserDeviceTraffic.download_bytes, UserDeviceTraffic.connect_count),
+        (UserDeviceTrafficDaily, UserDeviceTrafficDaily.device_id,
+         UserDeviceTrafficDaily.upload_bytes, UserDeviceTrafficDaily.download_bytes, UserDeviceTrafficDaily.connect_count),
+        (UserDeviceTrafficWeekly, UserDeviceTrafficWeekly.device_id,
+         UserDeviceTrafficWeekly.upload_bytes, UserDeviceTrafficWeekly.download_bytes, UserDeviceTrafficWeekly.connect_count),
+    ]:
+        rows = db.query(
+            did_col,
+            func.sum(up_col).label('total_upload'),
+            func.sum(dn_col).label('total_download'),
+            func.sum(cc_col).label('total_connects'),
+        ).filter(did_col.in_(device_ids)).group_by(did_col).all()
+
+        for row in rows:
+            result[row[0]]['total_upload_bytes'] += row.total_upload or 0
+            result[row[0]]['total_download_bytes'] += row.total_download or 0
+            result[row[0]]['total_connect_count'] += row.total_connects or 0
     return result
 
 
@@ -567,15 +589,21 @@ def get_user_device_statistics(db: Session, user_id: int) -> dict:
     ).distinct().all()
     unique_countries = [c[0] for c in countries if c[0]]
     
-    # Total traffic
-    traffic = db.query(
-        func.sum(UserDeviceTraffic.upload_bytes).label('upload'),
-        func.sum(UserDeviceTraffic.download_bytes).label('download'),
-    ).filter(
-        UserDeviceTraffic.user_id == user_id
-    ).first()
-    
-    total_traffic = (traffic.upload or 0) + (traffic.download or 0)
+    # Total traffic (sum across all three tiers)
+    total_traffic = 0
+    for Model, uid_col, up_col, dn_col in [
+        (UserDeviceTraffic, UserDeviceTraffic.user_id,
+         UserDeviceTraffic.upload_bytes, UserDeviceTraffic.download_bytes),
+        (UserDeviceTrafficDaily, UserDeviceTrafficDaily.user_id,
+         UserDeviceTrafficDaily.upload_bytes, UserDeviceTrafficDaily.download_bytes),
+        (UserDeviceTrafficWeekly, UserDeviceTrafficWeekly.user_id,
+         UserDeviceTrafficWeekly.upload_bytes, UserDeviceTrafficWeekly.download_bytes),
+    ]:
+        row = db.query(
+            func.coalesce(func.sum(up_col), 0),
+            func.coalesce(func.sum(dn_col), 0),
+        ).filter(uid_col == user_id).first()
+        total_traffic += row[0] + row[1]
     
     return {
         'user_id': user_id,

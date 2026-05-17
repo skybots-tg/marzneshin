@@ -1,32 +1,40 @@
-"""Aggregate old hourly traffic records into daily summaries and purge expired data.
+"""Aggregate old traffic records into coarser time buckets.
 
-Runs once a day:
-  1. SUM hourly rows older than USAGE_RETENTION_DAYS into daily rows (per user/node)
-  2. DELETE the hourly originals
-  3. DELETE daily rows older than USAGE_MAX_RETENTION_DAYS (default 180 days)
+Runs once a day (03:00 UTC by default):
+  1. node_user_usages hourly → daily (older than USAGE_RETENTION_DAYS)
+  2. node_usages hourly → daily
+  3. Purge daily node/user usage rows older than USAGE_MAX_RETENTION_DAYS
+  4. user_device_traffic 5-min → daily  (older than 7 days)
+  5. user_device_traffic_daily → weekly  (older than 90 days)
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, date as date_type, timedelta
 
-from sqlalchemy import and_, cast, Date, delete, func, insert, select
+from sqlalchemy import and_, cast, Date, delete, func, insert, select, text
 
 from app.db import GetDB
-from app.db.models import (
-    NodeUsage,
-    NodeUserUsage,
+from app.db.models import NodeUsage, NodeUserUsage
+from app.db.models.device import (
+    UserDeviceTraffic,
+    UserDeviceTrafficDaily,
+    UserDeviceTrafficWeekly,
 )
-from app.db.models.device import UserDeviceTraffic
 from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
 from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 5000
+DEVICE_TRAFFIC_DAILY_CUTOFF_DAYS = 7
+DEVICE_TRAFFIC_WEEKLY_CUTOFF_DAYS = 90
 
+
+# ============================================================================
+# Node / NodeUser usage aggregation (existing logic)
+# ============================================================================
 
 def _aggregate_node_user_usages(db, cutoff: datetime) -> int:
-    """Aggregate node_user_usages rows older than cutoff into daily table."""
     agg_query = (
         select(
             cast(NodeUserUsage.created_at, Date).label("date"),
@@ -83,7 +91,6 @@ def _aggregate_node_user_usages(db, cutoff: datetime) -> int:
 
 
 def _aggregate_node_usages(db, cutoff: datetime) -> int:
-    """Aggregate node_usages rows older than cutoff into daily table."""
     agg_query = (
         select(
             cast(NodeUsage.created_at, Date).label("date"),
@@ -139,7 +146,6 @@ def _aggregate_node_usages(db, cutoff: datetime) -> int:
 
 
 def _purge_old_daily_data(db, max_cutoff_date) -> tuple[int, int]:
-    """Delete daily records older than max_cutoff_date."""
     user_purged = db.execute(
         delete(NodeUserUsageDaily).where(NodeUserUsageDaily.date < max_cutoff_date)
     ).rowcount
@@ -151,24 +157,168 @@ def _purge_old_daily_data(db, max_cutoff_date) -> tuple[int, int]:
     return user_purged, node_purged
 
 
-def _purge_old_device_traffic(db, cutoff_datetime: datetime) -> int:
-    """Delete user_device_traffic rows older than cutoff in batches."""
-    total_purged = 0
-    while True:
-        sub = (
-            select(UserDeviceTraffic.id)
-            .where(UserDeviceTraffic.bucket_start < cutoff_datetime)
-            .limit(BATCH_SIZE)
+# ============================================================================
+# Device traffic: 5-min → daily aggregation
+# ============================================================================
+
+def _aggregate_device_traffic_to_daily(db, cutoff: datetime) -> tuple[int, int]:
+    """Aggregate user_device_traffic rows older than cutoff into daily table.
+
+    Returns (rows_inserted_or_updated, rows_deleted).
+    """
+    T = UserDeviceTraffic
+    D = UserDeviceTrafficDaily
+
+    agg_query = (
+        select(
+            T.device_id,
+            T.user_id,
+            T.node_id,
+            cast(T.bucket_start, Date).label("date"),
+            func.sum(T.upload_bytes).label("upload_bytes"),
+            func.sum(T.download_bytes).label("download_bytes"),
+            func.sum(T.connect_count).label("connect_count"),
         )
-        deleted = db.execute(
-            delete(UserDeviceTraffic).where(UserDeviceTraffic.id.in_(sub))
-        ).rowcount
+        .where(T.bucket_start < cutoff)
+        .group_by(T.device_id, T.user_id, T.node_id, cast(T.bucket_start, Date))
+    )
+
+    rows = db.execute(agg_query).fetchall()
+    if not rows:
+        return 0, 0
+
+    upserted = 0
+    for row in rows:
+        existing = db.execute(
+            select(D.id).where(
+                and_(
+                    D.device_id == row.device_id,
+                    D.node_id == row.node_id,
+                    D.date == row.date,
+                )
+            )
+        ).first()
+
+        if existing:
+            db.execute(
+                D.__table__.update()
+                .where(D.id == existing.id)
+                .values(
+                    upload_bytes=D.upload_bytes + row.upload_bytes,
+                    download_bytes=D.download_bytes + row.download_bytes,
+                    connect_count=D.connect_count + row.connect_count,
+                )
+            )
+        else:
+            db.execute(
+                insert(D).values(
+                    device_id=row.device_id,
+                    user_id=row.user_id,
+                    node_id=row.node_id,
+                    date=row.date,
+                    upload_bytes=row.upload_bytes,
+                    download_bytes=row.download_bytes,
+                    connect_count=row.connect_count,
+                )
+            )
+        upserted += 1
+
+    total_deleted = 0
+    while True:
+        sub = select(T.id).where(T.bucket_start < cutoff).limit(BATCH_SIZE)
+        deleted = db.execute(delete(T).where(T.id.in_(sub))).rowcount
         db.commit()
-        total_purged += deleted
+        total_deleted += deleted
         if deleted < BATCH_SIZE:
             break
-    return total_purged
 
+    return upserted, total_deleted
+
+
+# ============================================================================
+# Device traffic: daily → weekly aggregation
+# ============================================================================
+
+def _monday_of(d: date_type) -> date_type:
+    """Return the Monday of the week containing date d."""
+    return d - timedelta(days=d.weekday())
+
+
+def _aggregate_device_traffic_to_weekly(db, cutoff_date: date_type) -> tuple[int, int]:
+    """Aggregate user_device_traffic_daily rows older than cutoff into weekly.
+
+    Returns (rows_inserted_or_updated, rows_deleted).
+    """
+    D = UserDeviceTrafficDaily
+    W = UserDeviceTrafficWeekly
+
+    old_rows = db.execute(
+        select(
+            D.device_id, D.user_id, D.node_id, D.date,
+            D.upload_bytes, D.download_bytes, D.connect_count,
+        ).where(D.date < cutoff_date)
+    ).fetchall()
+
+    if not old_rows:
+        return 0, 0
+
+    weekly_buckets: dict[tuple, dict] = {}
+    for row in old_rows:
+        week_start = _monday_of(row.date)
+        key = (row.device_id, row.user_id, row.node_id, week_start)
+        if key not in weekly_buckets:
+            weekly_buckets[key] = {"upload": 0, "download": 0, "connects": 0}
+        weekly_buckets[key]["upload"] += row.upload_bytes
+        weekly_buckets[key]["download"] += row.download_bytes
+        weekly_buckets[key]["connects"] += row.connect_count
+
+    upserted = 0
+    for (device_id, user_id, node_id, week_start), totals in weekly_buckets.items():
+        existing = db.execute(
+            select(W.id).where(
+                and_(
+                    W.device_id == device_id,
+                    W.node_id == node_id,
+                    W.week_start == week_start,
+                )
+            )
+        ).first()
+
+        if existing:
+            db.execute(
+                W.__table__.update()
+                .where(W.id == existing.id)
+                .values(
+                    upload_bytes=W.upload_bytes + totals["upload"],
+                    download_bytes=W.download_bytes + totals["download"],
+                    connect_count=W.connect_count + totals["connects"],
+                )
+            )
+        else:
+            db.execute(
+                insert(W).values(
+                    device_id=device_id,
+                    user_id=user_id,
+                    node_id=node_id,
+                    week_start=week_start,
+                    upload_bytes=totals["upload"],
+                    download_bytes=totals["download"],
+                    connect_count=totals["connects"],
+                )
+            )
+        upserted += 1
+
+    deleted = db.execute(
+        delete(D).where(D.date < cutoff_date)
+    ).rowcount
+    db.commit()
+
+    return upserted, deleted
+
+
+# ============================================================================
+# Main entry point
+# ============================================================================
 
 async def aggregate_old_usages():
     """Main entry point called by the scheduler."""
@@ -186,10 +336,10 @@ async def aggregate_old_usages():
     max_cutoff = (today - timedelta(days=max_retention_days)).date()
 
     logger.info(
-        f"Aggregating hourly records older than {cutoff.date()} "
-        f"(retention={retention_days}d), "
-        f"purging daily records older than {max_cutoff} "
-        f"(max_retention={max_retention_days}d)"
+        f"Aggregating: hourly→daily (>{retention_days}d), "
+        f"device 5min→daily (>{DEVICE_TRAFFIC_DAILY_CUTOFF_DAYS}d), "
+        f"device daily→weekly (>{DEVICE_TRAFFIC_WEEKLY_CUTOFF_DAYS}d), "
+        f"purge daily >{max_retention_days}d"
     )
 
     with GetDB() as db:
@@ -202,11 +352,28 @@ async def aggregate_old_usages():
         user_purged, node_purged = _purge_old_daily_data(db, max_cutoff)
         db.commit()
 
-        device_traffic_purged = _purge_old_device_traffic(db, cutoff)
+    logger.info(
+        f"Node usage: {user_deleted} hourly user + {node_deleted} hourly node "
+        f"compressed; purged {user_purged}+{node_purged} daily rows > {max_cutoff}"
+    )
+
+    device_daily_cutoff = today - timedelta(days=DEVICE_TRAFFIC_DAILY_CUTOFF_DAYS)
+    device_weekly_cutoff = (today - timedelta(days=DEVICE_TRAFFIC_WEEKLY_CUTOFF_DAYS)).date()
+
+    with GetDB() as db:
+        d_upserted, d_deleted = _aggregate_device_traffic_to_daily(db, device_daily_cutoff)
+        db.commit()
 
     logger.info(
-        f"Aggregation complete: {user_deleted} node_user_usages + "
-        f"{node_deleted} node_usages rows compressed into daily summaries; "
-        f"purged {user_purged} + {node_purged} daily rows older than {max_cutoff}; "
-        f"purged {device_traffic_purged} device_traffic rows older than {cutoff.date()}"
+        f"Device traffic 5min→daily: {d_upserted} daily rows upserted, "
+        f"{d_deleted} 5-min rows removed (cutoff {device_daily_cutoff.date()})"
+    )
+
+    with GetDB() as db:
+        w_upserted, w_deleted = _aggregate_device_traffic_to_weekly(db, device_weekly_cutoff)
+        db.commit()
+
+    logger.info(
+        f"Device traffic daily→weekly: {w_upserted} weekly rows upserted, "
+        f"{w_deleted} daily rows removed (cutoff {device_weekly_cutoff})"
     )

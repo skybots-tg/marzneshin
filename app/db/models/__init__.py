@@ -17,7 +17,13 @@ from .proxy import (
     NodeUserUsageDaily,
 )
 from .system import JWT, Settings, System, TLS
-from .device import UserDevice, UserDeviceIP, UserDeviceTraffic
+from .device import (
+    UserDevice,
+    UserDeviceIP,
+    UserDeviceTraffic,
+    UserDeviceTrafficDaily,
+    UserDeviceTrafficWeekly,
+)
 from .node_filtering import NodeFilteringConfig, NodeSSHCredentials
 from .node_tls import NodeTLSProvisioning
 from .ai_skill import AISkill
@@ -46,6 +52,8 @@ __all__ = [
     "UserDevice",
     "UserDeviceIP",
     "UserDeviceTraffic",
+    "UserDeviceTrafficDaily",
+    "UserDeviceTrafficWeekly",
     "NodeFilteringConfig",
     "NodeSSHCredentials",
     "NodeTLSProvisioning",

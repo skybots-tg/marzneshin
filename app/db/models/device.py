@@ -5,8 +5,10 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -94,7 +96,7 @@ class UserDeviceIP(Base):
 
 
 class UserDeviceTraffic(Base):
-    """Aggregated traffic data by device, node and time bucket"""
+    """Aggregated traffic data by device, node and time bucket (5 min)"""
     __tablename__ = "user_device_traffic"
     __table_args__ = (
         UniqueConstraint("device_id", "node_id", "bucket_start"),
@@ -105,19 +107,55 @@ class UserDeviceTraffic(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Time bucket
     bucket_start = Column(DateTime, nullable=False, index=True)
-    bucket_seconds = Column(Integer, nullable=False, default=300, server_default="300")  # 5 minutes default
+    bucket_seconds = Column(Integer, nullable=False, default=300, server_default="300")
 
-    # Statistics
     upload_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
     download_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
     connect_count = Column(BigInteger, nullable=False, default=0, server_default="0")
 
-    # Metadata
     meta = Column(JSON, nullable=False, default=dict, server_default='{}')
 
-    # Relationships
     device = relationship("UserDevice", back_populates="traffic_records")
     user = relationship("User")
     node = relationship("Node")
+
+
+class UserDeviceTrafficDaily(Base):
+    """Daily aggregate of device traffic (from 5-min buckets older than 7 days)"""
+    __tablename__ = "user_device_traffic_daily"
+    __table_args__ = (
+        UniqueConstraint("device_id", "node_id", "date"),
+        Index("ix_devtraffic_daily_user", "user_id", "date"),
+        Index("ix_devtraffic_daily_device", "device_id", "date"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    device_id = Column(BigInteger, ForeignKey("user_devices.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    date = Column(Date, nullable=False, index=True)
+
+    upload_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    download_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    connect_count = Column(BigInteger, nullable=False, default=0, server_default="0")
+
+
+class UserDeviceTrafficWeekly(Base):
+    """Weekly aggregate of device traffic (from daily rows older than 90 days)"""
+    __tablename__ = "user_device_traffic_weekly"
+    __table_args__ = (
+        UniqueConstraint("device_id", "node_id", "week_start"),
+        Index("ix_devtraffic_weekly_user", "user_id", "week_start"),
+        Index("ix_devtraffic_weekly_device", "device_id", "week_start"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    device_id = Column(BigInteger, ForeignKey("user_devices.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False, index=True)
+
+    upload_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    download_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    connect_count = Column(BigInteger, nullable=False, default=0, server_default="0")
