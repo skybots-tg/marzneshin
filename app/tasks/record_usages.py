@@ -16,6 +16,7 @@ from app.tasks.data_usage_percent_reached import data_usage_percent_reached
 from app.config.env import DISABLE_RECORDING_NODE_USAGE
 from app.utils.async_utils import fire_and_forget
 from app.utils.device_tracker import track_user_connection
+from app.tasks.node_traffic_monitor import record_node_activity
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,7 @@ async def record_user_usages():
                         logger.warning(f"[Node {node_id}] Failed to track device for user {param['uid']}: {e}")
             
             node_usages[node_id] = node_usage
+            record_node_activity(node_id, had_traffic=bool(node_usage))
             db.commit()
             
             if params:

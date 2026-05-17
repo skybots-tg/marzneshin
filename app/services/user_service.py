@@ -1,8 +1,10 @@
 import logging
+import time
 from datetime import datetime, timedelta
 
 import sqlalchemy
 from fastapi import HTTPException
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.db import crud
@@ -15,6 +17,8 @@ from app.notification.notifiers import notify
 from app.utils.async_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
+
+_MAX_RETRY = 3
 
 
 def _allowed_services(admin: Admin) -> list | None:
@@ -75,7 +79,19 @@ def modify_user(
             new_user, old_inbounds, remove=not db_user.is_active, db=db
         )
         db_user.activated = db_user.is_active
-        db.commit()
+        for attempt in range(_MAX_RETRY):
+            try:
+                db.commit()
+                break
+            except OperationalError as exc:
+                if exc.orig and getattr(exc.orig, "args", (None,))[0] == 1020:
+                    db.rollback()
+                    if attempt < _MAX_RETRY - 1:
+                        time.sleep(0.15 * (attempt + 1))
+                        db.refresh(db_user)
+                        db_user.activated = db_user.is_active
+                        continue
+                raise
 
     fire_and_forget(
         notify(
