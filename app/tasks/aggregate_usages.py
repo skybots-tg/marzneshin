@@ -164,75 +164,94 @@ def _purge_old_daily_data(db, max_cutoff_date) -> tuple[int, int]:
 def _aggregate_device_traffic_to_daily(db, cutoff: datetime) -> tuple[int, int]:
     """Aggregate user_device_traffic rows older than cutoff into daily table.
 
-    Returns (rows_inserted_or_updated, rows_deleted).
+    Processes one calendar day at a time to stay within statement_timeout.
+    Returns (rows_upserted, rows_deleted).
     """
     T = UserDeviceTraffic
     D = UserDeviceTrafficDaily
 
-    agg_query = (
-        select(
-            T.device_id,
-            T.user_id,
-            T.node_id,
-            cast(T.bucket_start, Date).label("date"),
-            func.sum(T.upload_bytes).label("upload_bytes"),
-            func.sum(T.download_bytes).label("download_bytes"),
-            func.sum(T.connect_count).label("connect_count"),
-        )
-        .where(T.bucket_start < cutoff)
-        .group_by(T.device_id, T.user_id, T.node_id, cast(T.bucket_start, Date))
-    )
-
-    rows = db.execute(agg_query).fetchall()
-    if not rows:
+    oldest_row = db.execute(
+        select(func.min(T.bucket_start)).where(T.bucket_start < cutoff)
+    ).scalar()
+    if oldest_row is None:
         return 0, 0
 
-    upserted = 0
-    for row in rows:
-        existing = db.execute(
-            select(D.id).where(
-                and_(
+    total_upserted = 0
+    total_deleted = 0
+    current_day = oldest_row.date()
+    cutoff_date = cutoff.date()
+
+    while current_day < cutoff_date:
+        next_day = current_day + timedelta(days=1)
+
+        agg_query = (
+            select(
+                T.device_id, T.user_id, T.node_id,
+                func.sum(T.upload_bytes).label("upload_bytes"),
+                func.sum(T.download_bytes).label("download_bytes"),
+                func.sum(T.connect_count).label("connect_count"),
+            )
+            .where(and_(
+                T.bucket_start >= datetime(current_day.year, current_day.month, current_day.day),
+                T.bucket_start < datetime(next_day.year, next_day.month, next_day.day),
+            ))
+            .group_by(T.device_id, T.user_id, T.node_id)
+        )
+
+        rows = db.execute(agg_query).fetchall()
+
+        for row in rows:
+            existing = db.execute(
+                select(D.id).where(and_(
                     D.device_id == row.device_id,
                     D.node_id == row.node_id,
-                    D.date == row.date,
-                )
-            )
-        ).first()
+                    D.date == current_day,
+                ))
+            ).first()
 
-        if existing:
-            db.execute(
-                D.__table__.update()
-                .where(D.id == existing.id)
-                .values(
-                    upload_bytes=D.upload_bytes + row.upload_bytes,
-                    download_bytes=D.download_bytes + row.download_bytes,
-                    connect_count=D.connect_count + row.connect_count,
+            if existing:
+                db.execute(
+                    D.__table__.update()
+                    .where(D.id == existing.id)
+                    .values(
+                        upload_bytes=D.upload_bytes + row.upload_bytes,
+                        download_bytes=D.download_bytes + row.download_bytes,
+                        connect_count=D.connect_count + row.connect_count,
+                    )
                 )
-            )
-        else:
-            db.execute(
-                insert(D).values(
+            else:
+                db.execute(insert(D).values(
                     device_id=row.device_id,
                     user_id=row.user_id,
                     node_id=row.node_id,
-                    date=row.date,
+                    date=current_day,
                     upload_bytes=row.upload_bytes,
                     download_bytes=row.download_bytes,
                     connect_count=row.connect_count,
-                )
+                ))
+            total_upserted += 1
+
+        while True:
+            sub = (
+                select(T.id)
+                .where(and_(
+                    T.bucket_start >= datetime(current_day.year, current_day.month, current_day.day),
+                    T.bucket_start < datetime(next_day.year, next_day.month, next_day.day),
+                ))
+                .limit(BATCH_SIZE)
             )
-        upserted += 1
+            deleted = db.execute(delete(T).where(T.id.in_(sub))).rowcount
+            db.commit()
+            total_deleted += deleted
+            if deleted < BATCH_SIZE:
+                break
 
-    total_deleted = 0
-    while True:
-        sub = select(T.id).where(T.bucket_start < cutoff).limit(BATCH_SIZE)
-        deleted = db.execute(delete(T).where(T.id.in_(sub))).rowcount
-        db.commit()
-        total_deleted += deleted
-        if deleted < BATCH_SIZE:
-            break
+        logger.info(
+            f"  day {current_day}: {len(rows)} daily rows, deleted 5-min originals"
+        )
+        current_day = next_day
 
-    return upserted, total_deleted
+    return total_upserted, total_deleted
 
 
 # ============================================================================
