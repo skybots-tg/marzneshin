@@ -9,9 +9,11 @@ Runs once a day (03:00 UTC by default):
 """
 
 import logging
+import time
 from datetime import datetime, date as date_type, timedelta
 
 from sqlalchemy import and_, cast, Date, delete, func, insert, select, text, column
+from sqlalchemy.exc import OperationalError
 
 from app.db import GetDB
 from app.db.models import NodeUsage, NodeUserUsage
@@ -199,37 +201,51 @@ def _aggregate_device_traffic_to_daily(db, cutoff: datetime) -> tuple[int, int]:
         )
 
         rows = db.execute(agg_query).fetchall()
+        if not rows:
+            current_day = next_day
+            continue
 
-        for row in rows:
-            existing = db.execute(
-                select(D.id).where(and_(
-                    D.device_id == row.device_id,
-                    D.node_id == row.node_id,
-                    D.date == current_day,
-                ))
-            ).first()
+        for attempt in range(3):
+            try:
+                for row in rows:
+                    existing = db.execute(
+                        select(D.id).where(and_(
+                            D.device_id == row.device_id,
+                            D.node_id == row.node_id,
+                            D.date == current_day,
+                        ))
+                    ).first()
 
-            if existing:
-                db.execute(
-                    D.__table__.update()
-                    .where(D.id == existing.id)
-                    .values(
-                        upload_bytes=D.upload_bytes + row.upload_bytes,
-                        download_bytes=D.download_bytes + row.download_bytes,
-                        connect_count=D.connect_count + row.connect_count,
-                    )
-                )
-            else:
-                db.execute(insert(D).values(
-                    device_id=row.device_id,
-                    user_id=row.user_id,
-                    node_id=row.node_id,
-                    date=current_day,
-                    upload_bytes=row.upload_bytes,
-                    download_bytes=row.download_bytes,
-                    connect_count=row.connect_count,
-                ))
-            total_upserted += 1
+                    if existing:
+                        db.execute(
+                            D.__table__.update()
+                            .where(D.id == existing.id)
+                            .values(
+                                upload_bytes=D.upload_bytes + row.upload_bytes,
+                                download_bytes=D.download_bytes + row.download_bytes,
+                                connect_count=D.connect_count + row.connect_count,
+                            )
+                        )
+                    else:
+                        db.execute(insert(D).values(
+                            device_id=row.device_id,
+                            user_id=row.user_id,
+                            node_id=row.node_id,
+                            date=current_day,
+                            upload_bytes=row.upload_bytes,
+                            download_bytes=row.download_bytes,
+                            connect_count=row.connect_count,
+                        ))
+                    total_upserted += 1
+                db.commit()
+                break
+            except OperationalError as e:
+                db.rollback()
+                if attempt < 2:
+                    logger.warning(f"  day {current_day}: retry {attempt+1} after error: {e}")
+                    time.sleep(0.3 * (attempt + 1))
+                else:
+                    raise
 
         day_start = datetime(current_day.year, current_day.month, current_day.day)
         day_end = datetime(next_day.year, next_day.month, next_day.day)
