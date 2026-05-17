@@ -15,6 +15,7 @@ from app.tasks import (
     review_users,
     expire_days_reached,
 )
+from app.tasks.node_traffic_monitor import check_node_traffic_silence
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ _expire_days_reached = single_instance(expire_days_reached)
 _reset_user_data_usage = single_instance(reset_user_data_usage)
 _aggregate_old_usages = single_instance(aggregate_old_usages)
 _cleanup_ai_backups = single_instance(cleanup_ai_backups)
+_check_node_traffic = single_instance(check_node_traffic_silence)
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -114,6 +116,13 @@ def create_scheduler() -> AsyncIOScheduler:
         "cron",
         hour=4,
         minute=0,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        _check_node_traffic,
+        "interval",
+        seconds=120,
         coalesce=True,
         max_instances=1,
     )

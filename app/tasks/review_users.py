@@ -1,6 +1,9 @@
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+
+from sqlalchemy.exc import OperationalError
 
 from app import marznode
 from app.db import (
@@ -22,12 +25,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _safe_commit(db, user, max_retry=3):
+    """Commit with retry on MariaDB 1020 (record changed since last read)."""
+    for attempt in range(max_retry):
+        try:
+            db.commit()
+            db.refresh(user)
+            return True
+        except OperationalError as exc:
+            if exc.orig and getattr(exc.orig, "args", (None,))[0] == 1020:
+                db.rollback()
+                if attempt < max_retry - 1:
+                    time.sleep(0.15 * (attempt + 1))
+                    db.refresh(user)
+                    continue
+            raise
+    return False
+
+
 async def review_users():
     now = datetime.utcnow()
     with GetDB() as db:
         for user in get_users(db, activated=True, is_active=False):
-            """looking for expired/to be limited users who are still active"""
-
             if (
                 user.data_limit_reached
                 and not user.expired
@@ -38,8 +57,8 @@ async def review_users():
 
             marznode.operations.update_user(user, remove=True, db=db)
             user.activated = False
-            db.commit()
-            db.refresh(user)
+            if not _safe_commit(db, user):
+                continue
 
             fire_and_forget(
                 notify(
@@ -59,11 +78,8 @@ async def review_users():
             expire_strategy=UserExpireStrategy.START_ON_FIRST_USE,
             is_active=True,
         ):
-            """looking for to be activated, on hold users"""
             base_time = user.edit_at or user.created_at
 
-            # Check if the user is online After or at 'base_time' or...
-            # If the user didn't connect until activation_deadline; change status to "Active"
             if not (
                 (user.online_at and base_time <= user.online_at)
                 or (
@@ -77,6 +93,5 @@ async def review_users():
                 seconds=user.usage_duration
             )
             user.expire_strategy = UserExpireStrategy.FIXED_DATE
-            db.commit()
-            db.refresh(user)
+            _safe_commit(db, user)
             logger.info("on hold user `%s` has been activated", user.username)

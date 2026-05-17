@@ -1,5 +1,6 @@
 from .aggregate_usages import aggregate_old_usages
 from .ai_backups_cleanup import cleanup_ai_backups
+from .node_traffic_monitor import check_node_traffic_silence
 from .nodes import nodes_startup
 from .pool_monitor import check_pool_health
 from .record_usages import record_user_usages
@@ -9,6 +10,7 @@ from .expire_days_reached import expire_days_reached
 
 __all__ = [
     "aggregate_old_usages",
+    "check_node_traffic_silence",
     "cleanup_ai_backups",
     "nodes_startup",
     "check_pool_health",

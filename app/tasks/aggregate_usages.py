@@ -16,6 +16,7 @@ from app.db.models import (
     NodeUsage,
     NodeUserUsage,
 )
+from app.db.models.device import UserDeviceTraffic
 from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
 from app.core.settings import settings
 
@@ -150,6 +151,25 @@ def _purge_old_daily_data(db, max_cutoff_date) -> tuple[int, int]:
     return user_purged, node_purged
 
 
+def _purge_old_device_traffic(db, cutoff_datetime: datetime) -> int:
+    """Delete user_device_traffic rows older than cutoff in batches."""
+    total_purged = 0
+    while True:
+        sub = (
+            select(UserDeviceTraffic.id)
+            .where(UserDeviceTraffic.bucket_start < cutoff_datetime)
+            .limit(BATCH_SIZE)
+        )
+        deleted = db.execute(
+            delete(UserDeviceTraffic).where(UserDeviceTraffic.id.in_(sub))
+        ).rowcount
+        db.commit()
+        total_purged += deleted
+        if deleted < BATCH_SIZE:
+            break
+    return total_purged
+
+
 async def aggregate_old_usages():
     """Main entry point called by the scheduler."""
     retention_days = settings.tasks.usage_retention_days
@@ -182,8 +202,11 @@ async def aggregate_old_usages():
         user_purged, node_purged = _purge_old_daily_data(db, max_cutoff)
         db.commit()
 
+        device_traffic_purged = _purge_old_device_traffic(db, cutoff)
+
     logger.info(
         f"Aggregation complete: {user_deleted} node_user_usages + "
         f"{node_deleted} node_usages rows compressed into daily summaries; "
-        f"purged {user_purged} + {node_purged} daily rows older than {max_cutoff}"
+        f"purged {user_purged} + {node_purged} daily rows older than {max_cutoff}; "
+        f"purged {device_traffic_purged} device_traffic rows older than {cutoff.date()}"
     )

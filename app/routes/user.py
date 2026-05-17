@@ -4,7 +4,7 @@ from enum import StrEnum
 from fastapi import APIRouter, Query
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy.orm import selectinload, load_only, noload
 
 from app.db import crud
 from app.db.models import Service, Inbound
@@ -55,7 +55,11 @@ def get_users(
     owner_username: str | None = Query(None),
 ):
     dbadmin = crud.get_admin(db, admin.username)
-    query = db.query(User).filter(User.removed == False)  # noqa: E712
+    query = (
+        db.query(User)
+        .filter(User.removed == False)  # noqa: E712
+        .options(noload(User.node_usages))
+    )
     owner_admin = dbadmin if not admin.is_sudo else None
 
     if username is not None:

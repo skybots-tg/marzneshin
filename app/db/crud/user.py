@@ -1,10 +1,13 @@
+import logging
 import secrets
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import List, Optional, Tuple, Union
 
 from sqlalchemy import and_, update, func, cast, Date
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.db.models import Admin, Node, NodeUserUsage, Service, User
@@ -20,6 +23,11 @@ from app.models.user import (
     UserNodeUsageSeries,
     UserUsageSeriesResponse,
 )
+
+logger = logging.getLogger(__name__)
+
+_MAX_RETRY = 3
+_RETRY_BACKOFF = 0.15
 
 
 def get_user(db: Session, username: str):
@@ -425,12 +433,13 @@ def remove_user(db: Session, dbuser: User):
     db.commit()
 
 
-def update_user(
+def _apply_user_modifications(
     db: Session,
     dbuser: User,
     modify: UserModify,
     allowed_services: list | None = None,
 ):
+    """Apply modify fields to the ORM object (no commit)."""
     if modify.data_limit is not None:
         dbuser.data_limit = modify.data_limit or None
 
@@ -462,10 +471,6 @@ def update_user(
     if modify.usage_duration is not None:
         dbuser.usage_duration = modify.usage_duration
 
-    # device_limit: true PATCH semantics — distinguish "field omitted" from
-    # "field set to null". Cannot use ``is not None`` like data_limit does,
-    # because here ``0`` and ``None`` are BOTH valid values with distinct
-    # meanings (``0`` = block all new devices, ``None`` = unlimited).
     if "device_limit" in modify.model_fields_set:
         dbuser.device_limit = modify.device_limit
 
@@ -482,9 +487,32 @@ def update_user(
         )
     dbuser.edit_at = datetime.utcnow()
 
-    db.commit()
-    db.refresh(dbuser)
-    return dbuser
+
+def update_user(
+    db: Session,
+    dbuser: User,
+    modify: UserModify,
+    allowed_services: list | None = None,
+):
+    """Update user with retry on MariaDB 1020 (record changed since last read)."""
+    for attempt in range(_MAX_RETRY):
+        try:
+            _apply_user_modifications(db, dbuser, modify, allowed_services)
+            db.commit()
+            db.refresh(dbuser)
+            return dbuser
+        except OperationalError as exc:
+            if exc.orig and getattr(exc.orig, "args", (None,))[0] == 1020:
+                db.rollback()
+                if attempt < _MAX_RETRY - 1:
+                    time.sleep(_RETRY_BACKOFF * (attempt + 1))
+                    db.refresh(dbuser)
+                    logger.warning(
+                        "Retrying update_user (attempt %d/%d) after 1020",
+                        attempt + 2, _MAX_RETRY,
+                    )
+                    continue
+            raise
 
 
 def reset_user_data_usage(db: Session, dbuser: User):
