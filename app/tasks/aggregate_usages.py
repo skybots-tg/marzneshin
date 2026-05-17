@@ -11,7 +11,7 @@ Runs once a day (03:00 UTC by default):
 import logging
 from datetime import datetime, date as date_type, timedelta
 
-from sqlalchemy import and_, cast, Date, delete, func, insert, select, text
+from sqlalchemy import and_, cast, Date, delete, func, insert, select, text, column
 
 from app.db import GetDB
 from app.db.models import NodeUsage, NodeUserUsage
@@ -231,16 +231,18 @@ def _aggregate_device_traffic_to_daily(db, cutoff: datetime) -> tuple[int, int]:
                 ))
             total_upserted += 1
 
+        day_start = datetime(current_day.year, current_day.month, current_day.day)
+        day_end = datetime(next_day.year, next_day.month, next_day.day)
         while True:
-            sub = (
-                select(T.id)
-                .where(and_(
-                    T.bucket_start >= datetime(current_day.year, current_day.month, current_day.day),
-                    T.bucket_start < datetime(next_day.year, next_day.month, next_day.day),
-                ))
-                .limit(BATCH_SIZE)
+            result = db.execute(
+                text(
+                    "DELETE FROM user_device_traffic "
+                    "WHERE bucket_start >= :d0 AND bucket_start < :d1 "
+                    "LIMIT :batch"
+                ),
+                {"d0": day_start, "d1": day_end, "batch": BATCH_SIZE},
             )
-            deleted = db.execute(delete(T).where(T.id.in_(sub))).rowcount
+            deleted = result.rowcount
             db.commit()
             total_deleted += deleted
             if deleted < BATCH_SIZE:
