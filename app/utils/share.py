@@ -527,7 +527,7 @@ def create_config(
             if host.allowed_ips
             else None
         ),
-        allow_insecure=host.allowinsecure,
+        allow_insecure=bool(host.allowinsecure),
         uuid=auth_uuid,
         password=auth_password,
         ed25519=generate_curve25519_pbk(key),
