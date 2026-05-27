@@ -69,16 +69,26 @@ def modify_user(
     inbound_change = old_inbounds != new_inbounds
     device_limit_changed = new_user.device_limit != device_limit_before
 
+    # User should be selectively active on coefficient=0 nodes when only
+    # data_limit prevents full activation (not expired, enabled, not removed)
+    only_data_limit = (
+        new_user.data_limit_reached
+        and new_user.enabled
+        and not new_user.expired
+        and not new_user.removed
+    )
+
     needs_push = (
         (inbound_change and new_user.is_active)
         or active_before != active_after
         or (device_limit_changed and new_user.is_active)
+        or (only_data_limit and not db_user.activated)
     )
     if needs_push:
         node_ops.update_user(
-            new_user, old_inbounds, remove=not db_user.is_active, db=db
+            new_user, old_inbounds, remove=not (db_user.is_active or only_data_limit), db=db
         )
-        db_user.activated = db_user.is_active
+        db_user.activated = db_user.is_active or only_data_limit
         for attempt in range(_MAX_RETRY):
             try:
                 db.commit()
@@ -89,7 +99,7 @@ def modify_user(
                     if attempt < _MAX_RETRY - 1:
                         time.sleep(0.15 * (attempt + 1))
                         db.refresh(db_user)
-                        db_user.activated = db_user.is_active
+                        db_user.activated = db_user.is_active or only_data_limit
                         continue
                 raise
 

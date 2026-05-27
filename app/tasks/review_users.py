@@ -73,6 +73,22 @@ async def review_users():
                 str(user.activated),
             )
 
+        # Re-activate users who should be selectively active on coefficient=0
+        # nodes (only data_limit prevents full activation, but they were
+        # previously fully deactivated e.g. due to expiry that has since
+        # been resolved by a subscription renewal)
+        for user in get_users(db, activated=False, data_limit_reached=True, enabled=True, expired=False):
+            if user.removed:
+                continue
+            marznode.operations.update_user(user, db=db)
+            user.activated = True
+            if not _safe_commit(db, user):
+                continue
+            logger.info(
+                "User `%s` re-activated (selective, data_limit_reached)",
+                user.username,
+            )
+
         for user in get_users(
             db,
             expire_strategy=UserExpireStrategy.START_ON_FIRST_USE,
