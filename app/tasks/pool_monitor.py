@@ -59,6 +59,13 @@ async def check_pool_health():
             utilization, checked_out, stats["checked_in"],
             stats["overflow"], max_connections,
         )
+        if utilization >= 60:
+            from app.core.perf_logger import log_pool_pressure
+            log_pool_pressure(
+                "periodic_check", checked_out, max_connections,
+                checked_in=stats["checked_in"], overflow=stats["overflow"],
+                utilization=f"{utilization:.0f}%",
+            )
 
     if utilization < _POOL_WARN_PERCENT:
         return

@@ -65,7 +65,8 @@ def _get_max_connections(pool):
 
 
 def _attach_pool_diagnostics(eng, name: str):
-    """Attach checkout/checkin event listeners for pool pressure diagnostics."""
+    """Attach checkout/checkin/query event listeners for pool & query diagnostics."""
+    from app.core.perf_logger import log_pool_pressure, log_slow_query
 
     @event.listens_for(eng, "checkout")
     def _on_checkout(dbapi_conn, conn_record, conn_proxy):
@@ -81,6 +82,10 @@ def _attach_pool_diagnostics(eng, name: str):
                 "[%s] Pool high utilization on checkout: %d/%d (%.0f%%), overflow=%d",
                 name, checked, max_conn, utilization * 100, max(0, pool.overflow()),
             )
+            log_pool_pressure(
+                "high_utilization", checked, max_conn,
+                overflow=max(0, pool.overflow()), engine=name,
+            )
 
     @event.listens_for(eng, "checkin")
     def _on_checkin(dbapi_conn, conn_record):
@@ -93,6 +98,22 @@ def _attach_pool_diagnostics(eng, name: str):
                 "[%s] Connection returned after %.1fs (threshold %ds)",
                 name, held, _LONG_CHECKOUT_WARN,
             )
+            log_pool_pressure(
+                "long_checkout", 0, 0, held_sec=f"{held:.1f}", engine=name,
+            )
+
+    @event.listens_for(eng, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        conn.info.setdefault("_query_start", []).append(time.monotonic())
+
+    @event.listens_for(eng, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        starts = conn.info.get("_query_start")
+        if not starts:
+            return
+        t0 = starts.pop()
+        elapsed = time.monotonic() - t0
+        log_slow_query(statement, elapsed, engine_name=name)
 
 
 def _create_engine(pool_size, max_overflow, pool_timeout, pool_recycle,

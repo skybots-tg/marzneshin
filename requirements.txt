@@ -38,3 +38,4 @@ paramiko==3.4.0
 openai==2.32.0
 openai-agents==0.14.1
 mcp==1.19.0
+psutil==7.0.0

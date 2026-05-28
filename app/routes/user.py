@@ -40,6 +40,17 @@ class UsersSortingOptions(StrEnum):
     CREATED_AT = "created_at"
 
 
+@router.get("/bulk_traffic")
+def get_bulk_traffic(db: DBDep, admin: AdminDep):
+    """Returns {username: used_traffic} for all non-removed users in one query."""
+    rows = (
+        db.query(User.username, User.used_traffic)
+        .filter(User.removed == False, User.username.isnot(None))  # noqa: E712
+        .all()
+    )
+    return {r.username: r.used_traffic for r in rows}
+
+
 @router.get("", response_model=Page[UserResponse])
 def get_users(
     db: DBDep,

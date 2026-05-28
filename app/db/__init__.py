@@ -39,6 +39,16 @@ class _DBSession:
                 "[%s] Connection pool timeout - all connections are busy",
                 self._pool_name,
             )
+            from app.core.perf_logger import log_pool_pressure
+            try:
+                from .base import get_pool_stats
+                stats = get_pool_stats()
+                log_pool_pressure(
+                    "pool_timeout", stats["checked_out"],
+                    stats["max_connections"], engine=self._pool_name,
+                )
+            except Exception:
+                log_pool_pressure("pool_timeout", -1, -1, engine=self._pool_name)
             raise
         except SQLAlchemyError as e:
             logger.error("[%s] Connection error: %s", self._pool_name, e)
@@ -54,6 +64,11 @@ class _DBSession:
                 logger.warning(
                     "[%s] Session held for %.1fs (threshold %ds)",
                     self._pool_name, held, _SESSION_WARN_SECONDS,
+                )
+                from app.core.perf_logger import log_pool_pressure
+                log_pool_pressure(
+                    "long_session", 0, 0,
+                    held_sec=f"{held:.1f}", engine=self._pool_name,
                 )
 
         try:

@@ -44,6 +44,9 @@ def _safe_commit(db, user, max_retry=3):
 
 
 async def review_users():
+    from app.core.perf_logger import log_task_duration
+    _t0 = time.monotonic()
+
     now = datetime.utcnow()
     with GetDB() as db:
         for user in get_users(db, activated=True, is_active=False):
@@ -111,3 +114,5 @@ async def review_users():
             user.expire_strategy = UserExpireStrategy.FIXED_DATE
             _safe_commit(db, user)
             logger.info("on hold user `%s` has been activated", user.username)
+
+    log_task_duration("review_users", time.monotonic() - _t0)
