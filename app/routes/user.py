@@ -51,6 +51,69 @@ def get_bulk_traffic(db: DBDep, admin: AdminDep):
     return {r.username: r.used_traffic for r in rows}
 
 
+@router.get("/node_counts")
+def get_node_user_counts(db: DBDep, admin: AdminDep):
+    """Returns per-node user counts via SQL join (replaces 1775-page pagination).
+
+    Response: {node_id: {total_users: N, online_users: M}}
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, and_, text
+    from app.db.models.associations import users_services, inbounds_services
+    from app.db.models.proxy import Inbound
+
+    now = datetime.utcnow()
+    online_cutoff = now - timedelta(minutes=2)
+
+    # Total active users per node
+    total_q = (
+        db.query(
+            Inbound.node_id,
+            func.count(func.distinct(User.id)).label("total"),
+        )
+        .select_from(User)
+        .join(users_services, users_services.c.user_id == User.id)
+        .join(inbounds_services, inbounds_services.c.service_id == users_services.c.service_id)
+        .join(Inbound, Inbound.id == inbounds_services.c.inbound_id)
+        .filter(
+            User.removed == False,  # noqa: E712
+            User.activated == True,  # noqa: E712
+            User.enabled == True,  # noqa: E712
+        )
+        .group_by(Inbound.node_id)
+        .all()
+    )
+
+    # Online users per node
+    online_q = (
+        db.query(
+            Inbound.node_id,
+            func.count(func.distinct(User.id)).label("online"),
+        )
+        .select_from(User)
+        .join(users_services, users_services.c.user_id == User.id)
+        .join(inbounds_services, inbounds_services.c.service_id == users_services.c.service_id)
+        .join(Inbound, Inbound.id == inbounds_services.c.inbound_id)
+        .filter(
+            User.removed == False,  # noqa: E712
+            User.activated == True,  # noqa: E712
+            User.enabled == True,  # noqa: E712
+            User.online_at >= online_cutoff,
+        )
+        .group_by(Inbound.node_id)
+        .all()
+    )
+
+    online_map = {r.node_id: r.online for r in online_q}
+    result = {}
+    for r in total_q:
+        result[str(r.node_id)] = {
+            "total_users": r.total,
+            "online_users": online_map.get(r.node_id, 0),
+        }
+    return result
+
+
 @router.get("", response_model=Page[UserResponse])
 def get_users(
     db: DBDep,
