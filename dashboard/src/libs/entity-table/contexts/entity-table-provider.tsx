@@ -6,6 +6,7 @@ interface EntityTableContextProps<TData> {
     entityKey: string
     table: Table<TData>
     data: TData[]
+    totalCount?: number
     primaryFilter: UsePrimaryFilterReturn
     filters: UseFiltersReturn
     isLoading: boolean

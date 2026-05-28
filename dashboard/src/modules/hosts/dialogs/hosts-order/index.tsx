@@ -52,7 +52,7 @@ export const HostsOrderDialog: FC<HostsOrderDialogProps> = ({
     const updateHostMutation = useHostsUpdateMutation();
 
     const { data: allHosts, refetch: refetchHosts } = useAllHostsQuery();
-    const { data: inboundsData } = useInboundsQuery({ page: 1, size: 100 });
+    const { data: inboundsData } = useInboundsQuery({ page: 1, size: 500 });
 
     const [orderedHosts, setOrderedHosts] = useState<HostOrderItem[]>([]);
     const [hasChanges, setHasChanges] = useState(false);

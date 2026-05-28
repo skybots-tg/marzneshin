@@ -29,7 +29,7 @@ import { BulkActionsToolbar } from "./bulk-actions-toolbar";
 
 export const InboundHostsTable = () => {
     const { t } = useTranslation();
-    const { data } = useInboundsQuery({ page: 1, size: 100 })
+    const { data } = useInboundsQuery({ page: 1, size: 500 })
     const [selectedInbound, setSelectedInbound] = useState<string | undefined>(data.entities[0]?.id !== undefined ? String(data.entities[0].id) : undefined)
     const navigate = useNavigate({ from: "/hosts" })
     const [inboundSelectionAlert, setInboundSelectionAlert] = useDialog();
@@ -82,6 +82,7 @@ export const InboundHostsTable = () => {
             <SidebarEntityTable
                 fetchEntity={fetchHosts}
                 entityKey="inbounds"
+                defaultPageSize={50}
                 secondaryEntityKey="hosts"
                 sidebarEntities={data.entities}
                 sidebarEntityId={selectedInbound}

@@ -42,6 +42,7 @@ interface SidebarEntityTableProps<T, S> {
      * When user has not changed sorting manually, this value will be used.
      */
     defaultSortDesc?: boolean;
+    defaultPageSize?: number;
     onCreate: () => void;
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;

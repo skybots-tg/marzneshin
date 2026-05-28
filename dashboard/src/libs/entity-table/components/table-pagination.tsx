@@ -17,10 +17,14 @@ import { Table } from "@tanstack/react-table"
 import { useLocalStorage } from "@uidotdev/usehooks";
 import { useEntityTableContext } from "../contexts";
 
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500];
+
 export function DataTablePagination<TData>({ table }: { table: Table<TData> }) {
     const { t } = useTranslation();
-    const { entityKey } = useEntityTableContext();
+    const { entityKey, totalCount } = useEntityTableContext();
     const [,setRowPerPageLocal] = useLocalStorage<number>(`marzneshin-table-row-per-page-${entityKey}`, 10);
+    const pageCount = table.getPageCount();
+    const currentPage = table.getState().pagination.pageIndex + 1;
 
     return (
         <div className="flex justify-between items-center p-2 w-full">
@@ -39,7 +43,7 @@ export function DataTablePagination<TData>({ table }: { table: Table<TData> }) {
                         value={`${table.getState().pagination.pageSize}`}
                         onValueChange={(value) => {
                             table.setPageSize(Number(value));
-                            table.setPageIndex(1);
+                            table.setPageIndex(0);
                             setRowPerPageLocal(Number(value));
                         }}
                         aria-labelledby="rows-per-page-label"
@@ -56,7 +60,7 @@ export function DataTablePagination<TData>({ table }: { table: Table<TData> }) {
                             side="top"
                             aria-labelledby="rows-per-page-label"
                         >
-                            {[10, 20, 50, 100].map((pageSize) => (
+                            {PAGE_SIZE_OPTIONS.map((pageSize) => (
                                 <SelectItem
                                     key={pageSize}
                                     value={`${pageSize}`}
@@ -67,17 +71,22 @@ export function DataTablePagination<TData>({ table }: { table: Table<TData> }) {
                             ))}
                         </SelectContent>
                     </Select>
+                    {totalCount !== undefined && (
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">
+                            {t("table.total", { defaultValue: "Всего: {{count}}", count: totalCount })}
+                        </span>
+                    )}
                 </div>
-                {(table.getPageCount() - 1) !== 0 &&
+                {pageCount > 1 && (
                     <div className="flex justify-center items-center text-sm font-medium w-[100px]">
-                        {t('table.page-info', { current: table.getState().pagination.pageIndex + 1, total: table.getPageCount() - 1 })}
+                        {t('table.page-info', { current: currentPage, total: pageCount })}
                     </div>
-                }
+                )}
                 <div className="flex items-center space-x-2">
                     <Button
                         variant="outline"
                         className="hidden p-0 w-8 h-8 lg:flex"
-                        onClick={() => table.setPageIndex(1)}
+                        onClick={() => table.setPageIndex(0)}
                         disabled={!table.getCanPreviousPage()}
                     >
                         <span className="sr-only">{t('table.go-to-first-page')}</span>
@@ -104,7 +113,7 @@ export function DataTablePagination<TData>({ table }: { table: Table<TData> }) {
                     <Button
                         variant="outline"
                         className="hidden p-0 w-8 h-8 lg:flex"
-                        onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                        onClick={() => table.setPageIndex(Math.max(0, pageCount - 1))}
                         disabled={!table.getCanNextPage()}
                     >
                         <span className="sr-only">{t('table.go-to-last-page')}</span>

@@ -20,6 +20,7 @@ interface UseEntityTableProps<TData, TValue> {
     data: {
         entities: TData[];
         pageCount: number;
+        total?: number;
     };
     sorting: UseSortingReturn;
     visibility: UseVisibilityReturn;
@@ -48,7 +49,7 @@ export const useEntityTable = <TData, TValue>({
         columns,
         manualPagination: true,
         manualSorting,
-        pageCount: data.pageCount + 1,
+        pageCount: data.pageCount,
         autoResetPageIndex: false,
         getRowId,
         onPaginationChange,
