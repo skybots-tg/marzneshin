@@ -36,7 +36,7 @@ def _bg_update_user_sub(user_id: int, user_agent: str):
     from app.db.models import User
     try:
         with GetDB() as db:
-            db_user = db.query(User).get(user_id)
+            db_user = db.get(User, user_id)
             if db_user:
                 crud.update_user_sub(db, db_user, user_agent)
     except Exception:
