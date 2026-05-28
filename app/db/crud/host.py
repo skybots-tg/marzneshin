@@ -1,8 +1,10 @@
 import json
+import threading
+import time as _time
 from typing import List
 
 from sqlalchemy import and_, or_, update, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, make_transient
 
 from app.db.models import (
     Node,
@@ -19,6 +21,11 @@ from app.db.models import (
 from app.models.node import NodeStatus
 from app.models.proxy import InboundHost as InboundHostModify
 from app.utils.mlkem import ensure_mlkem_keys, MlkemError  # noqa: F401
+
+_hosts_cache: dict = {}
+_hosts_cache_lock = threading.Lock()
+_HOSTS_CACHE_TTL = 30
+_HOSTS_CACHE_MAX_ENTRIES = 200
 
 
 def add_default_hosts(db: Session, inbounds: List[Inbound]):
@@ -201,31 +208,23 @@ def get_inbounds_hosts(
     )
 
 
-def get_hosts_for_user(
-    session, user_id, service_ids: list[int] | None = None,
-    exclude_unhealthy_nodes: bool = False,
-):
-    """
-    Get hosts for a user. Optimized version using JOINs instead of subqueries.
+def _eager_load_hosts_for_cache(hosts):
+    """Touch all lazy relationships so cached hosts work after session close."""
+    for host in hosts:
+        _ = host.inbound
+        _ = host.chain
+        for c in host.chain:
+            _ = c.chained_host
 
-    Args:
-        session: Database session
-        user_id: User ID
-        service_ids: Optional pre-loaded list of service IDs (avoids extra query)
-        exclude_unhealthy_nodes: If True, skip hosts belonging to unhealthy nodes
-    """
-    if service_ids is None:
-        service_ids = [
-            row[0] for row in session.execute(
-                select(users_services.c.service_id).where(
-                    users_services.c.user_id == user_id
-                )
-            ).fetchall()
-        ]
 
-    if not service_ids:
-        return []
+def invalidate_hosts_cache():
+    """Clear the hosts cache (call after host/node/service config changes)."""
+    with _hosts_cache_lock:
+        _hosts_cache.clear()
 
+
+def _fetch_hosts_for_user(session, service_ids, exclude_unhealthy_nodes):
+    """DB query — only called on cache miss."""
     hosts_with_inbound = (
         session.query(InboundHost)
         .join(Inbound, InboundHost.inbound_id == Inbound.id)
@@ -281,7 +280,52 @@ def get_hosts_for_user(
             seen_ids.add(host.id)
             unique_hosts.append(host)
 
+    _eager_load_hosts_for_cache(unique_hosts)
+    for host in unique_hosts:
+        try:
+            make_transient(host)
+        except Exception:
+            pass
     return unique_hosts
+
+
+def get_hosts_for_user(
+    session, user_id, service_ids: list[int] | None = None,
+    exclude_unhealthy_nodes: bool = False,
+):
+    """Get hosts for a user — cached by service set for 30s."""
+    if service_ids is None:
+        service_ids = [
+            row[0] for row in session.execute(
+                select(users_services.c.service_id).where(
+                    users_services.c.user_id == user_id
+                )
+            ).fetchall()
+        ]
+
+    if not service_ids:
+        return []
+
+    cache_key = (tuple(sorted(service_ids)), exclude_unhealthy_nodes)
+    now = _time.monotonic()
+
+    with _hosts_cache_lock:
+        entry = _hosts_cache.get(cache_key)
+        if entry and now < entry[1]:
+            return entry[0]
+
+    hosts = _fetch_hosts_for_user(session, service_ids, exclude_unhealthy_nodes)
+
+    with _hosts_cache_lock:
+        if len(_hosts_cache) >= _HOSTS_CACHE_MAX_ENTRIES:
+            expired = [k for k, (_, exp) in _hosts_cache.items() if now >= exp]
+            for k in expired:
+                del _hosts_cache[k]
+            if len(_hosts_cache) >= _HOSTS_CACHE_MAX_ENTRIES:
+                _hosts_cache.clear()
+        _hosts_cache[cache_key] = (hosts, now + _HOSTS_CACHE_TTL)
+
+    return hosts
 
 
 _SERVER_IP_PLACEHOLDER = "{server_ip}"

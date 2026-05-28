@@ -5,6 +5,8 @@ from fastapi import APIRouter, Query
 from fastapi import Header, HTTPException, Path, Request, Response
 from starlette.responses import HTMLResponse
 
+from fastapi import BackgroundTasks
+
 from app.db import crud
 from app.db.crud import get_hosts_for_user, get_subscription_settings_cached, get_node_coefficients
 from app.dependencies import DBDep, SubUserDep, StartDateDep, EndDateDep
@@ -26,6 +28,20 @@ def _eager_load_hosts(hosts):
         _ = host.chain
         for c in host.chain:
             _ = c.chained_host
+
+
+def _bg_update_user_sub(user_id: int, user_agent: str):
+    """Run update_user_sub in background with its own session."""
+    from app.db import GetDB
+    from app.db.models import User
+    try:
+        with GetDB() as db:
+            db_user = db.query(User).get(user_id)
+            if db_user:
+                crud.update_user_sub(db, db_user, user_agent)
+    except Exception:
+        pass
+
 
 router = APIRouter(prefix="/sub", tags=["Subscription"])
 
@@ -63,6 +79,7 @@ def user_subscription(
     db_user: SubUserDep,
     request: Request,
     db: DBDep,
+    background_tasks: BackgroundTasks,
     user_agent: str = Header(default=""),
 ):
     """
@@ -71,7 +88,7 @@ def user_subscription(
 
     user: UserResponse = UserResponse.model_validate(db_user)
 
-    crud.update_user_sub(db, db_user, user_agent)
+    background_tasks.add_task(_bg_update_user_sub, db_user.id, user_agent)
 
     subscription_settings = SubscriptionSettings.model_validate(
         get_subscription_settings_cached(db)
@@ -83,10 +100,8 @@ def user_subscription(
     )
     node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
 
-    # Force-load ORM relationships, then release the DB connection back to
-    # the pool *before* the CPU-heavy config generation.  Without this, every
-    # concurrent subscription poll holds a connection for the full request.
     _ = db_user.inbounds
+    _ = db_user.admin
     _eager_load_hosts(hosts)
     db.close()
 
@@ -219,8 +234,8 @@ def user_subscription_with_client_type(
     )
     node_coefficients = get_node_coefficients(db) if user.data_limit_reached else None
 
-    # Release DB connection before CPU-heavy config generation
     _ = db_user.inbounds
+    _ = db_user.admin
     _eager_load_hosts(hosts)
     db.close()
 

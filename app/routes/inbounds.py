@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.db import crud
+from app.db.crud.host import invalidate_hosts_cache
 from app.db.models import (
     InboundHost as DBInboundHost,
     Inbound as DBInbound,
@@ -77,7 +78,9 @@ def create_unbound_host(host: InboundHost, db: DBDep):
     """
     Add a host without an inbound
     """
-    return crud.add_host(db, None, host)
+    result = crud.add_host(db, None, host)
+    invalidate_hosts_cache()
+    return result
 
 
 @router.put("/hosts/weights")
@@ -94,6 +97,7 @@ def update_hosts_weights(request: HostsWeightsUpdateRequest, db: DBDep):
             updated_hosts.append({"id": host_update.id, "weight": host_update.weight})
 
     db.commit()
+    invalidate_hosts_cache()
     return {"updated": updated_hosts}
 
 
@@ -119,7 +123,9 @@ def update_host(id: int, host: InboundHost, db: DBDep):
     if not db_host:
         raise HTTPException(status_code=404, detail=HOST_NOT_FOUND_ERROR_MSG)
 
-    return crud.update_host(db, db_host, host)
+    result = crud.update_host(db, db_host, host)
+    invalidate_hosts_cache()
+    return result
 
 
 @router.delete("/hosts/{id}")
@@ -133,6 +139,7 @@ def delete_host(id: int, db: DBDep):
 
     db.delete(db_host)
     db.commit()
+    invalidate_hosts_cache()
     return {}
 
 
@@ -184,4 +191,6 @@ def create_host(id: int, host: InboundHost, db: DBDep):
     if not inbound:
         raise HTTPException(status_code=404, detail="Inbound not found")
 
-    return crud.add_host(db, inbound, host)
+    result = crud.add_host(db, inbound, host)
+    invalidate_hosts_cache()
+    return result
