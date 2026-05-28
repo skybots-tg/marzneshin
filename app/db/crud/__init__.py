@@ -20,6 +20,7 @@ from .host import (
     get_hosts_for_user,
     get_nodes_address_in_hosts,
     get_node_coefficients,
+    invalidate_hosts_cache,
     get_all_inbounds,
     get_inbound,
     get_host,

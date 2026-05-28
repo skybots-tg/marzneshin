@@ -70,10 +70,10 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-index --find-links=/wheels -r /app/requirements.txt \
  && rm -rf /wheels
 
-# Фронт
-COPY --from=frontend-build /app/dashboard/dist /app/dashboard/dist
-
-# Бек и остальное
+# Бек и остальное (сначала код, потом фронт поверх заглушки)
 COPY . /app
+
+# Фронт — ПОСЛЕ COPY . /app, иначе заглушка из git перезатрёт сборку
+COPY --from=frontend-build /app/dashboard/dist /app/dashboard/dist
 
 CMD ["make", "start"]
