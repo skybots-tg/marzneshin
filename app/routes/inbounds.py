@@ -38,7 +38,7 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=Page[Inbound])
+@router.get("", response_model=LargePage[Inbound])
 def get_inbounds(db: DBDep, tag: str = Query(None)):
     """
     Get all inbounds

@@ -23,7 +23,8 @@ export async function fetchInbounds({ queryKey }: EntityQueryKeyType): FetchEnti
     }).then((result) => {
         return {
             entities: result.items,
-            pageCount: result.pages
+            pageCount: result.pages,
+            total: result.total,
         };
     })
 }

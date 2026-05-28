@@ -40,6 +40,7 @@ interface UseSidebarEntityTableParams<T, S> {
      * this value will be used. Defaults to false (ascending).
      */
     defaultSortDesc?: boolean;
+    defaultPageSize?: number;
     onCreate: () => void;
     onEdit: (entity: T) => void;
     onOpen: (entity: T) => void;
@@ -65,6 +66,7 @@ export const useSidebarEntityTable = <T, S>({
     secondaryEntityKey,
     defaultSortBy = "created_at",
     defaultSortDesc = false,
+    defaultPageSize,
 }: UseSidebarEntityTableParams<T, S>) => {
     const { t } = useTranslation();
     const primaryFilter = usePrimaryFiltering({ column: filteredColumn });
@@ -72,7 +74,10 @@ export const useSidebarEntityTable = <T, S>({
     const sorting = useSorting();
     const visibility = useVisibility();
     const desktop = useScreenBreakpoint("md");
-    const { onPaginationChange, pageIndex, pageSize } = usePagination({entityKey});
+    const { onPaginationChange, pageIndex, pageSize } = usePagination({
+        entityKey,
+        defaultPageSize,
+    });
 
     // Initialize default sorting if no user sorting is set
     useEffect(() => {
@@ -117,8 +122,18 @@ export const useSidebarEntityTable = <T, S>({
     });
 
     const entityTableContextValue = useMemo(
-        () => ({ entityKey, table, data: data.entities, primaryFilter, filters, isLoading: isFetching, isError, refetch }),
-        [entityKey, table, data.entities, filters, primaryFilter, isFetching, isError, refetch],
+        () => ({
+            entityKey,
+            table,
+            data: data.entities,
+            totalCount: data.total,
+            primaryFilter,
+            filters,
+            isLoading: isFetching,
+            isError,
+            refetch,
+        }),
+        [entityKey, table, data.entities, data.total, filters, primaryFilter, isFetching, isError, refetch],
     );
 
     const sidebarEntityTableContextValue = useMemo(

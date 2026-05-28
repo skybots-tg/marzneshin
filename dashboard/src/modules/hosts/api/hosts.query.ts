@@ -22,7 +22,8 @@ export async function fetchHosts({ queryKey }: EntitySidebarQueryKeyType): Fetch
     }).then((result) => {
         return {
             entities: result.items,
-            pageCount: result.pages
+            pageCount: result.pages,
+            total: result.total,
         };
     });
 }
