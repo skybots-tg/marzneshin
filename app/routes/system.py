@@ -168,6 +168,73 @@ def delete_ssh_pin(db: DBDep, admin: SudoAdminDep):
     return SSHPinStatus(configured=False, has_credentials=False)
 
 
+@router.get("/perf")
+def get_performance_snapshot(admin: SudoAdminDep):
+    """Live performance snapshot: CPU, memory, DB pools, recent slow events.
+
+    Uses no DB connection — safe to call even when the pool is exhausted.
+    """
+    import os
+
+    try:
+        import psutil
+        _has_psutil = True
+    except ImportError:
+        psutil = None
+        _has_psutil = False
+
+    pool = get_pool_stats()
+    cpu_count = os.cpu_count() or 1
+
+    server_info: dict = {"cpu_count": cpu_count}
+    process_info: dict = {}
+
+    if _has_psutil:
+        try:
+            proc = psutil.Process()
+            mem = psutil.virtual_memory()
+            server_info.update({
+                "cpu_percent": psutil.cpu_percent(interval=0),
+                "load_avg_1m": os.getloadavg()[0] if hasattr(os, "getloadavg") else None,
+                "mem_total_mb": round(mem.total / 1024 / 1024),
+                "mem_used_mb": round(mem.used / 1024 / 1024),
+                "mem_percent": mem.percent,
+            })
+            process_info.update({
+                "rss_mb": round(proc.memory_info().rss / 1024 / 1024),
+                "threads": proc.num_threads(),
+                "fds": proc.num_fds() if hasattr(proc, "num_fds") else None,
+            })
+        except Exception:
+            pass
+    else:
+        if hasattr(os, "getloadavg"):
+            server_info["load_avg_1m"] = os.getloadavg()[0]
+
+    recent_lines: list[str] = []
+    try:
+        perf_path = os.environ.get(
+            "MARZNESHIN_PERF_LOG", "/var/lib/marzneshin/perf.log"
+        )
+        if os.path.exists(perf_path):
+            with open(perf_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                read_bytes = min(size, 8192)
+                f.seek(max(0, size - read_bytes))
+                tail = f.read().decode("utf-8", errors="replace")
+                recent_lines = tail.strip().splitlines()[-20:]
+    except Exception:
+        pass
+
+    return {
+        "server": server_info,
+        "process": process_info,
+        "db_pool": pool,
+        "recent_perf_events": recent_lines,
+    }
+
+
 @router.get("/stats/admins", response_model=AdminsStats)
 def get_admins_stats(db: DBDep, admin: SudoAdminDep):
     return AdminsStats(total=db.query(DBAdmin).count())

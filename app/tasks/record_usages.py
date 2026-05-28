@@ -167,12 +167,16 @@ async def get_users_stats(
 
 
 async def record_user_usages():
+    """Main task for recording user usages.
+
+    Split into short DB sessions per phase to avoid holding connections
+    for the entire duration of the task (which caused 15+ second holds).
     """
-    Main task for recording user usages.
-    
-    Optimized to use a single database session for all operations
-    to reduce connection pool pressure and improve performance.
-    """
+    import time as _time
+    from app.core.perf_logger import log_task_duration
+
+    task_t0 = _time.monotonic()
+
     results = await asyncio.gather(
         *[
             get_users_stats(node_id, node)
@@ -184,25 +188,24 @@ async def record_user_usages():
     users_usage = defaultdict(int)
     bucket_start = datetime.utcnow()
     node_usages: dict[int, int] = {}
-    
-    with GetDB() as db:
-        # Phase 1: Accumulate usage + device tracking.
-        # Commit after every node to release DB locks quickly and let the
-        # pool breathe — a single giant transaction across all nodes held
-        # locks on Device/DeviceIP/DeviceTraffic for too long.
-        for node_id, params in api_params.items():
-            coefficient = (
-                node.usage_coefficient
-                if (node := marznode.nodes.get(node_id))
-                else 1
-            )
-            node_usage = 0
-            node_tracked = 0
-            
+
+    # Phase 1: Device tracking — one short session PER NODE so the
+    # connection returns to the pool between nodes.
+    phase1_t0 = _time.monotonic()
+    for node_id, params in api_params.items():
+        coefficient = (
+            node.usage_coefficient
+            if (node := marznode.nodes.get(node_id))
+            else 1
+        )
+        node_usage = 0
+        node_tracked = 0
+
+        with GetDB() as db:
             for param in params:
                 users_usage[param["uid"]] += int(param["value"] * coefficient)
                 node_usage += param["value"]
-                
+
                 if param.get("remote_ip"):
                     try:
                         device_id, _ = track_user_connection(
@@ -221,27 +224,31 @@ async def record_user_usages():
                             node_tracked += 1
                     except Exception as e:
                         logger.warning(f"[Node {node_id}] Failed to track device for user {param['uid']}: {e}")
-            
+
             node_usages[node_id] = node_usage
             record_node_activity(node_id, had_traffic=bool(node_usage))
             db.commit()
-            
-            if params:
-                tracking_rate = (node_tracked / len(params)) * 100 if node_tracked else 0
-                if node_tracked == 0:
-                    logger.warning(
-                        f"[Node {node_id}] Device tracking: 0/{len(params)} (0%). "
-                        f"This node is NOT sending remote_ip data."
-                    )
-                else:
-                    logger.debug(
-                        f"[Node {node_id}] Device tracking: {node_tracked}/{len(params)} ({tracking_rate:.1f}%)"
-                    )
-        
+
+        if params:
+            tracking_rate = (node_tracked / len(params)) * 100 if node_tracked else 0
+            if node_tracked == 0:
+                logger.warning(
+                    f"[Node {node_id}] Device tracking: 0/{len(params)} (0%). "
+                    f"This node is NOT sending remote_ip data."
+                )
+            else:
+                logger.debug(
+                    f"[Node {node_id}] Device tracking: {node_tracked}/{len(params)} ({tracking_rate:.1f}%)"
+                )
+
+    phase1_dur = _time.monotonic() - phase1_t0
+
+    # Phase 2: Node stats + user usage logs — separate short session.
+    phase2_t0 = _time.monotonic()
+    with GetDB() as db:
         record_all_node_stats(node_usages, db)
         db.commit()
-        
-        # Phase 2: Record user usage logs
+
         for node_id, params in api_params.items():
             record_user_usage_logs(
                 params,
@@ -254,14 +261,21 @@ async def record_user_usages():
                 db=db,
             )
         db.commit()
+    phase2_dur = _time.monotonic() - phase2_t0
 
     users_usage = list(
         {"id": uid, "value": value} for uid, value in users_usage.items()
     )
     if not users_usage:
+        total = _time.monotonic() - task_t0
+        log_task_duration(
+            "record_user_usages", total,
+            details=f"phase1={phase1_dur:.1f}s phase2={phase2_dur:.1f}s nodes={len(api_params)} (no usage)",
+        )
         return
 
-    # Phase 3: Update user traffic totals
+    # Phase 3: Update user traffic totals — separate short session.
+    phase3_t0 = _time.monotonic()
     with GetDB() as db:
         await data_usage_percent_reached(db, users_usage)
 
@@ -299,3 +313,13 @@ async def record_user_usages():
                         user=UserResponse.model_validate(user),
                     )
                 )
+    phase3_dur = _time.monotonic() - phase3_t0
+
+    total = _time.monotonic() - task_t0
+    log_task_duration(
+        "record_user_usages", total,
+        details=(
+            f"phase1_devices={phase1_dur:.1f}s phase2_logs={phase2_dur:.1f}s "
+            f"phase3_traffic={phase3_dur:.1f}s nodes={len(api_params)} users={len(users_usage)}"
+        ),
+    )
