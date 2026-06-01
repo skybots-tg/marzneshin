@@ -276,6 +276,26 @@ class NodeUserUsageDaily(Base):
     used_traffic = Column(BigInteger, default=0)
 
 
+class NodeUserUsageBiweekly(Base):
+    """Coarsest cold-storage tier: traffic per user per node aggregated into
+    fixed 2-week periods (compressed from the daily table after
+    ``usage_max_retention_days``). ``period_start`` is the Monday that begins
+    the bi-weekly bucket (see ``app.tasks.aggregate_usages.biweek_start``).
+    Retained indefinitely so historical (>6 month) traffic stays queryable
+    through the same read paths, just at coarser resolution."""
+
+    __tablename__ = "node_user_usages_biweekly"
+    __table_args__ = (
+        UniqueConstraint("period_start", "user_id", "node_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    period_start = Column(Date, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    node_id = Column(Integer, ForeignKey("nodes.id"), index=True)
+    used_traffic = Column(BigInteger, default=0)
+
+
 class NodeUsage(Base):
     __tablename__ = "node_usages"
     __table_args__ = (UniqueConstraint("created_at", "node_id"),)
@@ -295,6 +315,21 @@ class NodeUsageDaily(Base):
 
     id = Column(Integer, primary_key=True)
     date = Column(Date, nullable=False, index=True)
+    node_id = Column(Integer, ForeignKey("nodes.id"), index=True)
+    uplink = Column(BigInteger, default=0)
+    downlink = Column(BigInteger, default=0)
+
+
+class NodeUsageBiweekly(Base):
+    """Cold-storage tier for per-node traffic, aggregated into fixed 2-week
+    periods (compressed from the daily table after
+    ``usage_max_retention_days``). Retained indefinitely."""
+
+    __tablename__ = "node_usages_biweekly"
+    __table_args__ = (UniqueConstraint("period_start", "node_id"),)
+
+    id = Column(Integer, primary_key=True)
+    period_start = Column(Date, nullable=False, index=True)
     node_id = Column(Integer, ForeignKey("nodes.id"), index=True)
     uplink = Column(BigInteger, default=0)
     downlink = Column(BigInteger, default=0)

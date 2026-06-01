@@ -1,11 +1,24 @@
 """Aggregate old traffic records into coarser time buckets.
 
-Runs once a day (03:00 UTC by default):
-  1. node_user_usages hourly → daily (older than USAGE_RETENTION_DAYS)
+Runs once a day (03:00 UTC by default). Retention tiers for node / user
+traffic (each tier lives in its own table, queried transparently by the
+read paths in ``app.db.crud.user`` / ``app.db.crud.node``):
+
+    hourly   node_user_usages          last USAGE_RETENTION_DAYS days   (30d)
+      -> daily     node_user_usages_daily      up to USAGE_MAX_RETENTION_DAYS (180d)
+        -> biweekly  node_user_usages_biweekly   older than 180d (retained)
+
+So the most recent 30 days stay hour-by-hour, 30d–6mo collapse to one row
+per day, and everything past ~6 months collapses to one row per fixed
+2-week period and is kept indefinitely (instead of being purged as before).
+
+Steps each run:
+  1. node_user_usages hourly → daily   (older than USAGE_RETENTION_DAYS)
   2. node_usages hourly → daily
-  3. Purge daily node/user usage rows older than USAGE_MAX_RETENTION_DAYS
-  4. user_device_traffic 5-min → daily  (older than 7 days)
-  5. user_device_traffic_daily → weekly  (older than 90 days)
+  3. node_user_usages_daily → biweekly (older than USAGE_MAX_RETENTION_DAYS)
+  4. node_usages_daily → biweekly
+  5. user_device_traffic 5-min → daily  (older than 7 days)
+  6. user_device_traffic_daily → weekly  (older than 90 days)
 """
 
 import logging
@@ -22,8 +35,14 @@ from app.db.models.device import (
     UserDeviceTrafficDaily,
     UserDeviceTrafficWeekly,
 )
-from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
+from app.db.models.proxy import (
+    NodeUsageDaily,
+    NodeUsageBiweekly,
+    NodeUserUsageDaily,
+    NodeUserUsageBiweekly,
+)
 from app.core.settings import settings
+from app.utils.usage_buckets import biweek_start
 
 logger = logging.getLogger(__name__)
 
@@ -147,16 +166,125 @@ def _aggregate_node_usages(db, cutoff: datetime) -> int:
     return deleted
 
 
-def _purge_old_daily_data(db, max_cutoff_date) -> tuple[int, int]:
-    user_purged = db.execute(
-        delete(NodeUserUsageDaily).where(NodeUserUsageDaily.date < max_cutoff_date)
+def _aggregate_node_user_daily_to_biweekly(db, cutoff_date) -> int:
+    """Compress per-user daily rows older than ``cutoff_date`` into fixed
+    2-week buckets, then delete the consumed daily rows.
+
+    Returns the number of daily rows removed.
+    """
+    old_rows = db.execute(
+        select(
+            NodeUserUsageDaily.date,
+            NodeUserUsageDaily.user_id,
+            NodeUserUsageDaily.node_id,
+            NodeUserUsageDaily.used_traffic,
+        ).where(NodeUserUsageDaily.date < cutoff_date)
+    ).fetchall()
+
+    if not old_rows:
+        return 0
+
+    buckets: dict[tuple, int] = {}
+    for row in old_rows:
+        key = (biweek_start(row.date), row.user_id, row.node_id)
+        buckets[key] = buckets.get(key, 0) + (row.used_traffic or 0)
+
+    for (period_start, user_id, node_id), used_traffic in buckets.items():
+        existing = db.execute(
+            select(NodeUserUsageBiweekly.id).where(
+                and_(
+                    NodeUserUsageBiweekly.period_start == period_start,
+                    NodeUserUsageBiweekly.user_id == user_id,
+                    NodeUserUsageBiweekly.node_id == node_id,
+                )
+            )
+        ).first()
+
+        if existing:
+            db.execute(
+                NodeUserUsageBiweekly.__table__.update()
+                .where(NodeUserUsageBiweekly.id == existing.id)
+                .values(
+                    used_traffic=NodeUserUsageBiweekly.used_traffic
+                    + used_traffic
+                )
+            )
+        else:
+            db.execute(
+                insert(NodeUserUsageBiweekly).values(
+                    period_start=period_start,
+                    user_id=user_id,
+                    node_id=node_id,
+                    used_traffic=used_traffic,
+                )
+            )
+
+    deleted = db.execute(
+        delete(NodeUserUsageDaily).where(NodeUserUsageDaily.date < cutoff_date)
     ).rowcount
 
-    node_purged = db.execute(
-        delete(NodeUsageDaily).where(NodeUsageDaily.date < max_cutoff_date)
+    return deleted
+
+
+def _aggregate_node_daily_to_biweekly(db, cutoff_date) -> int:
+    """Compress per-node daily rows older than ``cutoff_date`` into fixed
+    2-week buckets, then delete the consumed daily rows.
+
+    Returns the number of daily rows removed.
+    """
+    old_rows = db.execute(
+        select(
+            NodeUsageDaily.date,
+            NodeUsageDaily.node_id,
+            NodeUsageDaily.uplink,
+            NodeUsageDaily.downlink,
+        ).where(NodeUsageDaily.date < cutoff_date)
+    ).fetchall()
+
+    if not old_rows:
+        return 0
+
+    buckets: dict[tuple, dict] = {}
+    for row in old_rows:
+        key = (biweek_start(row.date), row.node_id)
+        agg = buckets.setdefault(key, {"uplink": 0, "downlink": 0})
+        agg["uplink"] += row.uplink or 0
+        agg["downlink"] += row.downlink or 0
+
+    for (period_start, node_id), totals in buckets.items():
+        existing = db.execute(
+            select(NodeUsageBiweekly.id).where(
+                and_(
+                    NodeUsageBiweekly.period_start == period_start,
+                    NodeUsageBiweekly.node_id == node_id,
+                )
+            )
+        ).first()
+
+        if existing:
+            db.execute(
+                NodeUsageBiweekly.__table__.update()
+                .where(NodeUsageBiweekly.id == existing.id)
+                .values(
+                    uplink=NodeUsageBiweekly.uplink + totals["uplink"],
+                    downlink=NodeUsageBiweekly.downlink + totals["downlink"],
+                )
+            )
+        else:
+            db.execute(
+                insert(NodeUsageBiweekly).values(
+                    period_start=period_start,
+                    node_id=node_id,
+                    uplink=totals["uplink"],
+                    downlink=totals["downlink"],
+                )
+            )
+
+    deleted = db.execute(
+        delete(NodeUsageDaily).where(NodeUsageDaily.date < cutoff_date)
     ).rowcount
 
-    return user_purged, node_purged
+    return deleted
 
 
 # ============================================================================
@@ -370,13 +498,13 @@ async def aggregate_old_usages():
         hour=0, minute=0, second=0, microsecond=0
     )
     cutoff = today - timedelta(days=retention_days)
-    max_cutoff = (today - timedelta(days=max_retention_days)).date()
+    biweekly_cutoff = (today - timedelta(days=max_retention_days)).date()
 
     logger.info(
         f"Aggregating: hourly→daily (>{retention_days}d), "
+        f"daily→biweekly (>{max_retention_days}d), "
         f"device 5min→daily (>{DEVICE_TRAFFIC_DAILY_CUTOFF_DAYS}d), "
-        f"device daily→weekly (>{DEVICE_TRAFFIC_WEEKLY_CUTOFF_DAYS}d), "
-        f"purge daily >{max_retention_days}d"
+        f"device daily→weekly (>{DEVICE_TRAFFIC_WEEKLY_CUTOFF_DAYS}d)"
     )
 
     with GetDB() as db:
@@ -386,12 +514,18 @@ async def aggregate_old_usages():
         node_deleted = _aggregate_node_usages(db, cutoff)
         db.commit()
 
-        user_purged, node_purged = _purge_old_daily_data(db, max_cutoff)
+        user_bw_deleted = _aggregate_node_user_daily_to_biweekly(
+            db, biweekly_cutoff
+        )
+        db.commit()
+
+        node_bw_deleted = _aggregate_node_daily_to_biweekly(db, biweekly_cutoff)
         db.commit()
 
     logger.info(
         f"Node usage: {user_deleted} hourly user + {node_deleted} hourly node "
-        f"compressed; purged {user_purged}+{node_purged} daily rows > {max_cutoff}"
+        f"compressed to daily; {user_bw_deleted} user + {node_bw_deleted} node "
+        f"daily rows compressed to biweekly (cutoff {biweekly_cutoff})"
     )
 
     device_daily_cutoff = today - timedelta(days=DEVICE_TRAFFIC_DAILY_CUTOFF_DAYS)

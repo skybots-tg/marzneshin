@@ -3,7 +3,7 @@ from fastapi import APIRouter, Query
 from fastapi import HTTPException
 from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination.links import Page
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy.orm import selectinload, load_only, undefer
 
 from app import marznode
 from app.db import crud
@@ -20,6 +20,9 @@ router = APIRouter(prefix="/services", tags=["Service"])
 def get_services(db: DBDep, admin: AdminDep, name: str = Query(None)):
     query = db.query(Service).options(
         selectinload(Service.inbounds).load_only(Inbound.id),
+        # user_count is deferred on the model; undefer for the list so the
+        # paginated ServiceResponse does not emit one extra COUNT per row.
+        undefer(Service.user_count),
     )
 
     if name:

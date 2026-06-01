@@ -10,10 +10,16 @@ from sqlalchemy.orm import Session
 ProgressCallback = Optional[Callable[[dict], None]]
 
 from app.db.models import Node, NodeUsage, NodeUserUsage
-from app.db.models.proxy import NodeUsageDaily, NodeUserUsageDaily
+from app.db.models.proxy import (
+    NodeUsageDaily,
+    NodeUsageBiweekly,
+    NodeUserUsageDaily,
+    NodeUserUsageBiweekly,
+)
 from app.core.settings import settings
 from app.models.node import NodeCreate, NodeModify, NodeStatus
 from app.models.system import TrafficUsageSeries
+from app.utils.usage_buckets import biweek_start
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +63,19 @@ def get_node_usage(
     db: Session, start: datetime, end: datetime, node: Node
 ) -> TrafficUsageSeries:
     usages = defaultdict(int)
-    cutoff = datetime.now(timezone.utc).replace(
+    today_midnight = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
-    ) - timedelta(days=settings.tasks.usage_retention_days)
+    )
+    cutoff = today_midnight - timedelta(
+        days=settings.tasks.usage_retention_days
+    )
+    biweekly_cutoff_date = (
+        today_midnight - timedelta(days=settings.tasks.usage_max_retention_days)
+    ).date()
     start = _make_aware(start)
     end = _make_aware(end)
 
-    # Hourly data
+    # Hourly data (most recent tier)
     hourly_start = max(start, cutoff)
     if hourly_start < end:
         query = (
@@ -84,7 +96,10 @@ def get_node_usage(
                 used_traffic
             )
 
-    # Daily data
+    # Daily data (middle tier). No lower date bound: a day's traffic lives in
+    # exactly one physical table, so reading the full daily range plus the
+    # bi-weekly range never double-counts, and avoids missing a day near the
+    # 6-month boundary during the window before the nightly aggregation runs.
     if start < cutoff:
         daily_end = min(end, cutoff - timedelta(seconds=1))
         daily_query = (
@@ -104,6 +119,32 @@ def get_node_usage(
         for date, used_traffic in daily_query.all():
             timestamp = datetime(
                 date.year, date.month, date.day, tzinfo=timezone.utc
+            ).timestamp()
+            usages[timestamp] += int(used_traffic)
+
+    # Bi-weekly data (oldest cold tier: older than biweekly_cutoff)
+    if start.date() < biweekly_cutoff_date:
+        bw_query = (
+            db.query(
+                NodeUserUsageBiweekly.period_start,
+                func.sum(NodeUserUsageBiweekly.used_traffic),
+            )
+            .group_by(NodeUserUsageBiweekly.period_start)
+            .filter(
+                and_(
+                    NodeUserUsageBiweekly.node_id == node.id,
+                    NodeUserUsageBiweekly.period_start
+                    >= biweek_start(start.date()),
+                    NodeUserUsageBiweekly.period_start < biweekly_cutoff_date,
+                )
+            )
+        )
+        for period_start, used_traffic in bw_query.all():
+            timestamp = datetime(
+                period_start.year,
+                period_start.month,
+                period_start.day,
+                tzinfo=timezone.utc,
             ).timestamp()
             usages[timestamp] += int(used_traffic)
 
@@ -220,9 +261,16 @@ def remove_node(
 ):
     node_id = dbnode.id
 
-    # Порядок: сначала daily-агрегаты (обычно компактные), потом hourly-таблицы,
+    # Порядок: сначала компактные агрегаты (biweekly, daily), потом hourly-таблицы,
     # которые могут содержать миллионы строк на долгоживущей ноде.
-    for model in (NodeUserUsageDaily, NodeUsageDaily, NodeUserUsage, NodeUsage):
+    for model in (
+        NodeUserUsageBiweekly,
+        NodeUsageBiweekly,
+        NodeUserUsageDaily,
+        NodeUsageDaily,
+        NodeUserUsage,
+        NodeUsage,
+    ):
         try:
             _batched_delete_usage(db, model, node_id, on_progress=on_progress)
         except OperationalError:

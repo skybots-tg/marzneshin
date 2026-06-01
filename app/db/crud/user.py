@@ -11,9 +11,10 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.db.models import Admin, Node, NodeUserUsage, Service, User
-from app.db.models.proxy import NodeUserUsageDaily
+from app.db.models.proxy import NodeUserUsageDaily, NodeUserUsageBiweekly
 from app.core.settings import settings
 from app.models.system import TrafficUsageSeries
+from app.utils.usage_buckets import biweek_start
 from app.models.user import (
     UserCreate,
     UserDataUsageResetStrategy,
@@ -140,11 +141,26 @@ def _get_retention_cutoff() -> datetime:
     ) - timedelta(days=settings.tasks.usage_retention_days)
 
 
+def _get_biweekly_cutoff_date():
+    """Boundary (date) between the daily tier and the bi-weekly cold tier.
+
+    Daily rows older than this have been compressed into the bi-weekly
+    table by the aggregation task; read paths must look there instead.
+    """
+    return (
+        datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        - timedelta(days=settings.tasks.usage_max_retention_days)
+    ).date()
+
+
 def get_user_total_usage(
     db: Session, user: User, start: datetime, end: datetime, per_day=False
 ):
     usages = defaultdict(int)
     cutoff = _get_retention_cutoff()
+    biweekly_cutoff_date = _get_biweekly_cutoff_date()
     start = _make_aware(start)
     end = _make_aware(end)
 
@@ -179,7 +195,8 @@ def get_user_total_usage(
                 timestamp = date.replace(tzinfo=timezone.utc).timestamp()
             usages[timestamp] += int(used_traffic)
 
-    # Daily data (older period)
+    # Daily data (middle period). No lower date bound — see get_node_usage:
+    # each day lives in exactly one table, so daily + biweekly never overlap.
     if start < cutoff:
         daily_end = min(end, cutoff - timedelta(seconds=1))
         daily_query = db.query(
@@ -196,6 +213,28 @@ def get_user_total_usage(
         for date, used_traffic in daily_query:
             timestamp = datetime(
                 date.year, date.month, date.day, tzinfo=timezone.utc
+            ).timestamp()
+            usages[timestamp] += int(used_traffic)
+
+    # Bi-weekly data (oldest cold tier: older than biweekly_cutoff)
+    if start.date() < biweekly_cutoff_date:
+        bw_query = db.query(
+            NodeUserUsageBiweekly.period_start,
+            func.sum(NodeUserUsageBiweekly.used_traffic),
+        ).filter(
+            and_(
+                NodeUserUsageBiweekly.user_id == user.id,
+                NodeUserUsageBiweekly.period_start >= biweek_start(start.date()),
+                NodeUserUsageBiweekly.period_start < biweekly_cutoff_date,
+            )
+        ).group_by(NodeUserUsageBiweekly.period_start)
+
+        for period_start, used_traffic in bw_query:
+            timestamp = datetime(
+                period_start.year,
+                period_start.month,
+                period_start.day,
+                tzinfo=timezone.utc,
             ).timestamp()
             usages[timestamp] += int(used_traffic)
 
@@ -222,6 +261,7 @@ def get_total_usages(
 ) -> TrafficUsageSeries:
     usages = defaultdict(int)
     cutoff = _get_retention_cutoff()
+    biweekly_cutoff_date = _get_biweekly_cutoff_date()
     start = _make_aware(start)
     end = _make_aware(end)
 
@@ -250,7 +290,8 @@ def get_total_usages(
             timestamp = created_at.replace(tzinfo=timezone.utc).timestamp()
             usages[timestamp] += int(used_traffic)
 
-    # Daily data
+    # Daily data (middle period). No lower date bound — see get_node_usage:
+    # each day lives in exactly one table, so daily + biweekly never overlap.
     if start < cutoff:
         daily_end = min(end, cutoff - timedelta(seconds=1))
         daily_query = (
@@ -278,6 +319,37 @@ def get_total_usages(
             ).timestamp()
             usages[timestamp] += int(used_traffic)
 
+    # Bi-weekly data (oldest cold tier: older than biweekly_cutoff)
+    if start.date() < biweekly_cutoff_date:
+        bw_query = (
+            db.query(
+                NodeUserUsageBiweekly.period_start,
+                func.sum(NodeUserUsageBiweekly.used_traffic),
+            )
+            .group_by(NodeUserUsageBiweekly.period_start)
+            .filter(
+                and_(
+                    NodeUserUsageBiweekly.period_start
+                    >= biweek_start(start.date()),
+                    NodeUserUsageBiweekly.period_start < biweekly_cutoff_date,
+                )
+            )
+        )
+        if not admin.is_sudo:
+            bw_query = (
+                bw_query.filter(Admin.id == admin.id)
+                .join(User, NodeUserUsageBiweekly.user_id == User.id)
+                .join(Admin, User.admin_id == Admin.id)
+            )
+        for period_start, used_traffic in bw_query.all():
+            timestamp = datetime(
+                period_start.year,
+                period_start.month,
+                period_start.day,
+                tzinfo=timezone.utc,
+            ).timestamp()
+            usages[timestamp] += int(used_traffic)
+
     result = TrafficUsageSeries(usages=[], total=0)
     current = start.astimezone(timezone.utc).replace(
         minute=0, second=0, microsecond=0
@@ -300,6 +372,7 @@ def get_user_usages(
 ) -> UserUsageSeriesResponse:
     usages = defaultdict(lambda: defaultdict(int))
     cutoff = _get_retention_cutoff()
+    biweekly_cutoff_date = _get_biweekly_cutoff_date()
     start = _make_aware(start)
     end = _make_aware(end)
 
@@ -315,7 +388,8 @@ def get_user_usages(
             timestamp = v.created_at.replace(tzinfo=timezone.utc).timestamp()
             usages[v.node_id][timestamp] += v.used_traffic
 
-    # Daily data
+    # Daily data (middle period). No lower date bound — see get_node_usage:
+    # each day lives in exactly one table, so daily + biweekly never overlap.
     if start < cutoff:
         daily_end = min(end, cutoff - timedelta(seconds=1))
         daily_cond = and_(
@@ -326,6 +400,22 @@ def get_user_usages(
         for v in db.query(NodeUserUsageDaily).filter(daily_cond):
             timestamp = datetime(
                 v.date.year, v.date.month, v.date.day, tzinfo=timezone.utc
+            ).timestamp()
+            usages[v.node_id][timestamp] += v.used_traffic
+
+    # Bi-weekly data (oldest cold tier: older than biweekly_cutoff)
+    if start.date() < biweekly_cutoff_date:
+        bw_cond = and_(
+            NodeUserUsageBiweekly.user_id == db_user.id,
+            NodeUserUsageBiweekly.period_start >= biweek_start(start.date()),
+            NodeUserUsageBiweekly.period_start < biweekly_cutoff_date,
+        )
+        for v in db.query(NodeUserUsageBiweekly).filter(bw_cond):
+            timestamp = datetime(
+                v.period_start.year,
+                v.period_start.month,
+                v.period_start.day,
+                tzinfo=timezone.utc,
             ).timestamp()
             usages[v.node_id][timestamp] += v.used_traffic
 

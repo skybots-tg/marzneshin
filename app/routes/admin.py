@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_pagination import Page
 from fastapi_pagination.ext.sqlalchemy import paginate
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy.orm import selectinload, load_only, undefer
 
 from app.db import Session, crud
 from app.db.models import Admin as DBAdmin, Service, User, Inbound
@@ -43,7 +43,9 @@ def authenticate_admin(
 
 @router.get("", response_model=Page[AdminResponse])
 def get_admins(db: DBDep, admin: SudoAdminDep, username: str | None = None):
-    query = db.query(DBAdmin)
+    # users_data_usage is deferred on the model; undefer it here so the
+    # paginated AdminResponse list does not trigger one extra SUM per row.
+    query = db.query(DBAdmin).options(undefer(DBAdmin.users_data_usage))
     if username:
         query = query.filter(DBAdmin.username.ilike(f"%{username}%"))
     return paginate(db, query)

@@ -75,11 +75,18 @@ class Admin(Base):
 
     @classmethod
     def __declare_last__(cls):
+        # Deferred: this correlated SUM is only needed when serializing
+        # AdminResponse. Loading it eagerly made every query that merely
+        # touches an Admin row (e.g. resolving ``owner_username`` /
+        # ``subscription_url`` on the subscription hot path) pay a full
+        # aggregate over the admin's users. Endpoints that need it use
+        # ``undefer(Admin.users_data_usage)``.
         cls.users_data_usage = column_property(
             select(func.coalesce(func.sum(User.lifetime_used_traffic), 0))
             .where(User.admin_id == cls.id)
             .correlate_except(User)
-            .scalar_subquery()
+            .scalar_subquery(),
+            deferred=True,
         )
 
 
@@ -110,6 +117,13 @@ class Service(Base):
 
     @classmethod
     def __declare_last__(cls):
+        # Deferred: the per-service user COUNT is a correlated subquery over
+        # users_services ⋈ users. Because ``User.services`` is
+        # ``lazy="joined"``, loading ANY user previously dragged this COUNT
+        # in for each joined service row — pinning the DB during the
+        # 30-second usage-recording task and on every subscription render.
+        # Only ServiceResponse needs it; those endpoints use
+        # ``undefer(Service.user_count)``.
         cls.user_count = column_property(
             select(func.count(users_services.c.user_id))
             .join(User, users_services.c.user_id == User.id)
@@ -121,7 +135,7 @@ class Service(Base):
             )
             .correlate(cls)
             .scalar_subquery(),
-            deferred=False,
+            deferred=True,
         )
 
 
