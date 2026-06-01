@@ -13,8 +13,10 @@ from .proxy import (
     Node,
     NodeUsage,
     NodeUsageDaily,
+    NodeUsageBiweekly,
     NodeUserUsage,
     NodeUserUsageDaily,
+    NodeUserUsageBiweekly,
 )
 from .system import JWT, Settings, System, TLS
 from .device import (
@@ -43,8 +45,10 @@ __all__ = [
     "Node",
     "NodeUsage",
     "NodeUsageDaily",
+    "NodeUsageBiweekly",
     "NodeUserUsage",
     "NodeUserUsageDaily",
+    "NodeUserUsageBiweekly",
     "JWT",
     "Settings",
     "System",

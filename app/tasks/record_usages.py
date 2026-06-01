@@ -275,21 +275,37 @@ async def record_user_usages():
         return
 
     # Phase 3: Update user traffic totals — separate short session.
+    #
+    # Hot path (runs every record_user_usages_interval seconds for ~all
+    # online users). We avoid materialising full ORM ``User`` rows for the
+    # whole batch: a full load eager-joins services and previously dragged in
+    # correlated COUNT/SUM column-properties, pinning the DB. Instead we:
+    #   1. read only (id, used_traffic, data_limit) to find who will cross
+    #      their data limit on this tick;
+    #   2. apply the bulk UPDATE for everyone;
+    #   3. materialise ORM objects ONLY for the few users that just hit the
+    #      limit (needed to push to marznode + notify).
     phase3_t0 = _time.monotonic()
     with GetDB() as db:
         await data_usage_percent_reached(db, users_usage)
 
-        user_ids = [u["id"] for u in users_usage]
-        users_map = {
-            u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()
-        }
-        users_to_check = []
+        usage_by_id = {u["id"]: u["value"] for u in users_usage}
+        user_ids = list(usage_by_id.keys())
 
-        for u_usage in users_usage:
-            uid = u_usage["id"]
-            user = users_map.get(uid)
-            if user and user.data_limit and user.used_traffic < user.data_limit:
-                users_to_check.append(user)
+        pre_rows = db.execute(
+            select(User.id, User.used_traffic, User.data_limit).where(
+                and_(
+                    User.id.in_(user_ids),
+                    User.data_limit.isnot(None),
+                )
+            )
+        ).all()
+        newly_reached_ids = [
+            uid
+            for uid, used_traffic, data_limit in pre_rows
+            if used_traffic < data_limit
+            and used_traffic + usage_by_id.get(uid, 0) >= data_limit
+        ]
 
         stmt = update(User).values(
             used_traffic=User.used_traffic + bindparam("value"),
@@ -303,16 +319,16 @@ async def record_user_usages():
         )
         db.commit()
 
-        for user in users_to_check:
-            db.refresh(user)
-            if user.data_limit_reached:
-                marznode.operations.update_user(user, db=db)
-                fire_and_forget(
-                    notify(
-                        action=UserNotification.Action.data_limit_exhausted,
-                        user=UserResponse.model_validate(user),
+        if newly_reached_ids:
+            for user in db.query(User).filter(User.id.in_(newly_reached_ids)):
+                if user.data_limit_reached:
+                    marznode.operations.update_user(user, db=db)
+                    fire_and_forget(
+                        notify(
+                            action=UserNotification.Action.data_limit_exhausted,
+                            user=UserResponse.model_validate(user),
+                        )
                     )
-                )
     phase3_dur = _time.monotonic() - phase3_t0
 
     total = _time.monotonic() - task_t0
