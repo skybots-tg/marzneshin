@@ -104,7 +104,9 @@ def ensure_node_inbounds(db: Session, inbounds: List[Inbound], node_id: int):
     db.flush()
     for i in new_inbounds:
         db.refresh(i)
-    add_default_hosts(db, new_inbounds)
+    # Placeholder ("🚀 Marz ({USERNAME}) ...") hosts are intentionally not
+    # seeded for newly observed inbounds: they are filtered out of
+    # subscriptions anyway and only clutter the hosts list.
     db.commit()
 
 
