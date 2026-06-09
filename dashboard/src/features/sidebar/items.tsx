@@ -8,6 +8,7 @@ import {
     ShieldCheck,
     Settings,
     Bot,
+    Waypoints,
 } from 'lucide-react';
 
 const iconClass = "size-[18px]";
@@ -38,6 +39,12 @@ export const sidebarItems: SidebarObject = {
             title: 'nodes',
             to: '/nodes',
             icon: <Box className={iconClass} />,
+            isParent: false,
+        },
+        {
+            title: 'topology',
+            to: '/topology',
+            icon: <Waypoints className={iconClass} />,
             isParent: false,
         },
         {

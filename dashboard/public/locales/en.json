@@ -5,6 +5,7 @@
   "address": "Address",
   "users": "Users",
   "nodes": "Nodes",
+  "topology": "Topology",
   "services": "Services",
   "hosts": "Hosts",
   "username": "Username",
@@ -110,6 +111,44 @@
     "donate": "Donate"
   },
   "page": {
+    "topology": {
+      "entry": "Entry node",
+      "add_exit": "Add exit country",
+      "promote_node": "Promote node to entry",
+      "refresh": "Refresh",
+      "fast_exits": "FAST direct exits",
+      "promote": {
+        "title": "Promote node to UNIVERSAL/ELITE entry",
+        "description": "Clone an existing entry node onto a fresh node: xray config, rotated reality keys, service bindings, hosts and user resync.",
+        "donor": "Donor entry node (template)",
+        "target": "Target node (to become an entry)",
+        "regen_keys": "Rotate reality keys on target",
+        "clone_hosts": "Clone hosts",
+        "same_node": "Donor and target must differ.",
+        "start": "Start promotion",
+        "working": "Working...",
+        "success": "Promotion completed successfully.",
+        "failed": "Promotion failed"
+      },
+      "exit": {
+        "title": "Add an exit country to the fleet",
+        "description": "Plan adding a new exit country (e.g. RO) as multihop bridges across all UNIVERSAL/ELITE entry nodes.",
+        "exit_node": "Exit node (hosts the reality listener)",
+        "iso": "Flag ISO2",
+        "label": "Exit label",
+        "universal": "UNIVERSAL",
+        "elite": "ELITE",
+        "compute": "Compute plan",
+        "grpc_ok": "gRPC reachable",
+        "grpc_down": "gRPC unreachable",
+        "listeners": "Reality listeners",
+        "no_listener": "no reality listener found on exit node",
+        "pending": "Entry nodes still missing this exit",
+        "all_have": "All target entries already have this exit.",
+        "apply_cmd": "Apply (panel-host CLI)",
+        "next": "Next"
+      }
+    },
     "home": {
       "users-stats": {
         "desc": "Overview of user's statuses"
