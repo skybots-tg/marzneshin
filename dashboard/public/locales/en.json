@@ -682,6 +682,8 @@
         "title": "Host Settings"
       },
       "allowinsecure": "Allow Insecure",
+      "inbound-search": "Search inbound / node…",
+      "show-all": "All hosts",
       "order": {
         "title": "Manage Hosts Order",
         "button": "Order",
