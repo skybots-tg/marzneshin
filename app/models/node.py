@@ -50,7 +50,7 @@ class Node(BaseModel):
     connection_backend: NodeConnectionBackend = Field(
         default=NodeConnectionBackend.grpclib
     )
-    usage_coefficient: float = Field(ge=0, default=1.0)
+    usage_coefficient: float = Field(ge=0, default=0.0)
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -61,7 +61,7 @@ class NodeCreate(Node):
                 "name": "DE node",
                 "address": "192.168.1.1",
                 "port": 53042,
-                "usage_coefficient": 1,
+                "usage_coefficient": 0,
             }
         }
     )

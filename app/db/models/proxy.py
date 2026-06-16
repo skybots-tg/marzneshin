@@ -238,7 +238,7 @@ class Node(Base):
         cascade="save-update, merge",
     )
     usage_coefficient = Column(
-        Float, nullable=False, server_default=text("1.0"), default=1
+        Float, nullable=False, server_default=text("0"), default=0
     )
 
     @property

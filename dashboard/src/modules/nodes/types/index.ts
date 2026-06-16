@@ -37,7 +37,7 @@ export const NodeSchema = z.object({
     ]),
     usage_coefficient: z
         .number()
-        .default(1.0)
+        .default(0.0)
         .or(z.string().transform((v) => Number.parseFloat(v))),
     connection_backend: z.enum(["grpclib", "grpcio"]).default("grpclib"),
 });

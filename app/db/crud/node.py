@@ -168,6 +168,7 @@ def create_node(db: Session, node: NodeCreate):
         address=node.address,
         port=node.port,
         connection_backend=node.connection_backend,
+        usage_coefficient=node.usage_coefficient,
     )
 
     db.add(dbnode)

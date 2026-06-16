@@ -43,7 +43,7 @@ export const MutationDialog: FC<MutationDialogProps<NodeType>> = ({
         address: "",
         status: "none",
         port: 62050,
-        usage_coefficient: 1,
+        usage_coefficient: 0,
         connection_backend: "grpclib",
     }), []);
 
