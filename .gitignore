@@ -201,3 +201,6 @@ dashboard/.vite/deps_temp_f42dd32d/package.json
 dashboard/.vite/deps
 dashboard/coverage
 note.md
+
+# temp diagnostic configs (may contain secrets)
+.tmp_uni_configs/
