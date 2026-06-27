@@ -9,8 +9,8 @@ description: Deploy and manage the Marzneshin VPN panel. Use when deploying code
 
 - **IP**: 195.54.170.162
 - **User**: root
-- **Password**: REDACTED
-- **SSH MCP**: use `user-ssh` MCP if configured, otherwise use paramiko from Python (Windows host has no `sshpass`)
+- **Auth**: SSH key only (alias `vpn_norway`). Password not stored here — keep secrets out of the repo.
+- **SSH MCP**: use the `user-ssh` MCP (`vpn_norway`) for all server operations.
 
 ## Architecture
 
@@ -28,9 +28,9 @@ description: Deploy and manage the Marzneshin VPN panel. Use when deploying code
 │                                                   │
 │    marzneshin-db-1  — MariaDB                     │
 │      image: mariadb:latest                        │
-│      port: 127.0.0.1:3306                         │
-│      root password: REDACTED                      │
-│      database: marzneshin                         │
+│      port: 127.0.0.1:3306 (local only)            │
+│      root password: <DB_ROOT_PW> (not in repo)    │
+│      database: marzneshin                          │
 │                                                   │
 │    marznode (local)  — dawsh/marznode:latest       │
 │      xray config: /var/lib/marznode/xray_config   │
@@ -82,15 +82,9 @@ git add <files> && git commit -m "feat: ..." && git push
 umarz
 ```
 
-Or from local machine via paramiko:
-```python
-import paramiko
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('195.54.170.162', username='root', password='REDACTED')
-stdin, stdout, stderr = ssh.exec_command('umarz', timeout=120)
-print(stdout.read().decode())
-ssh.close()
+Or from local machine via the `user-ssh` MCP (key auth, alias `vpn_norway`):
+```
+ssh_execute_command(connectionName="vpn_norway", command="umarz")
 ```
 
 ## Database Access
@@ -98,7 +92,7 @@ ssh.close()
 ### Direct SQL via Docker
 
 ```bash
-docker exec marzneshin-db-1 mariadb -u root -pREDACTED -e "SQL_HERE"
+docker exec marzneshin-db-1 mariadb -u root -p"$DB_ROOT_PW" -e "SQL_HERE"   # DB pw kept on server, not in repo
 ```
 
 ### Key Tables

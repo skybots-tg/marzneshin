@@ -18,13 +18,24 @@ Architecture recap (multihop):
     one user-visible entry per (inbound, branding).
 """
 import json
+import os
 import re
 import secrets
 import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from _secrets import DB_ROOT_PW
+except ImportError as _e:  # pragma: no cover - operator must provide _secrets.py
+    raise SystemExit(
+        "Missing _secrets.py at repo root. Create it with DB_ROOT_PW=... "
+        "(it is gitignored on purpose)."
+    ) from _e
 
 KEY = "/root/.ssh/vpn_node_default"
 DB = ["docker", "exec", "-i", "marzneshin-db-1", "mariadb",
-      "-u", "root", "-pREDACTED", "marzneshin"]
+      "-u", "root", f"-p{DB_ROOT_PW}", "marzneshin"]
 
 # Masking used by exit listeners (mirror of the France exit nodes).
 EXIT_SERVERNAMES = [

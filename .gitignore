@@ -204,3 +204,6 @@ note.md
 
 # temp diagnostic configs (may contain secrets)
 .tmp_uni_configs/
+
+# local operator secrets (DB/panel passwords)
+_secrets.py

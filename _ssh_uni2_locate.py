@@ -1,9 +1,18 @@
 """Locate UNIVERSAL 2: which node, hosts, xray config status, external probes."""
-import socket, sys, paramiko
+import os, socket, sys, paramiko
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from _secrets import PANEL_ROOT_PW
+except ImportError as _e:
+    raise SystemExit(
+        "Missing _secrets.py at repo root. Create it with PANEL_ROOT_PW=... "
+        "(it is gitignored on purpose). Prefer SSH key auth where possible."
+    ) from _e
 
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-c.connect("195.54.170.162", username="root", password="REDACTED", timeout=30)
+c.connect("195.54.170.162", username="root", password=PANEL_ROOT_PW, timeout=30)
 sftp = c.open_sftp()
 script = (
     "import asyncio, json\n"

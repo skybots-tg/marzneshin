@@ -8,11 +8,20 @@ canonical bridge set on canonical ports with the proven yandex masking.
 
 Dry-run unless --apply. usage: add_bridges.py [--apply] <U4|U5>
 """
-import copy, json, re, subprocess, sys
+import copy, json, os, re, subprocess, sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from _secrets import DB_ROOT_PW
+except ImportError as _e:
+    raise SystemExit(
+        "Missing _secrets.py at repo root. Create it with DB_ROOT_PW=... "
+        "(it is gitignored on purpose)."
+    ) from _e
 
 KEY = "/root/.ssh/vpn_node_default"
 REF_IP = "193.233.246.18"  # U6 full reference (now yandex)
-DB = ["docker", "exec", "-i", "marzneshin-db-1", "mariadb", "-u", "root", "-pREDACTED", "marzneshin"]
+DB = ["docker", "exec", "-i", "marzneshin-db-1", "mariadb", "-u", "root", f"-p{DB_ROOT_PW}", "marzneshin"]
 GOOD_DEST = "api-maps.yandex.ru:443"
 GOOD_SNI = ["api-maps.yandex.ru", "ads.x5.ru"]
 
