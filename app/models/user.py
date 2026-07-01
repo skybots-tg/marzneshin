@@ -118,6 +118,10 @@ class UserCreate(User):
 
 class UserModify(UserCreate):
     service_ids: list[int] | None = Field(None)
+    # None = not provided in payload -> do not touch existing data_limit.
+    # Inherited default (30 GB) silently overwrote data_limit on any PUT
+    # that omitted the field (e.g. note/expire-only updates).
+    data_limit: int | None = Field(None, ge=0)
     data_limit_reset_strategy: UserDataUsageResetStrategy | None = Field(None)
     expire_strategy: UserExpireStrategy | None = Field(None)
     model_config = ConfigDict(
