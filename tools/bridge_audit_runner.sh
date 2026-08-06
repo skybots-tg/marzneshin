@@ -31,7 +31,8 @@ run_scan() {
         echo "=== bridge audit ($reason) started $(date -Is) ==="
         # shellcheck disable=SC2086
         python3 -u bridge_audit.py scan --vantages 4 --jobs 6 $apply_flag
-        echo "=== finished $(date -Is) rc=$? ==="
+        rc=$?
+        echo "=== finished $(date -Is) rc=$rc ==="
     } >"$LOG" 2>&1
 }
 
