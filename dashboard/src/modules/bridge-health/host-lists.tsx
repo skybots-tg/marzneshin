@@ -141,10 +141,18 @@ export const BridgeHostLists: FC<Props> = ({ hosts, gaps, busy, onApply }) => {
                                 >
                                     <Badge variant="default">{g.entry_key.toUpperCase()}</Badge>
                                     <span className="font-medium">{g.slot}</span>
-                                    <Badge variant="secondary">{g.reason}</Badge>
-                                    <code className="text-xs text-muted-foreground ml-auto">
-                                        bridge_audit.py fill {g.entry_key} {g.slot} --apply
-                                    </code>
+                                    <Badge variant={g.fillable ? "secondary" : "outline"}>
+                                        {g.reason}
+                                    </Badge>
+                                    {g.fillable ? (
+                                        <code className="text-xs text-muted-foreground ml-auto">
+                                            bridge_audit.py fill {g.entry_key} {g.slot} --apply
+                                        </code>
+                                    ) : (
+                                        <span className="text-xs text-muted-foreground ml-auto">
+                                            {t("page.bridge_health.gaps.blocked")}
+                                        </span>
+                                    )}
                                 </li>
                             ))}
                         </ul>

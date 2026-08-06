@@ -160,7 +160,8 @@
       },
       "gaps": {
         "title": "Missing exits worth adding",
-        "hint": "These entry nodes lack an exit that another entry reaches right now, so the bridge can be cloned from a proven donor."
+        "hint": "Exits that another entry node reaches right now. \"missing\" can be cloned from a proven donor; \"blocked\" is already wired and still gets no traffic, so the exit is refusing this particular entry.",
+        "blocked": "exit refuses this entry — cloning will not help"
       }
     },
     "topology": {

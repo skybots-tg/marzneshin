@@ -54,8 +54,17 @@ def default_vantages(targets, limit: int = 4) -> list[dict]:
     return ranked[:limit]
 
 
-def _job_id(target, vantage_key: str) -> str:
-    return f"{target.host_id}@{vantage_key}"
+# Worst case for one probe: xray warm-up, then every geo endpoint in turn
+# (the runner rotates through three), then teardown.
+GEO_ENDPOINTS = 3
+JOB_OVERHEAD = 8
+
+
+def vantage_deadline(n_jobs: int, workers: int, timeout: int) -> int:
+    """Seconds one vantage may spend before it must hand back what it has."""
+    waves = -(-n_jobs // max(1, workers))
+    per_job = JOB_OVERHEAD + GEO_ENDPOINTS * (timeout + 5)
+    return max(120, min(2400, waves * per_job))
 
 
 def _build_jobs(targets, user_uuid: str) -> list[dict]:
@@ -74,13 +83,14 @@ def probe_from_vantage(vantage: dict, targets, user_uuid: str,
     jobs = _build_jobs(targets, user_uuid)
     if not jobs:
         return {}
+    deadline = vantage_deadline(len(jobs), workers, timeout)
     payload = json.dumps({"jobs": jobs, "workers": workers,
-                          "timeout": timeout})
+                          "timeout": timeout, "deadline": deadline})
 
     if vantage["address"] == PANEL:
         r = subprocess.run(["python3", RUNNER], input=payload,
                            capture_output=True, text=True,
-                           timeout=60 + len(jobs) * timeout)
+                           timeout=deadline + 90)
     else:
         cp = subprocess.run(
             ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
@@ -90,7 +100,7 @@ def probe_from_vantage(vantage: dict, targets, user_uuid: str,
         if cp.returncode != 0:
             return {"__error__": f"scp failed: {cp.stderr[:200]}"}
         r = mc.ssh(vantage["address"], f"python3 {REMOTE_RUNNER}",
-                   inp=payload, timeout=120 + len(jobs) * timeout)
+                   inp=payload, timeout=deadline + 120)
     try:
         return json.loads(r.stdout.strip().splitlines()[-1]).get("results", {})
     except Exception:
@@ -128,7 +138,9 @@ def merge(targets, per_vantage: dict) -> None:
             if "__error__" in res:
                 continue
             r = res.get(str(t.host_id))
-            if r:
+            # A vantage that ran out of time never tested this host; counting
+            # that as evidence of failure would hide a working bridge.
+            if r and r.get("verdict") != "skip":
                 views[vkey] = r
         if not views:
             t.result = {"verdict": "skip", "error": "not probed anywhere"}

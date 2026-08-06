@@ -5,9 +5,13 @@ Run ON THE PANEL, from this directory.
 
     python3 bridge_audit.py scan                 # probe everything, dry run
     python3 bridge_audit.py scan --apply         # + hide dead / restore fixed
+    python3 bridge_audit.py apply                # act on the saved report
     python3 bridge_audit.py matrix               # last report as a grid
     python3 bridge_audit.py gaps                 # entry x exit combos to fill
     python3 bridge_audit.py fill U4 RO --apply   # add one missing bridge
+
+Companion tools: `bridge_drift.py` (DB vs node config), `bridge_debug.py`
+(why one host fails, with the full client log).
 
 `scan` connects to each host exactly the way a subscribed client would and
 checks where the traffic surfaces. Hosts with no egress are switched to
@@ -64,6 +68,9 @@ def cmd_scan(args) -> int:
     if args.slot:
         want = {s.strip().upper() for s in args.slot.split(",")}
         targets = [t for t in targets if t.slot in want]
+    if args.hosts:
+        want_ids = {int(x) for x in args.hosts.replace(" ", "").split(",") if x}
+        targets = [t for t in targets if t.host_id in want_ids]
     if not args.include_direct:
         targets = [t for t in targets if t.is_bridge or t.slot.startswith("RU")]
     if not targets:
@@ -172,10 +179,15 @@ def slot_is_alive(cell) -> bool:
 
 
 def build_gaps(targets) -> list[dict]:
-    """(entry, slot) combos that are missing or dead while proven elsewhere.
+    """(entry, slot) combos worth attention, split by what can be done.
 
-    A slot only counts as fillable when some other entry node reaches it
-    right now — there is no point wiring a bridge to an exit that is down.
+    Two very different situations look the same in the matrix. If the entry has
+    no bridge to that exit at all, cloning a working one from another entry
+    fixes it. If it already has one and the probe fails, the wiring is fine and
+    the exit is refusing this particular entry — observed on AdminVPS RU-2,
+    whose outbounds are byte-identical to a donor's yet get no answer while the
+    donor sails through. Cloning there just recreates the same dead route, so
+    those are reported as blocked and left out of the fill suggestions.
     """
     grid = build_matrix(targets)
     entries = {}
@@ -212,9 +224,13 @@ def build_gaps(targets) -> list[dict]:
             gaps.append({
                 **meta,
                 "slot": slot,
-                "reason": "dead" if cell else "missing",
+                "reason": "blocked" if cell else "missing",
+                "fillable": cell is None,
                 "dead_host_ids": cell["host_ids"] if cell else [],
                 "donors": [d for d in donors if d != ek],
+                "reachable_slots": sorted(
+                    s for s, c in grid[ek].items()
+                    if slot_is_alive(c) and not s.startswith("RU")),
             })
     return gaps
 
@@ -258,7 +274,10 @@ def print_summary(report):
                   f"labelled {h.get('expected_country')} -> exits "
                   f"{h.get('country')} ({h.get('egress_ip')})")
     if report["gaps"]:
-        print(f"\nFILLABLE GAPS ({len(report['gaps'])}) — see `gaps` command")
+        fillable = sum(1 for g in report["gaps"] if g.get("fillable"))
+        print(f"\nGAPS: {fillable} fillable, "
+              f"{len(report['gaps']) - fillable} blocked by the exit "
+              f"— see `gaps` command")
 
 
 def print_matrix(report):
@@ -327,6 +346,34 @@ def apply_report(report, targets, args) -> int:
 # --------------------------------------------------------------------------
 
 
+def cmd_apply(args) -> int:
+    """Apply the saved report without re-probing.
+
+    Scanning takes a quarter of an hour; when a dry run has already been read
+    and agreed with, re-running it just to flip the flags invites a different
+    (and unreviewed) verdict.
+    """
+    report = load_report(args.report)
+    live = {int(r[0]): r[1] == "1" for r in mc.db_query(
+        "SELECT id, is_disabled FROM hosts")}
+    ch = {"disable": [], "enable": []}
+    gone = []
+    for h in report["hosts"]:
+        cur = live.get(h["host_id"])
+        if cur is None:
+            gone.append(h["host_id"])
+        elif h["verdict"] == "fail" and not cur:
+            ch["disable"].append(h["host_id"])
+        elif h["verdict"] == "pass" and cur:
+            ch["enable"].append(h["host_id"])
+    if gone:
+        print(f"{len(gone)} host(s) from the report no longer exist: {gone}")
+    age = int(time.time()) - report.get("generated_at", 0)
+    print(f"report is {age // 60} min old, covers {report['total']} host(s)")
+    report = dict(report, changes=ch)
+    return apply_report(report, [], args)
+
+
 def cmd_matrix(args) -> int:
     report = load_report(args.report)
     print_summary(report)
@@ -337,24 +384,34 @@ def cmd_gaps(args) -> int:
     report = load_report(args.report)
     gaps = report["gaps"]
     if not gaps:
-        print("no fillable gaps: every entry reaches every live exit slot")
+        print("no gaps: every entry reaches every live exit slot")
         return 0
-    print(f"{len(gaps)} fillable gap(s) "
-          f"(exit proven reachable from another entry):\n")
     by_entry = defaultdict(list)
     for g in gaps:
         by_entry[g["entry_key"]].append(g)
+
+    fillable = sum(1 for g in gaps if g.get("fillable"))
+    print(f"{fillable} fillable gap(s), {len(gaps) - fillable} blocked "
+          f"(exit reachable from another entry, but not from this one):\n")
     for ek in sorted(by_entry):
         rows = by_entry[ek]
         m = rows[0]
         print(f"{ek}  node {m['node_id']} {m['node_name']} ({m['address']})")
         for g in rows:
-            dead = (f" [dead hosts {g['dead_host_ids']}]"
-                    if g["reason"] == "dead" else "")
-            print(f"    {g['slot']:<8} {g['reason']:<8} "
-                  f"donors: {', '.join(g['donors'][:4])}{dead}")
-        print(f"    -> python3 bridge_audit.py fill {ek} "
-              f"{' '.join(sorted({g['slot'] for g in rows}))} --apply")
+            if g.get("fillable"):
+                print(f"    {g['slot']:<8} missing   "
+                      f"donors: {', '.join(g['donors'][:4])}")
+            else:
+                print(f"    {g['slot']:<8} blocked   wired but no traffic "
+                      f"(hosts {g['dead_host_ids']}) — the exit is refusing "
+                      f"this entry, cloning will not help")
+        todo = sorted({g["slot"] for g in rows if g.get("fillable")})
+        if todo:
+            print(f"    -> python3 bridge_audit.py fill {ek} "
+                  f"{' '.join(todo)} --apply")
+        elif rows[0].get("reachable_slots"):
+            print(f"    this entry does reach: "
+                  f"{', '.join(rows[0]['reachable_slots'])}")
         print()
     return 0
 
@@ -370,6 +427,9 @@ def main() -> int:
                    choices=["universal", "elite", "fast", "all"])
     s.add_argument("--nodes", default="", help="comma-separated node ids")
     s.add_argument("--slot", default="", help="comma-separated exit slots")
+    s.add_argument("--hosts", default="",
+                   help="comma-separated host ids; the resulting report covers "
+                        "only those, so point --report elsewhere")
     s.add_argument("--jobs", type=int, default=6,
                    help="parallel probes per vantage node")
     s.add_argument("--vantages", type=int, default=3,
@@ -384,6 +444,11 @@ def main() -> int:
     s.add_argument("--force", action="store_true")
     s.add_argument("--max-fail-pct", type=int, default=60)
     s.set_defaults(func=cmd_scan)
+
+    a = sub.add_parser("apply", help="apply the saved report, no re-probe")
+    a.add_argument("--force", action="store_true")
+    a.add_argument("--max-fail-pct", type=int, default=60)
+    a.set_defaults(func=cmd_apply, apply=True)
 
     sub.add_parser("matrix", help="print the last report").set_defaults(
         func=cmd_matrix)

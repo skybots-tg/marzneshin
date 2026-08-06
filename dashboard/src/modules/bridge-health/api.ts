@@ -47,9 +47,11 @@ export interface BridgeGap {
     node_name: string;
     address: string;
     slot: string;
-    reason: "missing" | "dead";
+    reason: "missing" | "blocked";
+    fillable: boolean;
     dead_host_ids: number[];
     donors: string[];
+    reachable_slots?: string[];
 }
 
 export interface BridgeHealthReport {

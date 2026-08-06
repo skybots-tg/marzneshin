@@ -144,6 +144,31 @@ def gen_keys(ip, n):
     return pairs
 
 
+def pubkeys(ip, privs):
+    """Map each x25519 private key to its public key, using the node's xray."""
+    uniq = [p for p in dict.fromkeys(privs) if p]
+    if not uniq:
+        return {}
+    lines = "\n".join(f'echo "KEY {p}"; docker exec "$c" xray x25519 -i {p}'
+                      for p in uniq)
+    cmd = ('c=$(docker ps --format "{{.Names}}" | grep -i marz | head -1)\n'
+           + lines)
+    r = ssh(ip, cmd)
+    pub_re = re.compile(
+        r'^(?:Password \(PublicKey\)|Password|Public\s*[Kk]ey|PublicKey):\s*(\S+)')
+    out, cur = {}, None
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("KEY "):
+            cur = line[4:]
+        elif cur:
+            m = pub_re.match(line)
+            if m:
+                out[cur] = m.group(1)
+                cur = None
+    return out
+
+
 _DEPLOY = r'''
 set -u
 c=$(docker ps --format '{{.Names}}' | grep -i marz | head -1)

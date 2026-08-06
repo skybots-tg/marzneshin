@@ -17,9 +17,23 @@ import json
 import re
 
 import bridge_lib as bl
+import bridge_probe as bp
 import marz_common as mc
 
 DEFAULT_PORT_RANGE = range(23000, 23400)
+
+
+def probe_from_ru(targets, user_uuid: str, vantages=None) -> None:
+    """Fill in ``t.result`` for every target, judged from RU vantage points.
+
+    Never probe from the panel here: it sits abroad, and RU providers drop a
+    good share of foreign traffic, so a donor that works perfectly for
+    subscribers would look dead and the fill would refuse to run.
+    """
+    vantages = vantages or bp.default_vantages(targets, limit=3)
+    per_vantage = bp.probe_all(targets, vantages, user_uuid, workers=6,
+                               timeout=12)
+    bp.merge(targets, per_vantage)
 
 
 def normalize_entry(key: str) -> str:
@@ -161,17 +175,19 @@ def db_sql(plans, node_id, address) -> str:
     return "\n".join(sql) + "\n"
 
 
-def verify_and_reveal(node_id, plans, user_uuid, apply: bool):
+def verify_and_reveal(node_id, plans, user_uuid, apply: bool, vantages=None):
     """Probe each freshly created host; reveal the ones that carry traffic."""
     fresh = {t.tag: t for t in bl.load_targets(tiers=("universal", "elite"),
                                                node_ids={node_id})}
+    wanted = [fresh[p["tag"]] for p in plans if p["tag"] in fresh]
+    if wanted:
+        probe_from_ru(wanted, user_uuid, vantages)
     ok, bad = [], []
-    for idx, p in enumerate(plans):
+    for p in plans:
         t = fresh.get(p["tag"])
         if not t:
             bad.append((p["slot"], "host row not found after insert"))
             continue
-        t.result = bl.probe(t, 11800 + idx, user_uuid=user_uuid)
         v = t.result["verdict"]
         print(f"    probe {p['slot']:<8} -> {v} "
               f"{t.result.get('country') or t.result.get('error', '')}")
@@ -197,10 +213,12 @@ def run(args) -> int:
         raise SystemExit("cannot extract xray binary from a marznode container")
 
     # Probe only the slots we care about, on every entry, to find live donors.
-    for idx, t in enumerate(targets):
-        t.result = ({"verdict": "unknown"} if t.slot not in slots
-                    else bl.probe(t, 11700 + (idx % 4), user_uuid=args.user,
-                                  attempts=1))
+    candidates = [t for t in targets if t.slot in slots]
+    for t in targets:
+        t.result = {"verdict": "unknown"}
+    vantages = bp.default_vantages(targets, limit=3)
+    if candidates:
+        probe_from_ru(candidates, args.user, vantages)
 
     plans, errors = [], []
     tgt_cfg = mc.node_cfg(tgt_meta.address)
@@ -243,7 +261,8 @@ def run(args) -> int:
         return 4
     print("DB rows created (hosts hidden pending verification)")
 
-    good, bad = verify_and_reveal(tgt_meta.node_id, plans, args.user, True)
+    good, bad = verify_and_reveal(tgt_meta.node_id, plans, args.user, True,
+                                  vantages)
     print(f"\nrevealed {len(good)} working bridge(s) on {entry_key}")
     for slot, err in bad:
         print(f"  still hidden: {slot} ({err})")

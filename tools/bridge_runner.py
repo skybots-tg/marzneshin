@@ -69,7 +69,7 @@ def parse_geo(raw, shape):
     return None, None
 
 
-def run_job(job, socks_port, timeout, geo_offset=0):
+def run_job(job, socks_port, timeout, geo_offset=0, deadline=None):
     cfg = job["client"]
     cfg["inbounds"][0]["port"] = socks_port
     f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
@@ -88,11 +88,16 @@ def run_job(job, socks_port, timeout, geo_offset=0):
                     "detail": log.read()[-300:]}
         rotated = GEO[geo_offset % len(GEO):] + GEO[:geo_offset % len(GEO)]
         for url, shape in rotated:
+            budget = timeout
+            if deadline:
+                budget = min(timeout, int(deadline - time.time()))
+                if budget < 4:
+                    break
             try:
                 r = subprocess.run(
                     ["curl", "-s", "--socks5-hostname",
-                     "127.0.0.1:%d" % socks_port, "--max-time", str(timeout),
-                     url], capture_output=True, text=True, timeout=timeout + 5)
+                     "127.0.0.1:%d" % socks_port, "--max-time", str(budget),
+                     url], capture_output=True, text=True, timeout=budget + 5)
             except Exception:
                 continue
             country, ip = parse_geo(r.stdout.strip(), shape)
@@ -130,6 +135,10 @@ def main():
         print(json.dumps({"error": "no xray binary on this vantage"}))
         return
     base = int(req.get("socks_base", 12100))
+    # Hard wall clock. Without it a handful of stalled probes can outlive the
+    # dispatcher's ssh timeout, and the whole vantage is then thrown away —
+    # turning a slow node into "nothing is reachable from here".
+    deadline = time.time() + float(req.get("deadline") or 3600)
     results = {}
 
     def one(pair):
@@ -137,16 +146,20 @@ def main():
         # Every job gets its own listen port for the whole run. Reusing ports
         # across jobs lets a lingering xray from a finished probe answer the
         # next one's curl, which silently reports another server's country.
+        if time.time() >= deadline:
+            results.setdefault(job["id"], {"verdict": "skip",
+                                           "error": "deadline"})
+            return
         try:
             results[job["id"]] = run_job(job, base + idx, timeout,
-                                         geo_offset=idx)
+                                         geo_offset=idx, deadline=deadline)
         except Exception as exc:  # noqa: BLE001
             results[job["id"]] = {"verdict": "fail", "error": "runner_crash",
                                   "detail": str(exc)[:200]}
 
     indexed = list(enumerate(jobs))
     for attempt in range(attempts):
-        if not indexed:
+        if not indexed or time.time() >= deadline:
             break
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(one, indexed))
