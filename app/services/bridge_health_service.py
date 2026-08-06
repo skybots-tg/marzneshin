@@ -69,20 +69,29 @@ def read_report(db: Session) -> dict:
 
     hosts = report.get("hosts", [])
     live = _live_disabled(db, [h["host_id"] for h in hosts])
-    to_disable, to_enable, orphaned = [], [], []
-    for h in hosts:
-        cur = live.get(h["host_id"])
-        if cur is None:
-            orphaned.append(h["host_id"])
-            continue
-        h["is_disabled"] = cur
-        if h["verdict"] == "fail" and not cur:
-            to_disable.append(h["host_id"])
-        elif h["verdict"] == "pass" and cur:
-            to_enable.append(h["host_id"])
+    orphaned = [h["host_id"] for h in hosts if h["host_id"] not in live]
     if orphaned:
         hosts = [h for h in hosts if h["host_id"] not in orphaned]
         report["hosts"] = hosts
+    for h in hosts:
+        h["is_disabled"] = live[h["host_id"]]
+
+    # Remarks currently on offer. A hidden host that shares a name with a
+    # visible one was almost certainly retired on purpose (a replacement entry
+    # node reuses the same remarks), and reviving it would show the same entry
+    # twice in every subscription.
+    visible: dict[str, list[int]] = {}
+    for h in hosts:
+        if not h["is_disabled"]:
+            visible.setdefault(h["remark"], []).append(h["host_id"])
+
+    to_disable, to_enable, shadowed = [], [], []
+    for h in hosts:
+        if h["verdict"] == "fail" and not h["is_disabled"]:
+            to_disable.append(h["host_id"])
+        elif h["verdict"] == "pass" and h["is_disabled"]:
+            (shadowed if visible.get(h["remark"]) else to_enable).append(
+                h["host_id"])
 
     generated = report.get("generated_at", 0)
     counts = report.get("counts", {})
@@ -93,6 +102,9 @@ def read_report(db: Session) -> dict:
         "age_sec": max(0, int(time.time()) - generated),
         "stale": (int(time.time()) - generated) > STALE_AFTER_SEC,
         "pending": {"disable": to_disable, "enable": to_enable},
+        "shadowed": shadowed,
+        "duplicates": [{"remark": r, "host_ids": ids}
+                       for r, ids in sorted(visible.items()) if len(ids) > 1],
         "apply_blocked": counts.get("fail", 0) * 100 // total > MAX_FAIL_PCT,
         "removed_since_scan": orphaned,
     })

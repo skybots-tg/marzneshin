@@ -35,6 +35,9 @@ REPORT_PATH = "/var/lib/marzneshin/bridge_audit.json"
 
 VERDICT_MARK = {"pass": "OK", "wrong_geo": "GEO", "fail": "--", "skip": "??"}
 
+# Below this many probed hosts the "too many failures" guard is meaningless.
+MIN_HOSTS_FOR_GUARD = 20
+
 
 # --------------------------------------------------------------------------
 # scan
@@ -122,12 +125,30 @@ def cmd_scan(args) -> int:
     return 0
 
 
+def visible_by_remark(targets) -> dict[str, list[int]]:
+    out: dict[str, list[int]] = defaultdict(list)
+    for t in targets:
+        if not t.is_disabled:
+            out[t.remark].append(t.host_id)
+    return out
+
+
 def build_report(targets, elapsed) -> dict:
     rows = [t.brief() for t in targets]
+    visible = visible_by_remark(targets)
     to_disable = [t.host_id for t in targets
                   if t.result["verdict"] == "fail" and not t.is_disabled]
+    # A working-but-hidden host is not automatically a mistake. Hosts also get
+    # hidden on purpose — most often while an entry node is being replaced by
+    # its successor, which carries the very same remarks. Un-hiding those puts
+    # two identical names in everyone's subscription, so a host only comes back
+    # when nothing visible already answers to its name.
     to_enable = [t.host_id for t in targets
-                 if t.result["verdict"] == "pass" and t.is_disabled]
+                 if t.result["verdict"] == "pass" and t.is_disabled
+                 and not visible.get(t.remark)]
+    shadowed = [t.host_id for t in targets
+                if t.result["verdict"] == "pass" and t.is_disabled
+                and visible.get(t.remark)]
     counts = defaultdict(int)
     for t in targets:
         counts[t.result["verdict"]] += 1
@@ -139,6 +160,9 @@ def build_report(targets, elapsed) -> dict:
         "hosts": rows,
         "matrix": build_matrix(targets),
         "gaps": build_gaps(targets),
+        "duplicates": [{"remark": r, "host_ids": ids}
+                       for r, ids in sorted(visible.items()) if len(ids) > 1],
+        "shadowed": shadowed,
         "changes": {"disable": to_disable, "enable": to_enable},
     }
 
@@ -273,6 +297,12 @@ def print_summary(report):
             print(f"  #{h['host_id']:<4} {h['remark'][:38]:<40} "
                   f"labelled {h.get('expected_country')} -> exits "
                   f"{h.get('country')} ({h.get('egress_ip')})")
+    dups = report.get("duplicates") or []
+    if dups:
+        print(f"\nDUPLICATE NAMES IN THE SUBSCRIPTION ({len(dups)}) "
+              f"— users see the same entry twice:")
+        for d in dups:
+            print(f"  {d['remark'][:46]:<48} hosts {d['host_ids']}")
     if report["gaps"]:
         fillable = sum(1 for g in report["gaps"] if g.get("fillable"))
         print(f"\nGAPS: {fillable} fillable, "
@@ -315,7 +345,11 @@ def apply_report(report, targets, args) -> int:
     ch = report["changes"]
     tested = report["total"]
     fails = report["counts"].get("fail", 0)
-    if tested and fails * 100 // tested > args.max_fail_pct and not args.force:
+    # The guard is about spotting a fleet-wide outage. On a handful of hosts —
+    # a targeted re-check of known suspects, say — a high failure rate is the
+    # expected outcome, not a red flag.
+    if (tested >= MIN_HOSTS_FOR_GUARD
+            and fails * 100 // tested > args.max_fail_pct and not args.force):
         print(f"\nREFUSING TO APPLY: {fails}/{tested} probes failed "
               f"(> {args.max_fail_pct}%). That usually means the panel itself "
               f"lost egress, not that every bridge died. Re-run, or pass "
@@ -356,18 +390,24 @@ def cmd_apply(args) -> int:
     report = load_report(args.report)
     live = {int(r[0]): r[1] == "1" for r in mc.db_query(
         "SELECT id, is_disabled FROM hosts")}
+    present = [h for h in report["hosts"] if h["host_id"] in live]
+    gone = [h["host_id"] for h in report["hosts"] if h["host_id"] not in live]
+    visible = {h["remark"] for h in present if not live[h["host_id"]]}
+
     ch = {"disable": [], "enable": []}
-    gone = []
-    for h in report["hosts"]:
-        cur = live.get(h["host_id"])
-        if cur is None:
-            gone.append(h["host_id"])
-        elif h["verdict"] == "fail" and not cur:
+    shadowed = []
+    for h in present:
+        cur = live[h["host_id"]]
+        if h["verdict"] == "fail" and not cur:
             ch["disable"].append(h["host_id"])
         elif h["verdict"] == "pass" and cur:
-            ch["enable"].append(h["host_id"])
+            (shadowed if h["remark"] in visible
+             else ch["enable"]).append(h["host_id"])
     if gone:
         print(f"{len(gone)} host(s) from the report no longer exist: {gone}")
+    if shadowed:
+        print(f"{len(shadowed)} working host(s) left hidden because a visible "
+              f"host already uses the same name: {shadowed}")
     age = int(time.time()) - report.get("generated_at", 0)
     print(f"report is {age // 60} min old, covers {report['total']} host(s)")
     report = dict(report, changes=ch)
