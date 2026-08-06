@@ -55,14 +55,19 @@ const Section: FC<SectionProps> = ({ title, hint, icon, hosts, action, render })
 interface Props {
     hosts: BridgeHost[];
     gaps: BridgeGap[];
+    shadowed: number[];
     busy: boolean;
     onApply: (body: { disable_ids?: number[]; enable_ids?: number[] }) => void;
 }
 
-export const BridgeHostLists: FC<Props> = ({ hosts, gaps, busy, onApply }) => {
+export const BridgeHostLists: FC<Props> = ({ hosts, gaps, shadowed, busy, onApply }) => {
     const { t } = useTranslation();
+    const hidden = new Set(shadowed);
     const dead = hosts.filter((h) => h.verdict === "fail" && !h.is_disabled);
-    const revive = hosts.filter((h) => h.verdict === "pass" && h.is_disabled);
+    const revive = hosts.filter(
+        (h) => h.verdict === "pass" && h.is_disabled && !hidden.has(h.host_id),
+    );
+    const retired = hosts.filter((h) => hidden.has(h.host_id));
     const geo = hosts.filter((h) => h.verdict === "wrong_geo");
     const flaky = hosts.filter((h) => h.partial && h.verdict !== "fail");
 
@@ -97,6 +102,17 @@ export const BridgeHostLists: FC<Props> = ({ hosts, gaps, busy, onApply }) => {
                 render={(h) => (
                     <Badge variant="outline" className="shrink-0">
                         {h.country}
+                    </Badge>
+                )}
+            />
+            <Section
+                title={t("page.bridge_health.retired.title")}
+                hint={t("page.bridge_health.retired.hint")}
+                icon={<EyeOff className="size-4 text-muted-foreground" />}
+                hosts={retired}
+                render={(h) => (
+                    <Badge variant="outline" className="shrink-0">
+                        {h.node_name}
                     </Badge>
                 )}
             />

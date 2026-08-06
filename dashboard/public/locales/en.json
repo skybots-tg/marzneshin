@@ -158,6 +158,10 @@
         "title": "Reachable from some vantage points only",
         "hint": "Some RU networks cannot reach these at all, so a share of users will see them as broken."
       },
+      "retired": {
+        "title": "Working, but deliberately hidden",
+        "hint": "These carry traffic, yet a visible host already offers the same name — normally the successor of an entry node being retired. Restoring them would show the same entry twice."
+      },
       "gaps": {
         "title": "Missing exits worth adding",
         "hint": "Exits that another entry node reaches right now. \"missing\" can be cloned from a proven donor; \"blocked\" is already wired correctly and still carries nothing, because this entry's uplink cannot reach that exit.",

@@ -204,6 +204,7 @@ export const BridgeHealthPage: FC = () => {
                     <BridgeHostLists
                         hosts={report.hosts ?? []}
                         gaps={report.gaps ?? []}
+                        shadowed={report.shadowed ?? []}
                         busy={busy}
                         onApply={apply}
                     />

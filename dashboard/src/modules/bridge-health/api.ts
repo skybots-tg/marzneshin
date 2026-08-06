@@ -68,6 +68,8 @@ export interface BridgeHealthReport {
     matrix?: Record<string, Record<string, MatrixCell>>;
     gaps?: BridgeGap[];
     pending?: { disable: number[]; enable: number[] };
+    shadowed?: number[];
+    duplicates?: { remark: string; host_ids: number[] }[];
     apply_blocked?: boolean;
     vantages?: { node_id: number; name: string; address: string; error?: string }[];
 }

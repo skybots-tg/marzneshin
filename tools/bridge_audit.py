@@ -283,13 +283,20 @@ def print_summary(report):
         for h in sorted(partial, key=lambda x: x["remark"]):
             print(f"  #{h['host_id']:<4} {h['remark'][:40]:<42} "
                   f"ok from {h.get('vantages_ok')} of {h.get('vantages_tried')}")
-    revive = [h for h in report["hosts"]
-              if h["verdict"] == "pass" and h["is_disabled"]]
+    by_id = {h["host_id"]: h for h in report["hosts"]}
+    revive = [by_id[i] for i in report["changes"]["enable"] if i in by_id]
     if revive:
         print(f"\nHIDDEN BUT WORKING -> will be restored ({len(revive)}):")
         for h in sorted(revive, key=lambda x: x["remark"]):
             print(f"  #{h['host_id']:<4} {h['remark'][:46]:<48} "
                   f"{h.get('country', '')}")
+    shadowed = [by_id[i] for i in report.get("shadowed", []) if i in by_id]
+    if shadowed:
+        print(f"\nWORKING BUT KEPT HIDDEN ({len(shadowed)}) — a visible host "
+              f"already carries the same name:")
+        for h in sorted(shadowed, key=lambda x: x["remark"]):
+            print(f"  #{h['host_id']:<4} {h['remark'][:46]:<48} "
+                  f"node {h['node_id']} {h.get('node_name', '')[:22]}")
     geo = [h for h in report["hosts"] if h["verdict"] == "wrong_geo"]
     if geo:
         print(f"\nTRAFFIC OK BUT UNEXPECTED COUNTRY ({len(geo)}) "
@@ -307,7 +314,7 @@ def print_summary(report):
     if report["gaps"]:
         fillable = sum(1 for g in report["gaps"] if g.get("fillable"))
         print(f"\nGAPS: {fillable} fillable, "
-              f"{len(report['gaps']) - fillable} blocked by the exit "
+              f"{len(report['gaps']) - fillable} blocked by the network path "
               f"— see `gaps` command")
 
 
