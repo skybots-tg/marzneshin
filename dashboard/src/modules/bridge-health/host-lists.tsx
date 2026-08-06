@@ -1,5 +1,5 @@
 import { Badge, Button, Card, CardContent } from "@marzneshin/common/components";
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { EyeOff, Eye, Compass, GitBranch } from "lucide-react";
 import type { BridgeGap, BridgeHost } from "./api";
@@ -7,10 +7,10 @@ import type { BridgeGap, BridgeHost } from "./api";
 interface SectionProps {
     title: string;
     hint: string;
-    icon: React.ReactNode;
+    icon: ReactNode;
     hosts: BridgeHost[];
     action?: { label: string; onClick: (ids: number[]) => void; busy: boolean };
-    render: (h: BridgeHost) => React.ReactNode;
+    render: (h: BridgeHost) => ReactNode;
 }
 
 const Section: FC<SectionProps> = ({ title, hint, icon, hosts, action, render }) => {
