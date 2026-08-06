@@ -76,7 +76,7 @@ def exit_slot(remark: str) -> str:
             txt = txt.rsplit(sep, 1)[-1]
             break
     txt = re.sub(r"[^\x00-\x7f]", " ", txt)
-    txt = re.sub(r"\b(xhttp|\[.*?\]|\(.*?\))", " ", txt, flags=re.I)
+    txt = re.sub(r"\[.*?\]|\(.*?\)|\bxhttp\b", " ", txt, flags=re.I)
     return re.sub(r"\s+", " ", txt).strip().upper() or "?"
 
 

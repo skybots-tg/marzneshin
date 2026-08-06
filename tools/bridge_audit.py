@@ -22,13 +22,12 @@ import os
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 
 import bridge_lib as bl
+import bridge_probe as bp
 import marz_common as mc
 
 REPORT_PATH = "/var/lib/marzneshin/bridge_audit.json"
-SOCKS_BASE = 11500
 
 VERDICT_MARK = {"pass": "OK", "wrong_geo": "GEO", "fail": "--", "skip": "??"}
 
@@ -38,12 +37,27 @@ VERDICT_MARK = {"pass": "OK", "wrong_geo": "GEO", "fail": "--", "skip": "??"}
 # --------------------------------------------------------------------------
 
 
-def cmd_scan(args) -> int:
-    if not bl.ensure_xray():
-        print("FATAL: cannot extract the xray binary from a local marznode "
-              "container; is marznode running on the panel host?")
-        return 2
+def resolve_vantages(args, targets) -> list[dict]:
+    if args.vantage:
+        wanted = [v.strip() for v in args.vantage.split(",") if v.strip()]
+        known = {str(t.node_id): {"node_id": t.node_id, "name": t.node_name,
+                                  "address": t.address,
+                                  "status": t.node_status}
+                 for t in targets}
+        out = []
+        for w in wanted:
+            if w == bp.PANEL:
+                out.append({"node_id": 0, "name": "panel",
+                            "address": bp.PANEL, "status": "healthy"})
+            elif w in known:
+                out.append(known[w])
+            else:
+                print(f"  unknown vantage {w!r}, skipping")
+        return out
+    return bp.default_vantages(targets, limit=args.vantages)
 
+
+def cmd_scan(args) -> int:
     tiers = ("universal", "elite", "fast") if args.tier == "all" else (args.tier,)
     node_ids = {int(x) for x in args.nodes.split(",")} if args.nodes else None
     targets = bl.load_targets(tiers=tiers, node_ids=node_ids)
@@ -56,27 +70,36 @@ def cmd_scan(args) -> int:
         print("no targets matched")
         return 1
 
-    print(f"probing {len(targets)} hosts with {args.jobs} workers "
-          f"({args.attempts} attempts each)...\n")
+    vantages = resolve_vantages(args, targets)
+    if not vantages:
+        print("no usable vantage node")
+        return 2
+    print(f"probing {len(targets)} hosts from {len(vantages)} RU vantage "
+          f"point(s), {args.jobs} workers each:")
+    for v in vantages:
+        print(f"    node {v['node_id']:<4} {v['name']} ({v['address']})")
+    print()
     started = time.time()
-    done = [0]
 
-    def run(idx_target):
-        idx, t = idx_target
-        t.result = bl.probe(t, SOCKS_BASE + (idx % args.jobs),
-                            user_uuid=args.user, timeout=args.timeout,
-                            attempts=args.attempts)
-        done[0] += 1
-        v = t.result["verdict"]
-        extra = t.result.get("country") or t.result.get("error") or ""
-        print(f"  [{done[0]:>3}/{len(targets)}] {VERDICT_MARK[v]:<3} "
-              f"{t.label:<28} {t.remark[:42]:<44} {extra}")
-        return t
+    def done(v, res):
+        if "__error__" in res:
+            print(f"  vantage {v['name']}: FAILED — {res['__error__']}")
+            return
+        ok = sum(1 for r in res.values() if r["verdict"] == "pass")
+        print(f"  vantage {v['name']}: {ok}/{len(res)} reachable")
 
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        list(pool.map(run, enumerate(targets)))
+    per_vantage = bp.probe_all(targets, vantages, args.user, workers=args.jobs,
+                               timeout=args.timeout, on_vantage_done=done)
+    bp.merge(targets, per_vantage)
 
     report = build_report(targets, round(time.time() - started, 1))
+    report["vantages"] = [
+        {"node_id": v["node_id"], "name": v["name"], "address": v["address"],
+         "error": per_vantage.get(
+             v["name"] if v["address"] == bp.PANEL else str(v["node_id"]),
+             {}).get("__error__")}
+        for v in vantages
+    ]
     save_report(report, args.report)
     print()
     print_summary(report)
@@ -209,8 +232,16 @@ def print_summary(report):
     if dead:
         print(f"\nLIVE BUT BROKEN -> will be hidden ({len(dead)}):")
         for h in sorted(dead, key=lambda x: x["remark"]):
-            print(f"  #{h['host_id']:<4} {h['remark'][:46]:<48} "
-                  f"{h.get('error', '')}")
+            tried = ",".join(h.get("vantages_tried") or [])
+            print(f"  #{h['host_id']:<4} {h['remark'][:44]:<46} "
+                  f"{h.get('error', ''):<10} unreachable from [{tried}]")
+    partial = [h for h in report["hosts"] if h.get("partial")]
+    if partial:
+        print(f"\nREACHABLE FROM SOME VANTAGES ONLY ({len(partial)}) "
+              f"— kept enabled, but the route is flaky:")
+        for h in sorted(partial, key=lambda x: x["remark"]):
+            print(f"  #{h['host_id']:<4} {h['remark'][:40]:<42} "
+                  f"ok from {h.get('vantages_ok')} of {h.get('vantages_tried')}")
     revive = [h for h in report["hosts"]
               if h["verdict"] == "pass" and h["is_disabled"]]
     if revive:
@@ -339,9 +370,13 @@ def main() -> int:
                    choices=["universal", "elite", "fast", "all"])
     s.add_argument("--nodes", default="", help="comma-separated node ids")
     s.add_argument("--slot", default="", help="comma-separated exit slots")
-    s.add_argument("--jobs", type=int, default=6)
+    s.add_argument("--jobs", type=int, default=6,
+                   help="parallel probes per vantage node")
+    s.add_argument("--vantages", type=int, default=3,
+                   help="how many RU nodes to probe from")
+    s.add_argument("--vantage", default="",
+                   help="explicit vantage node ids, or 'panel'")
     s.add_argument("--timeout", type=int, default=12)
-    s.add_argument("--attempts", type=int, default=2)
     s.add_argument("--user", default=bl.DEFAULT_USER)
     s.add_argument("--include-direct", action="store_true",
                    help="also probe non-bridge RU Direct hosts")
