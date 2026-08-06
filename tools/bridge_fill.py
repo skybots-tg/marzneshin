@@ -46,14 +46,20 @@ def normalize_entry(key: str) -> str:
     return f"{tier}-{int(m.group(2))}"
 
 
-def pick_donor(targets, slot, exclude_key, forced=""):
-    """Best working (host, inbound) to clone for `slot`, tcp preferred."""
+def pick_donor(targets, slot, exclude_key, forced="", tier=""):
+    """Best working (host, inbound) to clone for `slot`, tcp preferred.
+
+    Same-tier donors win: the tiers differ in branding and in the service they
+    belong to, and cloning across them produces a host wearing the wrong name.
+    """
     cands = [t for t in targets
              if t.slot == slot and t.entry_key != exclude_key
              and t.result.get("verdict") in ("pass", "wrong_geo")]
     if forced:
         want = normalize_entry(forced)
         cands = [t for t in cands if t.entry_key == want]
+    elif tier:
+        cands = [t for t in cands if t.tier == tier] or cands
     if not cands:
         return None
     cands.sort(key=lambda t: (t.variant != "tcp", t.result.get("elapsed", 99)))
@@ -76,10 +82,22 @@ def free_port(used: set[int], preferred: int) -> int:
     raise SystemExit("no free port left on the target node")
 
 
-def clone_remark(donor_remark: str, donor_idx: int, target_idx: int) -> str:
-    return re.sub(rf"\b(UNIVERSAL|ELITE)\s+{donor_idx}\b",
-                  lambda m: f"{m.group(1)} {target_idx}",
-                  donor_remark, flags=re.I)
+def clone_remark(donor, target_tier: str, target_idx: int) -> str:
+    """The name the new host should carry in subscriptions.
+
+    Within one tier the donor's remark is reused verbatim except for the index,
+    which preserves hand-written details like "(Я за границей)". Across tiers
+    the branding is rebuilt from scratch, since an ELITE remark on a UNIVERSAL
+    entry would be plainly wrong to the subscriber.
+    """
+    if donor.tier == target_tier:
+        return re.sub(rf"\b(UNIVERSAL|ELITE|FAST)\s+{donor.tier_index}\b",
+                      lambda m: f"{m.group(1)} {target_idx}",
+                      donor.remark, flags=re.I)
+    label = donor.slot + (" xhttp" if donor.variant == "xhttp" else "")
+    builder = {"universal": mc.universal_remark, "elite": mc.elite_remark,
+               "fast": mc.fast_remark}[target_tier]
+    return builder(target_idx, donor.iso or "", label)
 
 
 def entry_weight(targets, entry_key, fallback_idx) -> int:
@@ -111,8 +129,7 @@ def plan_one(slot, donor, tgt_meta, tgt_cfg, donor_cfg, used_ports, targets):
         "slot": slot, "tag": tag, "out_tag": out_tag, "port": port,
         "donor": donor, "donor_ib": donor_ib, "donor_ob": donor_ob,
         "inbound_exists": existing is not None,
-        "remark": clone_remark(donor.remark, donor.tier_index,
-                               tgt_meta.tier_index),
+        "remark": clone_remark(donor, tgt_meta.tier, tgt_meta.tier_index),
         "weight": entry_weight(targets, tgt_meta.entry_key, tgt_meta.tier_index),
     }, None
 
@@ -224,7 +241,8 @@ def run(args) -> int:
     tgt_cfg = mc.node_cfg(tgt_meta.address)
     used_ports = {ib.get("port") for ib in tgt_cfg["inbounds"]}
     for slot in slots:
-        donor = pick_donor(targets, slot, entry_key, args.donor)
+        donor = pick_donor(targets, slot, entry_key, args.donor,
+                           tier=tgt_meta.tier)
         if not donor:
             errors.append((slot, "no donor entry currently reaches this exit"))
             continue
