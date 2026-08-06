@@ -160,8 +160,8 @@
       },
       "gaps": {
         "title": "Missing exits worth adding",
-        "hint": "Exits that another entry node reaches right now. \"missing\" can be cloned from a proven donor; \"blocked\" is already wired and still gets no traffic, so the exit is refusing this particular entry.",
-        "blocked": "exit refuses this entry — cloning will not help"
+        "hint": "Exits that another entry node reaches right now. \"missing\" can be cloned from a proven donor; \"blocked\" is already wired correctly and still carries nothing, because this entry's uplink cannot reach that exit.",
+        "blocked": "this entry's uplink cannot reach the exit — cloning will not help"
       }
     },
     "topology": {

@@ -207,11 +207,12 @@ def build_gaps(targets) -> list[dict]:
 
     Two very different situations look the same in the matrix. If the entry has
     no bridge to that exit at all, cloning a working one from another entry
-    fixes it. If it already has one and the probe fails, the wiring is fine and
-    the exit is refusing this particular entry — observed on AdminVPS RU-2,
-    whose outbounds are byte-identical to a donor's yet get no answer while the
-    donor sails through. Cloning there just recreates the same dead route, so
-    those are reported as blocked and left out of the fill suggestions.
+    fixes it. If it already has one and the probe fails, the wiring is not the
+    problem: on both AdminVPS entries the outbounds are byte-identical to a
+    working donor's, TCP to the exit completes in both directions, and only the
+    TLS handshake goes unanswered — the uplink is filtering those destinations,
+    and a cloned bridge would take the same blocked path. Those are reported as
+    blocked and left out of the fill suggestions.
     """
     grid = build_matrix(targets)
     entries = {}
@@ -443,8 +444,8 @@ def cmd_gaps(args) -> int:
                       f"donors: {', '.join(g['donors'][:4])}")
             else:
                 print(f"    {g['slot']:<8} blocked   wired but no traffic "
-                      f"(hosts {g['dead_host_ids']}) — the exit is refusing "
-                      f"this entry, cloning will not help")
+                      f"(hosts {g['dead_host_ids']}) — this entry's uplink "
+                      f"cannot reach that exit, cloning will not help")
         todo = sorted({g["slot"] for g in rows if g.get("fillable")})
         if todo:
             print(f"    -> python3 bridge_audit.py fill {ek} "
