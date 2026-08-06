@@ -9,6 +9,7 @@ import {
     Settings,
     Bot,
     Waypoints,
+    Activity,
 } from 'lucide-react';
 
 const iconClass = "size-[18px]";
@@ -45,6 +46,12 @@ export const sidebarItems: SidebarObject = {
             title: 'topology',
             to: '/topology',
             icon: <Waypoints className={iconClass} />,
+            isParent: false,
+        },
+        {
+            title: 'bridge-health',
+            to: '/bridge-health',
+            icon: <Activity className={iconClass} />,
             isParent: false,
         },
         {

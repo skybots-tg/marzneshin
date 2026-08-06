@@ -25,8 +25,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 XRAY = "/tmp/xray_bridge_probe"
-GEO = [("https://ipinfo.io/json", "ipinfo"),
-       ("http://ip-api.com/json/?fields=status,countryCode,query", "ipapi")]
+
+# Several geo lookups, rotated per job. ip-api.com allows only ~45 requests a
+# minute per source IP, and a sweep of 100+ hosts blows straight through that;
+# a rate-limited lookup is indistinguishable from a dead bridge, so spreading
+# the load across providers is what keeps the verdicts honest.
+GEO = [
+    ("https://ipinfo.io/json", "ipinfo"),
+    ("https://api.country.is/", "countryis"),
+    ("http://ip-api.com/json/?fields=status,countryCode,query", "ipapi"),
+]
 
 
 def ensure_xray():
@@ -54,14 +62,14 @@ def parse_geo(raw, shape):
         d = json.loads(raw)
     except Exception:
         return None, None
-    if shape == "ipinfo":
+    if shape in ("ipinfo", "countryis"):
         return d.get("country"), d.get("ip")
     if d.get("status") == "success":
         return d.get("countryCode"), d.get("query")
     return None, None
 
 
-def run_job(job, socks_port, timeout):
+def run_job(job, socks_port, timeout, geo_offset=0):
     cfg = job["client"]
     cfg["inbounds"][0]["port"] = socks_port
     f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
@@ -78,7 +86,8 @@ def run_job(job, socks_port, timeout):
             log.seek(0)
             return {"verdict": "fail", "error": "xray_client_exited",
                     "detail": log.read()[-300:]}
-        for url, shape in GEO:
+        rotated = GEO[geo_offset % len(GEO):] + GEO[:geo_offset % len(GEO)]
+        for url, shape in rotated:
             try:
                 r = subprocess.run(
                     ["curl", "-s", "--socks5-hostname",
@@ -116,6 +125,7 @@ def main():
     jobs = req["jobs"]
     workers = int(req.get("workers", 6))
     timeout = int(req.get("timeout", 12))
+    attempts = int(req.get("attempts", 2))
     if not ensure_xray():
         print(json.dumps({"error": "no xray binary on this vantage"}))
         return
@@ -124,14 +134,28 @@ def main():
 
     def one(pair):
         idx, job = pair
+        # Every job gets its own listen port for the whole run. Reusing ports
+        # across jobs lets a lingering xray from a finished probe answer the
+        # next one's curl, which silently reports another server's country.
         try:
-            results[job["id"]] = run_job(job, base + (idx % workers), timeout)
+            results[job["id"]] = run_job(job, base + idx, timeout,
+                                         geo_offset=idx)
         except Exception as exc:  # noqa: BLE001
             results[job["id"]] = {"verdict": "fail", "error": "runner_crash",
                                   "detail": str(exc)[:200]}
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        list(pool.map(one, enumerate(jobs)))
+    indexed = list(enumerate(jobs))
+    for attempt in range(attempts):
+        if not indexed:
+            break
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(one, indexed))
+        # Retry only the failures, once the first sweep has drained: a lot of
+        # them are geo-lookup rate limits rather than a dead route.
+        indexed = [(i, j) for i, j in indexed
+                   if results.get(j["id"], {}).get("verdict") != "pass"]
+        if indexed and attempt + 1 < attempts:
+            time.sleep(5)
     print(json.dumps({"results": results}))
 
 

@@ -6,6 +6,7 @@
   "users": "Users",
   "nodes": "Nodes",
   "topology": "Topology",
+  "bridge-health": "Bridge health",
   "services": "Services",
   "hosts": "Hosts",
   "username": "Username",
@@ -111,6 +112,57 @@
     "donate": "Donate"
   },
   "page": {
+    "bridge_health": {
+      "entry": "Entry node",
+      "run_scan": "Run audit",
+      "scanning": "Audit running...",
+      "scan_queued": "Audit queued. It runs from RU vantage nodes and takes a few minutes.",
+      "scan_failed": "Could not queue the audit.",
+      "refresh": "Refresh",
+      "apply_all": "Hide {{hide}} dead, restore {{restore}}",
+      "applied": "Hid {{hidden}} host(s), restored {{restored}}.",
+      "apply_blocked": "Most probes failed, which usually means the panel host lost connectivity during the audit rather than the whole fleet dying. Re-run the audit before applying.",
+      "last_scan": "last audit {{age}} ago",
+      "from_vantages": "probed from {{list}}",
+      "unavailable": "No audit report yet.",
+      "stale": "Report is stale",
+      "total": "{{n}} hosts",
+      "working": "{{n}} working",
+      "wrong_geo": "{{n}} wrong country",
+      "broken": "{{n}} no traffic",
+      "hosts": "hosts",
+      "no_host": "no host for this exit",
+      "legend": {
+        "ok": "works, visible",
+        "ok_hidden": "works, hidden",
+        "geo": "works, wrong country",
+        "dead": "visible but no traffic",
+        "dead_hidden": "hidden and dead",
+        "absent": "no host"
+      },
+      "dead": {
+        "title": "Handed to users but carrying no traffic",
+        "hint": "No RU vantage point could get traffic out of these. Hiding them removes them from every subscription.",
+        "action": "Hide all"
+      },
+      "revive": {
+        "title": "Hidden but working again",
+        "hint": "These carry traffic now. Restoring puts them back into subscriptions.",
+        "action": "Restore all"
+      },
+      "geo": {
+        "title": "Traffic flows, but to the wrong country",
+        "hint": "The bridge works, yet it exits somewhere other than its label promises — the entry node's outbound points at the wrong exit server. Left visible on purpose; fix the routing or relabel."
+      },
+      "flaky": {
+        "title": "Reachable from some vantage points only",
+        "hint": "Some RU networks cannot reach these at all, so a share of users will see them as broken."
+      },
+      "gaps": {
+        "title": "Missing exits worth adding",
+        "hint": "These entry nodes lack an exit that another entry reaches right now, so the bridge can be cloned from a proven donor."
+      }
+    },
     "topology": {
       "entry": "Entry node",
       "add_exit": "Add exit country",

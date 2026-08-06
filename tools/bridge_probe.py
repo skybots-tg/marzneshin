@@ -151,9 +151,15 @@ def merge(targets, per_vantage: dict) -> None:
 
         countries = {v.get("country") for v in good.values()}
         t.result["verdict"] = "pass"
+        t.result["countries"] = sorted(c for c in countries if c)
         if t.iso and t.iso not in countries:
             t.result["verdict"] = "wrong_geo"
             t.result["expected_country"] = t.iso
+        elif t.iso:
+            # Report the labelled country rather than whichever vantage
+            # happened to answer first, so the UI does not look self-
+            # contradictory when providers disagree.
+            t.result["country"] = t.iso
         if t.is_bridge and countries == {"RU"}:
             t.result["verdict"] = "fail"
             t.result["error"] = "ru_leak"
