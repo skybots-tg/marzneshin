@@ -45,29 +45,41 @@ MIN_HOSTS_FOR_GUARD = 20
 
 
 def resolve_vantages(args, targets) -> list[dict]:
-    if args.vantage:
-        wanted = [v.strip() for v in args.vantage.split(",") if v.strip()]
-        known = {str(t.node_id): {"node_id": t.node_id, "name": t.node_name,
-                                  "address": t.address,
-                                  "status": t.node_status}
-                 for t in targets}
-        out = []
-        for w in wanted:
-            if w == bp.PANEL:
-                out.append({"node_id": 0, "name": "panel",
-                            "address": bp.PANEL, "status": "healthy"})
-            elif w in known:
-                out.append(known[w])
-            else:
-                print(f"  unknown vantage {w!r}, skipping")
-        return out
-    return bp.default_vantages(targets, limit=args.vantages)
+    """Where to probe from.
+
+    A named vantage is looked up in the nodes table rather than among the
+    targets: the two sets only overlap for a full scan. Narrowing a scan to a
+    handful of hosts — the usual way to re-check one suspect — would otherwise
+    empty the vantage list and leave nothing to probe from.
+    """
+    if not args.vantage:
+        return bp.default_vantages(targets, limit=args.vantages)
+
+    wanted = [v.strip() for v in args.vantage.split(",") if v.strip()]
+    known = {str(t.node_id): {"node_id": t.node_id, "name": t.node_name,
+                              "address": t.address, "status": t.node_status}
+             for t in targets}
+    for nid, name, address, status in mc.db_query(
+            "SELECT id, name, address, status FROM nodes"):
+        known.setdefault(str(nid), {"node_id": int(nid), "name": name,
+                                    "address": address, "status": status})
+    out = []
+    for w in wanted:
+        if w == bp.PANEL:
+            out.append({"node_id": 0, "name": "panel",
+                        "address": bp.PANEL, "status": "healthy"})
+        elif w in known:
+            out.append(known[w])
+        else:
+            print(f"  unknown vantage {w!r}, skipping")
+    return out
 
 
 def cmd_scan(args) -> int:
     tiers = ("universal", "elite", "fast") if args.tier == "all" else (args.tier,)
     node_ids = {int(x) for x in args.nodes.split(",")} if args.nodes else None
     targets = bl.load_targets(tiers=tiers, node_ids=node_ids)
+    complete = not (args.slot or args.hosts)
     if args.slot:
         want = {s.strip().upper() for s in args.slot.split(",")}
         targets = [t for t in targets if t.slot in want]
@@ -102,7 +114,7 @@ def cmd_scan(args) -> int:
                                timeout=args.timeout, on_vantage_done=done)
     bp.merge(targets, per_vantage)
 
-    report = build_report(targets, round(time.time() - started, 1))
+    report = build_report(targets, round(time.time() - started, 1), complete)
     report["vantages"] = [
         {"node_id": v["node_id"], "name": v["name"], "address": v["address"],
          "error": per_vantage.get(
@@ -133,7 +145,7 @@ def visible_by_remark(targets) -> dict[str, list[int]]:
     return out
 
 
-def build_report(targets, elapsed) -> dict:
+def build_report(targets, elapsed, complete: bool = True) -> dict:
     rows = [t.brief() for t in targets]
     visible = visible_by_remark(targets)
     to_disable = [t.host_id for t in targets
@@ -160,7 +172,7 @@ def build_report(targets, elapsed) -> dict:
         "hosts": rows,
         "matrix": build_matrix(targets),
         "gaps": build_gaps(targets),
-        "outages": build_outages(targets),
+        "outages": build_outages(targets, complete),
         "duplicates": [{"remark": r, "host_ids": ids}
                        for r, ids in sorted(visible.items()) if len(ids) > 1],
         "shadowed": shadowed,
@@ -199,7 +211,7 @@ def build_matrix(targets) -> dict:
     return {k: v for k, v in grid.items()}
 
 
-def build_outages(targets) -> list[dict]:
+def build_outages(targets, complete: bool = True) -> list[dict]:
     """Entry nodes where nothing at all got through.
 
     One dead exit is a bridge problem; every exit dead on the same node,
@@ -207,7 +219,13 @@ def build_outages(targets) -> list[dict]:
     machine off the network. Hiding those hosts is still right, since nobody
     can use them, but it is worth saying out loud: the fix is on the node, and
     the whole group comes back at once when it is.
+
+    The claim only holds when the node's whole set of hosts was probed. On a
+    scan narrowed to one exit, "every host failed" says nothing more than that
+    the one exit is down, so a filtered run reports no outages at all.
     """
+    if not complete:
+        return []
     by_node: dict[int, list] = defaultdict(list)
     for t in targets:
         by_node[t.node_id].append(t)
