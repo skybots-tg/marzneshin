@@ -18,6 +18,7 @@ import re
 
 import bridge_lib as bl
 import bridge_probe as bp
+import bridge_weights as bw
 import marz_common as mc
 
 DEFAULT_PORT_RANGE = range(23000, 23400)
@@ -100,12 +101,16 @@ def clone_remark(donor, target_tier: str, target_idx: int) -> str:
     return builder(target_idx, donor.iso or "", label)
 
 
-def entry_weight(targets, entry_key, fallback_idx) -> int:
-    weights = [t.weight for t in targets
-               if t.entry_key == entry_key and t.weight]
-    if weights:
-        return max(set(weights), key=weights.count)
-    return 100 + (fallback_idx - 1) * 10
+def entry_weight(targets, slot, fallback_idx) -> int:
+    """Where the new host belongs in the subscription order.
+
+    Weights follow `100 + (brand - 1) * 10 + slot_offset`; taking the group's
+    most common weight instead would drop every new bridge on the block
+    boundary, ahead of exits that are meant to precede it.
+    """
+    offsets, _ = bw.learn_offsets(targets)
+    base = bw.brand_base(fallback_idx)
+    return base + offsets.get(slot, 0)
 
 
 def plan_one(slot, donor, tgt_meta, tgt_cfg, donor_cfg, used_ports, targets):
@@ -130,7 +135,7 @@ def plan_one(slot, donor, tgt_meta, tgt_cfg, donor_cfg, used_ports, targets):
         "donor": donor, "donor_ib": donor_ib, "donor_ob": donor_ob,
         "inbound_exists": existing is not None,
         "remark": clone_remark(donor, tgt_meta.tier, tgt_meta.tier_index),
-        "weight": entry_weight(targets, tgt_meta.entry_key, tgt_meta.tier_index),
+        "weight": entry_weight(targets, slot, tgt_meta.tier_index),
     }, None
 
 

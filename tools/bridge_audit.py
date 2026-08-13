@@ -160,6 +160,7 @@ def build_report(targets, elapsed) -> dict:
         "hosts": rows,
         "matrix": build_matrix(targets),
         "gaps": build_gaps(targets),
+        "outages": build_outages(targets),
         "duplicates": [{"remark": r, "host_ids": ids}
                        for r, ids in sorted(visible.items()) if len(ids) > 1],
         "shadowed": shadowed,
@@ -196,6 +197,31 @@ def build_matrix(targets) -> dict:
         cell["host_ids"].append(t.host_id)
         cell["enabled"] += 0 if t.is_disabled else 1
     return {k: v for k, v in grid.items()}
+
+
+def build_outages(targets) -> list[dict]:
+    """Entry nodes where nothing at all got through.
+
+    One dead exit is a bridge problem; every exit dead on the same node,
+    including its direct RU hosts, is the node itself — xray down, or the
+    machine off the network. Hiding those hosts is still right, since nobody
+    can use them, but it is worth saying out loud: the fix is on the node, and
+    the whole group comes back at once when it is.
+    """
+    by_node: dict[int, list] = defaultdict(list)
+    for t in targets:
+        by_node[t.node_id].append(t)
+    out = []
+    for node_id, ts in sorted(by_node.items()):
+        if len(ts) < 2 or any(t.result["verdict"] != "fail" for t in ts):
+            continue
+        out.append({
+            "node_id": node_id, "node_name": ts[0].node_name,
+            "address": ts[0].address, "node_status": ts[0].node_status,
+            "entry_keys": sorted({t.entry_key for t in ts}),
+            "host_ids": sorted(t.host_id for t in ts),
+        })
+    return out
 
 
 def slot_is_alive(cell) -> bool:
@@ -268,6 +294,11 @@ def print_summary(report):
           f"skip={c.get('skip', 0)}  ({report['elapsed_sec']}s)")
     print("=" * 78)
     print_matrix(report)
+    for o in report.get("outages") or []:
+        print(f"\nENTRY NODE DOWN: node {o['node_id']} {o['node_name']} "
+              f"({o['address']}, panel says {o['node_status']}) — all "
+              f"{len(o['host_ids'])} host(s) failed, so this is the node, not "
+              f"its bridges. Check xray there before reading the rest.")
     dead = [h for h in report["hosts"]
             if h["verdict"] == "fail" and not h["is_disabled"]]
     if dead:
