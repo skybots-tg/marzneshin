@@ -93,15 +93,17 @@ def entry_key(tier: str, tier_index: int) -> str:
 
 
 def link_key(entry_node_id: int, exit_ref, variant: str = "tcp") -> str:
-    """Stable id of one entry->exit leg.
+    """Stable id of one entry->exit leg, e.g. ``25>FR-2/tcp``.
 
-    ``exit_ref`` is the exit node id when the exit is a registered node, and its
-    address otherwise -- several exits (the EE and FL servers, for two) carry a
-    reality listener without ever having been added to ``nodes``, and a link to
-    them is still a link. ``variant`` keeps tcp and xhttp apart: they ride the
-    same pair of servers but fail independently.
+    ``exit_ref`` is the exit *slot* rather than a node id on purpose. Slots come
+    from the remark and are stable, while ``inbounds.exit_node_id`` is still
+    being backfilled and is NULL for exits that were never registered as nodes
+    (the EE and FL servers, for two). Keying on the slot means a link keeps its
+    identity -- and its failure streak -- across that backfill.
 
-    A direct (non-bridge) inbound has no exit, and passes ``exit_ref=None``.
+    ``variant`` keeps tcp and xhttp apart: they ride the same pair of servers
+    but fail independently. A direct (non-bridge) inbound has no exit leg and
+    passes ``exit_ref=None``.
     """
     exit_part = "direct" if exit_ref in (None, "") else str(exit_ref)
     return f"{entry_node_id}>{exit_part}/{variant}"

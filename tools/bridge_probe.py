@@ -114,7 +114,7 @@ def probe_all(targets, vantages, user_uuid: str, workers: int = 6,
     per_vantage: dict[str, dict] = {}
 
     def one(v):
-        key = v["name"] if v["address"] == PANEL else str(v["node_id"])
+        key = vantage_key(v)
         res = probe_from_vantage(v, targets, user_uuid, workers, timeout)
         per_vantage[key] = res
         if on_vantage_done:
@@ -125,13 +125,50 @@ def probe_all(targets, vantages, user_uuid: str, workers: int = 6,
     return per_vantage
 
 
-def merge(targets, per_vantage: dict) -> None:
+def vantage_key(vantage: dict) -> str:
+    return vantage["name"] if vantage["address"] == PANEL else str(
+        vantage["node_id"])
+
+
+def vantage_origins(vantages) -> dict[str, str]:
+    """vantage key -> "RU" or "FOREIGN", read off the node's flag emoji.
+
+    The panel sits in Norway, so it always counts as foreign.
+    """
+    out = {}
+    for v in vantages:
+        if v["address"] == PANEL:
+            out[vantage_key(v)] = "FOREIGN"
+        else:
+            iso = bl.flag_to_iso(v.get("name") or "")
+            out[vantage_key(v)] = "RU" if iso == "RU" else "FOREIGN"
+    return out
+
+
+# Which vantage speaks for a tier's actual users. UNIVERSAL and ELITE enter
+# through a RU node and are sold to people inside Russia, so a RU vantage is the
+# honest witness for them. FAST connects straight to a foreign server and is
+# what subscribers abroad use. Judging FAST from Moscow hides a whole class of
+# outage — a server can be perfectly reachable from RU and dead for everyone
+# else — which is exactly how broken FR and DE exits stayed visible for weeks.
+TIER_AUDIENCE = {"universal": "RU", "elite": "RU", "fast": "FOREIGN"}
+
+
+def merge(targets, per_vantage: dict, origins: dict[str, str] | None = None) -> None:
     """Collapse per-vantage results onto each target's ``result``.
 
-    A target passes if any vantage got traffic out of it. Failures are only
-    trusted when *every* vantage agrees, which is what keeps provider-level
-    filtering from masquerading as a dead bridge.
+    Within the audience that matters for a target's tier, it passes if any
+    vantage got traffic out of it: RU providers filter inconsistently, and a
+    host reachable from one subscriber's network is not dead just because
+    another's drops it. Failures are only trusted when every vantage in that
+    audience agrees.
+
+    When no vantage represents the right audience — a hand-run scan from a
+    single RU node, say — the target is judged on whatever ran and marked
+    ``audience: "fallback"``, because a verdict from the wrong side of the
+    border is still better than none.
     """
+    origins = origins or {}
     for t in targets:
         views = {}
         for vkey, res in per_vantage.items():
@@ -146,16 +183,28 @@ def merge(targets, per_vantage: dict) -> None:
             t.result = {"verdict": "skip", "error": "not probed anywhere"}
             continue
 
+        by_vantage = dict(views)
+        wanted = TIER_AUDIENCE.get(t.tier)
+        audience = wanted or "any"
+        if wanted:
+            speaking = {k: v for k, v in views.items()
+                        if origins.get(k, wanted) == wanted}
+            if speaking:
+                views = speaking
+            else:
+                audience = "fallback"
+
         good = {k: v for k, v in views.items() if v["verdict"] == "pass"}
         best = (min(good.values(), key=lambda v: v.get("elapsed", 99))
                 if good else next(iter(views.values())))
         t.result = dict(best)
+        t.result["audience"] = audience
         t.result["vantages_ok"] = sorted(good)
         t.result["vantages_tried"] = sorted(views)
         t.result["by_vantage"] = {
             k: {"verdict": v["verdict"],
                 "country": v.get("country") or v.get("error")}
-            for k, v in views.items()
+            for k, v in by_vantage.items()
         }
         if not good:
             t.result["verdict"] = "fail"

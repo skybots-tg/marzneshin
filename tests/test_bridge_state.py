@@ -1,0 +1,193 @@
+"""Rules the bridge auto-hide obeys, spelled out as tests.
+
+``tools/bridge_state.py`` is what decides whether a location disappears from
+every user's subscription, so each rule that protects a working server gets its
+own case here. The module is deliberately dependency-free, which is why it can
+be imported straight off disk rather than through the ``app`` package.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import sys
+
+import pytest
+
+_STATE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "tools", "bridge_state.py",
+)
+_spec = importlib.util.spec_from_file_location("bridge_state", _STATE_PATH)
+bs = importlib.util.module_from_spec(_spec)
+# Registered before execution because @dataclass resolves annotations through
+# sys.modules; without this the module's own classes cannot be built.
+sys.modules["bridge_state"] = bs
+_spec.loader.exec_module(bs)
+
+BUSY = bs.SILENT_NODE_BYTES * 100
+LINK = "25>FR/tcp"
+
+
+class FakeTarget:
+    """The handful of Target attributes roll_up actually reads."""
+
+    def __init__(self, host_id, verdict, *, link=LINK, node_id=25,
+                 is_disabled=False, remark=None, exit_node_id=14):
+        self.host_id = host_id
+        self.link_key = link
+        self.node_id = node_id
+        self.node_name = "AdminVPS RU-2"
+        self.node_status = "healthy"
+        self.exit_node_id = exit_node_id
+        self.slot = "FR"
+        self.variant = "tcp"
+        self.entry_key = "universal-2"
+        self.is_bridge = True
+        self.is_disabled = is_disabled
+        self.remark = remark or f"host-{host_id}"
+        self.result = {"verdict": verdict}
+
+
+def run(targets, state=None, traffic=None, statuses=None):
+    state = state if state is not None else bs.load("/nonexistent/state.json")
+    links = bs.roll_up(targets)
+    return links, state, bs.decide(
+        links, state,
+        traffic if traffic is not None else {25: BUSY, 14: BUSY},
+        statuses or {25: "healthy", 14: "healthy"},
+        remark_of={t.host_id: t.remark for t in targets},
+    )
+
+
+def test_one_bad_run_hides_nothing():
+    _, state, decisions = run([FakeTarget(1, "fail")])
+    assert decisions["disable"] == []
+    assert state["links"][LINK]["fail_streak"] == 1
+
+
+def test_second_consecutive_failure_hides_the_link():
+    targets = [FakeTarget(1, "fail"), FakeTarget(2, "fail")]
+    _, state, _ = run(targets)
+    _, _, decisions = run(targets, state)
+    assert decisions["disable"] == [1, 2]
+
+
+def test_a_recovery_between_failures_resets_the_streak():
+    _, state, _ = run([FakeTarget(1, "fail")])
+    _, state, _ = run([FakeTarget(1, "pass")], state)
+    _, _, decisions = run([FakeTarget(1, "fail")], state)
+    assert decisions["disable"] == []
+
+
+def test_a_live_sibling_keeps_the_link_up():
+    """One broken host next to a working one is a config bug, not an outage."""
+    targets = [FakeTarget(1, "fail"), FakeTarget(2, "pass")]
+    links, _, decisions = run(targets)
+    assert links[LINK].verdict == "up"
+    assert decisions["disable"] == []
+
+
+def test_wrong_geo_still_counts_as_traffic_flowing():
+    links, _, decisions = run([FakeTarget(1, "wrong_geo")])
+    assert links[LINK].verdict == "up"
+    assert decisions["disable"] == []
+
+
+def test_silent_and_unhealthy_node_is_hidden_at_once():
+    """Zero bytes plus an unreachable node is proof enough without a streak."""
+    _, _, decisions = run(
+        [FakeTarget(1, "fail")], traffic={25: 0, 14: 0},
+        statuses={25: "unhealthy", 14: "healthy"},
+    )
+    assert decisions["disable"] == [1]
+    assert decisions["links"][LINK]["reason"] == "node_silent"
+
+
+def test_silence_alone_does_not_trigger_the_fast_path():
+    _, _, decisions = run(
+        [FakeTarget(1, "fail")], traffic={25: 0, 14: 0},
+        statuses={25: "healthy", 14: "healthy"},
+    )
+    assert decisions["disable"] == []
+
+
+def test_failure_against_live_traffic_is_flagged_contested():
+    _, _, decisions = run([FakeTarget(1, "fail")])
+    assert decisions["links"][LINK]["contested"] is True
+
+
+def test_skipped_links_do_not_age_the_streak():
+    _, state, _ = run([FakeTarget(1, "fail")])
+    _, state, decisions = run([FakeTarget(1, "skip")], state)
+    assert decisions["disable"] == []
+    assert state["links"][LINK]["fail_streak"] == 1
+
+
+def test_only_hosts_this_module_hid_come_back():
+    """A host hidden by hand stays hidden however well it probes."""
+    hidden_by_hand = [FakeTarget(9, "pass", is_disabled=True)]
+    _, state, _ = run(hidden_by_hand)
+    _, _, decisions = run(hidden_by_hand, state)
+    assert decisions["enable"] == []
+
+
+def test_a_link_that_recovers_restores_what_it_hid():
+    failing = [FakeTarget(1, "fail")]
+    _, state, _ = run(failing)
+    _, state, decisions = run(failing, state)
+    assert decisions["disable"] == [1]
+
+    recovered = [FakeTarget(1, "pass", is_disabled=True)]
+    _, state, _ = run(recovered, state)
+    _, state, decisions = run(recovered, state)
+    assert decisions["enable"] == [1]
+    assert "1" not in state["auto_disabled"]
+
+
+def test_restore_waits_for_the_node_to_carry_traffic_again():
+    failing = [FakeTarget(1, "fail")]
+    _, state, _ = run(failing)
+    _, state, _ = run(failing, state)
+
+    recovered = [FakeTarget(1, "pass", is_disabled=True)]
+    quiet = {"traffic": {25: 0, 14: 0},
+             "statuses": {25: "unhealthy", 14: "healthy"}}
+    _, state, _ = run(recovered, state, **quiet)
+    _, state, decisions = run(recovered, state, **quiet)
+    assert decisions["enable"] == []
+    assert decisions["links"][LINK]["reason"] == "held_no_traffic"
+
+
+def test_a_visible_twin_blocks_the_restore():
+    """Two identical names in one subscription is worse than one hidden host."""
+    failing = [FakeTarget(1, "fail", remark="FR")]
+    _, state, _ = run(failing)
+    _, state, _ = run(failing, state)
+
+    recovered = [FakeTarget(1, "pass", is_disabled=True, remark="FR")]
+    links = bs.roll_up(recovered)
+    bs.decide(links, state, {25: BUSY, 14: BUSY}, {25: "healthy"},
+              visible_by_remark={"FR": [77]}, remark_of={1: "FR"})
+    decisions = bs.decide(
+        links, state, {25: BUSY, 14: BUSY}, {25: "healthy"},
+        visible_by_remark={"FR": [77]}, remark_of={1: "FR"})
+    assert decisions["enable"] == []
+
+
+def test_links_that_leave_the_fleet_are_forgotten():
+    _, state, _ = run([FakeTarget(1, "fail")])
+    assert LINK in state["links"]
+    run([FakeTarget(2, "pass", link="30>DE/tcp", node_id=30)], state)
+    assert LINK not in state["links"]
+
+
+@pytest.mark.parametrize("verdicts,expected", [
+    (["fail", "fail"], "down"),
+    (["fail", "pass"], "up"),
+    (["skip", "skip"], "skip"),
+    (["skip", "fail"], "down"),
+])
+def test_link_verdict_rollup(verdicts, expected):
+    targets = [FakeTarget(i, v) for i, v in enumerate(verdicts, start=1)]
+    assert bs.roll_up(targets)[LINK].verdict == expected

@@ -124,11 +124,23 @@ class Target:
 
     @property
     def is_bridge(self) -> bool:
-        return "->" in self.tag
+        """True when traffic leaves through a different node than it entered.
+
+        ``exit_node_id`` is authoritative once backfilled; until then the tag
+        convention (``RU->FR Bridge``) is all there is.
+        """
+        return self.exit_node_id is not None or "->" in self.tag
 
     @property
     def variant(self) -> str:
         return "xhttp" if self.network in ("xhttp", "splithttp") else "tcp"
+
+    @property
+    def link_key(self) -> str:
+        """The entry->exit leg this host rides, shared with its siblings."""
+        return _taxonomy.link_key(
+            self.node_id, self.slot if self.is_bridge else None, self.variant
+        )
 
     @property
     def label(self) -> str:
@@ -143,6 +155,7 @@ class Target:
             "variant": self.variant, "inbound_id": self.inbound_id,
             "tag": self.tag, "node_id": self.node_id,
             "node_name": self.node_name, "node_status": self.node_status,
+            "exit_node_id": self.exit_node_id, "link": self.link_key,
             "address": self.address, "port": self.port,
             "is_bridge": self.is_bridge, **self.result,
         }

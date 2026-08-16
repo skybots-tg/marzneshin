@@ -5,18 +5,22 @@ Run ON THE PANEL, from this directory.
 
     python3 bridge_audit.py scan                 # probe everything, dry run
     python3 bridge_audit.py scan --apply         # + hide dead / restore fixed
+    python3 bridge_audit.py scan --quick --apply # one host per link, the watchdog
     python3 bridge_audit.py apply                # act on the saved report
     python3 bridge_audit.py matrix               # last report as a grid
     python3 bridge_audit.py gaps                 # entry x exit combos to fill
     python3 bridge_audit.py fill U4 RO --apply   # add one missing bridge
 
-Companion tools: `bridge_drift.py` (DB vs node config), `bridge_debug.py`
-(why one host fails, with the full client log).
+Companion tools: `bridge_state.py` (what gets hidden, and when), `bridge_drift.py`
+(DB vs node config), `bridge_debug.py` (why one host fails, with the full client
+log).
 
 `scan` connects to each host exactly the way a subscribed client would and
-checks where the traffic surfaces. Hosts with no egress are switched to
-`is_disabled=1` so they drop out of every subscription; hosts that recover are
-switched back on. The JSON report is what the panel's Bridge Health page reads.
+checks where the traffic surfaces. What happens next is not this file's call:
+results are rolled up per entry->exit link and handed to `bridge_state.py`,
+which weighs them against previous runs and against the bytes each node really
+carried before anything is switched to `is_disabled=1`. The JSON report is what
+the panel's Bridge Health page reads.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ from collections import defaultdict
 
 import bridge_lib as bl
 import bridge_probe as bp
+import bridge_state as bs
 import marz_common as mc
 
 REPORT_PATH = "/var/lib/marzneshin/bridge_audit.json"
@@ -87,19 +92,33 @@ def cmd_scan(args) -> int:
         want_ids = {int(x) for x in args.hosts.replace(" ", "").split(",") if x}
         targets = [t for t in targets if t.host_id in want_ids]
     if not args.include_direct:
-        targets = [t for t in targets if t.is_bridge or t.slot.startswith("RU")]
+        # FAST hosts are direct by definition — dropping every direct host would
+        # silently drop the whole tier, which is how it went unaudited for so
+        # long. The flag is only about RU Direct entries on the bridge nodes.
+        targets = [t for t in targets
+                   if t.is_bridge or t.slot.startswith("RU")
+                   or t.tier == "fast"]
     if not targets:
         print("no targets matched")
         return 1
+
+    probe_targets = targets
+    if args.quick:
+        probe_targets = one_per_link(targets)
+        complete = False
+        print(f"quick run: {len(probe_targets)} link representative(s) "
+              f"stand in for {len(targets)} host(s)")
 
     vantages = resolve_vantages(args, targets)
     if not vantages:
         print("no usable vantage node")
         return 2
-    print(f"probing {len(targets)} hosts from {len(vantages)} RU vantage "
+    origins = bp.vantage_origins(vantages)
+    print(f"probing {len(probe_targets)} hosts from {len(vantages)} vantage "
           f"point(s), {args.jobs} workers each:")
     for v in vantages:
-        print(f"    node {v['node_id']:<4} {v['name']} ({v['address']})")
+        print(f"    node {v['node_id']:<4} {v['name']} ({v['address']}) "
+              f"[{origins[bp.vantage_key(v)].lower()}]")
     print()
     started = time.time()
 
@@ -110,16 +129,23 @@ def cmd_scan(args) -> int:
         ok = sum(1 for r in res.values() if r["verdict"] == "pass")
         print(f"  vantage {v['name']}: {ok}/{len(res)} reachable")
 
-    per_vantage = bp.probe_all(targets, vantages, args.user, workers=args.jobs,
-                               timeout=args.timeout, on_vantage_done=done)
-    bp.merge(targets, per_vantage)
+    per_vantage = bp.probe_all(probe_targets, vantages, args.user,
+                               workers=args.jobs, timeout=args.timeout,
+                               on_vantage_done=done)
+    bp.merge(probe_targets, per_vantage, origins)
+    for t in targets:
+        # Hosts a quick run stood down for still belong to their link; they just
+        # carry no opinion of their own this time round.
+        t.result.setdefault("verdict", "skip")
 
-    report = build_report(targets, round(time.time() - started, 1), complete)
+    state = bs.load()
+    decisions = weigh(targets, state, args)
+    report = build_report(targets, round(time.time() - started, 1), complete,
+                          decisions)
     report["vantages"] = [
         {"node_id": v["node_id"], "name": v["name"], "address": v["address"],
-         "error": per_vantage.get(
-             v["name"] if v["address"] == bp.PANEL else str(v["node_id"]),
-             {}).get("__error__")}
+         "origin": origins.get(bp.vantage_key(v)),
+         "error": per_vantage.get(bp.vantage_key(v), {}).get("__error__")}
         for v in vantages
     ]
     save_report(report, args.report)
@@ -128,13 +154,34 @@ def cmd_scan(args) -> int:
     print(f"\nreport written to {args.report}")
 
     if args.apply:
-        return apply_report(report, targets, args)
+        rc = apply_report(report, targets, args)
+        if rc == 0:
+            # Streaks only advance on runs that were allowed to act. A dry run
+            # that aged them would let `scan` (no --apply) silently arm the next
+            # `scan --apply` to hide something on its first look.
+            bs.save(state)
+        return rc
     changes = report["changes"]
     if changes["disable"] or changes["enable"]:
         print(f"\nDRY RUN. Re-run with --apply to hide "
               f"{len(changes['disable'])} dead host(s) and restore "
               f"{len(changes['enable'])} recovered host(s).")
     return 0
+
+
+def one_per_link(targets) -> list:
+    """One host per link, enough to tell whether that leg still carries traffic.
+
+    A watchdog that runs every quarter of an hour cannot afford to probe all
+    ~190 hosts, and it does not need to: hosts on the same leg rise and fall
+    together. Enabled hosts are preferred as the stand-in, but a link whose
+    hosts are all hidden still gets probed — otherwise nothing would ever be
+    restored.
+    """
+    chosen: dict[str, object] = {}
+    for t in sorted(targets, key=lambda t: (t.is_disabled, t.host_id)):
+        chosen.setdefault(t.link_key, t)
+    return list(chosen.values())
 
 
 def visible_by_remark(targets) -> dict[str, list[int]]:
@@ -145,19 +192,39 @@ def visible_by_remark(targets) -> dict[str, list[int]]:
     return out
 
 
-def build_report(targets, elapsed, complete: bool = True) -> dict:
+def weigh(targets, state, args) -> dict:
+    """Turn this run's probe results into actions, with memory and corroboration.
+
+    The probe alone does not get to decide: ``bridge_state`` folds it together
+    with the previous runs and with the bytes ``node_usages`` says each node
+    actually carried. See that module for the rules.
+    """
+    links = bs.roll_up(targets)
+    try:
+        traffic = mc.node_traffic(bs.TRAFFIC_WINDOW_HOURS)
+    except Exception as exc:
+        # Losing the corroborating signal must not turn into losing the audit;
+        # an empty map simply means no link gets the fast "silent node" path.
+        print(f"  node traffic unavailable ({exc}); relying on probes alone")
+        traffic = {}
+    node_status = {t.node_id: t.node_status for t in targets}
+    decisions = bs.decide(
+        links, state, traffic, node_status,
+        visible_by_remark=visible_by_remark(targets),
+        remark_of={t.host_id: t.remark for t in targets},
+    )
+    decisions["views"] = {k: v.brief() for k, v in links.items()}
+    return decisions
+
+
+def build_report(targets, elapsed, complete: bool = True,
+                 decisions: dict | None = None) -> dict:
     rows = [t.brief() for t in targets]
     visible = visible_by_remark(targets)
-    to_disable = [t.host_id for t in targets
-                  if t.result["verdict"] == "fail" and not t.is_disabled]
-    # A working-but-hidden host is not automatically a mistake. Hosts also get
-    # hidden on purpose — most often while an entry node is being replaced by
-    # its successor, which carries the very same remarks. Un-hiding those puts
-    # two identical names in everyone's subscription, so a host only comes back
-    # when nothing visible already answers to its name.
-    to_enable = [t.host_id for t in targets
-                 if t.result["verdict"] == "pass" and t.is_disabled
-                 and not visible.get(t.remark)]
+    decisions = decisions or {"disable": [], "enable": [], "links": {},
+                              "views": {}}
+    to_disable = decisions["disable"]
+    to_enable = decisions["enable"]
     shadowed = [t.host_id for t in targets
                 if t.result["verdict"] == "pass" and t.is_disabled
                 and visible.get(t.remark)]
@@ -176,6 +243,8 @@ def build_report(targets, elapsed, complete: bool = True) -> dict:
         "duplicates": [{"remark": r, "host_ids": ids}
                        for r, ids in sorted(visible.items()) if len(ids) > 1],
         "shadowed": shadowed,
+        "links": [dict(view, **decisions["links"].get(key, {}))
+                  for key, view in sorted(decisions["views"].items())],
         "changes": {"disable": to_disable, "enable": to_enable},
     }
 
@@ -317,14 +386,36 @@ def print_summary(report):
               f"({o['address']}, panel says {o['node_status']}) — all "
               f"{len(o['host_ids'])} host(s) failed, so this is the node, not "
               f"its bridges. Check xray there before reading the rest.")
+    by_link = {ln["link"]: ln for ln in report.get("links") or []}
+    hiding = set(report["changes"]["disable"])
     dead = [h for h in report["hosts"]
             if h["verdict"] == "fail" and not h["is_disabled"]]
-    if dead:
-        print(f"\nLIVE BUT BROKEN -> will be hidden ({len(dead)}):")
-        for h in sorted(dead, key=lambda x: x["remark"]):
+    doomed = [h for h in dead if h["host_id"] in hiding]
+    if doomed:
+        print(f"\nLINK DOWN -> will be hidden ({len(doomed)}):")
+        for h in sorted(doomed, key=lambda x: x["remark"]):
+            note = by_link.get(h.get("link"), {})
             tried = ",".join(h.get("vantages_tried") or [])
-            print(f"  #{h['host_id']:<4} {h['remark'][:44]:<46} "
-                  f"{h.get('error', ''):<10} unreachable from [{tried}]")
+            print(f"  #{h['host_id']:<4} {h['remark'][:40]:<42} "
+                  f"{note.get('reason', ''):<12} "
+                  f"fails={note.get('fail_streak', '?')} [{tried}]")
+    lone = [h for h in dead if h["host_id"] not in hiding]
+    if lone:
+        print(f"\nFAILING, BUT NOT YET ACTED ON ({len(lone)}) — either the "
+              f"link still works for its other hosts (a config problem, not "
+              f"an outage) or the failure streak is too short:")
+        for h in sorted(lone, key=lambda x: x["remark"]):
+            note = by_link.get(h.get("link"), {})
+            print(f"  #{h['host_id']:<4} {h['remark'][:40]:<42} "
+                  f"link {h.get('link', ''):<14} "
+                  f"{note.get('verdict', '?')}/{note.get('reason', '')}")
+    contested = [ln for ln in report.get("links") or [] if ln.get("contested")]
+    if contested:
+        print(f"\nPROBE AND TRAFFIC DISAGREE ({len(contested)}) — worth a look "
+              f"before trusting either:")
+        for ln in contested:
+            print(f"  {ln['link']:<16} {ln['entry_node_name'][:26]:<28} "
+                  f"probe={ln['verdict']} node_bytes={ln.get('entry_bytes', 0)}")
     partial = [h for h in report["hosts"] if h.get("partial")]
     if partial:
         print(f"\nREACHABLE FROM SOME VANTAGES ONLY ({len(partial)}) "
@@ -447,19 +538,24 @@ def cmd_apply(args) -> int:
     report = load_report(args.report)
     live = {int(r[0]): r[1] == "1" for r in mc.db_query(
         "SELECT id, is_disabled FROM hosts")}
-    present = [h for h in report["hosts"] if h["host_id"] in live]
-    gone = [h["host_id"] for h in report["hosts"] if h["host_id"] not in live]
-    visible = {h["remark"] for h in present if not live[h["host_id"]]}
+    by_id = {h["host_id"]: h for h in report["hosts"]}
+    saved = report.get("changes") or {"disable": [], "enable": []}
 
-    ch = {"disable": [], "enable": []}
-    shadowed = []
-    for h in present:
-        cur = live[h["host_id"]]
-        if h["verdict"] == "fail" and not cur:
-            ch["disable"].append(h["host_id"])
-        elif h["verdict"] == "pass" and cur:
-            (shadowed if h["remark"] in visible
-             else ch["enable"]).append(h["host_id"])
+    # The report already carries the verdict of the link state machine; this
+    # command only reconciles it with rows as they are *now*, since a host may
+    # have been deleted or flipped by hand since the scan.
+    ch = {
+        "disable": [i for i in saved["disable"]
+                    if i in live and not live[i]],
+        "enable": [i for i in saved["enable"] if i in live and live[i]],
+    }
+    visible = {h["remark"] for i, h in by_id.items()
+               if i in live and not live[i]}
+    shadowed = [i for i in ch["enable"]
+                if by_id.get(i, {}).get("remark") in visible]
+    ch["enable"] = [i for i in ch["enable"] if i not in shadowed]
+
+    gone = [i for i in by_id if i not in live]
     if gone:
         print(f"{len(gone)} host(s) from the report no longer exist: {gone}")
     if shadowed:
@@ -537,6 +633,9 @@ def main() -> int:
     s.add_argument("--user", default=bl.DEFAULT_USER)
     s.add_argument("--include-direct", action="store_true",
                    help="also probe non-bridge RU Direct hosts")
+    s.add_argument("--quick", action="store_true",
+                   help="probe one host per link instead of all of them; for "
+                        "the frequent watchdog run")
     s.add_argument("--apply", action="store_true")
     s.add_argument("--force", action="store_true")
     s.add_argument("--max-fail-pct", type=int, default=60)

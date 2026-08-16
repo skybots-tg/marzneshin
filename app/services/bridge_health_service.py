@@ -6,6 +6,7 @@ belongs inside the API container. The two halves meet in
 ``/var/lib/marzneshin``, which is bind-mounted into the container:
 
     bridge_audit.json      the report the host runner writes
+    bridge_audit.quick.json  the frequent watchdog's partial view
     bridge_audit.log       live progress of the current/last run
     bridge_audit.request   touched by the panel to ask for a scan
 
@@ -26,6 +27,7 @@ from app.db.models import InboundHost
 
 DATA_DIR = os.getenv("MARZ_DATA_DIR", "/var/lib/marzneshin")
 REPORT_PATH = os.path.join(DATA_DIR, "bridge_audit.json")
+QUICK_REPORT_PATH = os.path.join(DATA_DIR, "bridge_audit.quick.json")
 LOG_PATH = os.path.join(DATA_DIR, "bridge_audit.log")
 REQUEST_PATH = os.path.join(DATA_DIR, "bridge_audit.request")
 
@@ -85,13 +87,21 @@ def read_report(db: Session) -> dict:
         if not h["is_disabled"]:
             visible.setdefault(h["remark"], []).append(h["host_id"])
 
-    to_disable, to_enable, shadowed = [], [], []
-    for h in hosts:
-        if h["verdict"] == "fail" and not h["is_disabled"]:
-            to_disable.append(h["host_id"])
-        elif h["verdict"] == "pass" and h["is_disabled"]:
-            (shadowed if visible.get(h["remark"]) else to_enable).append(
-                h["host_id"])
+    # The scanner decided *what* to act on, using failure streaks and the
+    # nodes' own traffic counters (see tools/bridge_state.py); a single failed
+    # probe is deliberately not enough. Recomputing that here from per-host
+    # verdicts would throw all of it away, so this only reconciles the saved
+    # decision with rows as they stand now.
+    by_id = {h["host_id"]: h for h in hosts}
+    changes = report.get("changes") or {"disable": [], "enable": []}
+    to_disable = [i for i in changes.get("disable", [])
+                  if i in by_id and not by_id[i]["is_disabled"]]
+    to_enable, shadowed = [], []
+    for host_id in changes.get("enable", []):
+        host = by_id.get(host_id)
+        if host is None or not host["is_disabled"]:
+            continue
+        (shadowed if visible.get(host["remark"]) else to_enable).append(host_id)
 
     generated = report.get("generated_at", 0)
     counts = report.get("counts", {})
@@ -107,8 +117,34 @@ def read_report(db: Session) -> dict:
                        for r, ids in sorted(visible.items()) if len(ids) > 1],
         "apply_blocked": counts.get("fail", 0) * 100 // total > MAX_FAIL_PCT,
         "removed_since_scan": orphaned,
+        "quick": read_quick(),
     })
     return report
+
+
+def read_quick() -> Optional[dict]:
+    """Summary of the last quick watchdog run, if one has happened.
+
+    The full report is the fleet's portrait and is redrawn once a day; the
+    quick run probes one host per link every few minutes and is what actually
+    catches a leg going down between sweeps. Surfacing its age and its actions
+    is what stops the page from looking a day out of date when it is not.
+    """
+    try:
+        with open(QUICK_REPORT_PATH, encoding="utf-8") as f:
+            quick = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return None
+    generated = quick.get("generated_at", 0)
+    changes = quick.get("changes") or {}
+    return {
+        "generated_at": generated,
+        "age_sec": max(0, int(time.time()) - generated),
+        "counts": quick.get("counts", {}),
+        "links": len(quick.get("links") or []),
+        "disabled": changes.get("disable", []),
+        "enabled": changes.get("enable", []),
+    }
 
 
 def apply_pending(

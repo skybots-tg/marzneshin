@@ -87,6 +87,34 @@ def db_query(sql, timeout=60):
     return rows
 
 
+def node_traffic(hours=6) -> dict[int, int]:
+    """node_id -> bytes the node moved over the last `hours`.
+
+    Independent evidence, and the only kind that comes from users rather than
+    from a probe. ``node_usages`` holds hourly deltas written by the panel's own
+    collector, so a node that is genuinely carrying traffic cannot look dead
+    here no matter what a vantage thinks of it -- and a node sitting at a flat
+    zero for hours is dead no matter how healthy its port looks.
+
+    Note ``uplink`` is always 0 in this deployment; ``downlink`` carries the
+    volume. Summing both keeps the helper honest if that ever changes.
+    """
+    rows = db_query(
+        "SELECT node_id, COALESCE(SUM(uplink + downlink), 0) FROM node_usages "
+        f"WHERE created_at > NOW() - INTERVAL {int(hours)} HOUR "
+        "GROUP BY node_id;"
+    )
+    out = {}
+    for row in rows:
+        if len(row) < 2 or row[0] in ("NULL", ""):
+            continue
+        try:
+            out[int(row[0])] = int(row[1])
+        except ValueError:
+            continue
+    return out
+
+
 def node_cfg(ip):
     r = ssh(ip, "cat /var/lib/marznode/xray_config.json")
     try:
