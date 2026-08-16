@@ -221,7 +221,8 @@ def merge(targets, per_vantage: dict, origins: dict[str, str] | None = None) -> 
             t.result["verdict"] = "fail"
             continue
 
-        countries = {v.get("country") for v in good.values()}
+        countries = {bl.egress_country(v.get("country"), v.get("egress_ip"))
+                     for v in good.values()}
         t.result["verdict"] = "pass"
         t.result["countries"] = sorted(c for c in countries if c)
         if t.iso and t.iso not in countries:

@@ -38,6 +38,7 @@ _taxonomy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_taxonomy)
 
 classify_tier = _taxonomy.classify_tier
+egress_country = _taxonomy.egress_country
 entry_key = _taxonomy.entry_key
 exit_label = _taxonomy.exit_label
 exit_slot = _taxonomy.exit_slot

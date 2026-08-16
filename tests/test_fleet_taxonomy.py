@@ -12,6 +12,7 @@ import pytest
 
 from app.utils.fleet_taxonomy import (
     classify_tier,
+    egress_country,
     entry_key,
     exit_label,
     exit_slot,
@@ -79,3 +80,10 @@ def test_link_key_separates_what_fails_separately():
     assert link_key(30, "FR", "tcp") != tcp       # different entry
     assert link_key(25, "FR-2", "tcp") != tcp     # different exit server
     assert link_key(17, None) == "17>direct/tcp"
+
+
+def test_egress_country_defers_to_the_registry():
+    """ZetServers' Bucharest range geolocates as France in every service."""
+    assert egress_country("FR", "85.204.107.56") == "RO"
+    assert egress_country("DE", "93.123.85.191") == "DE"
+    assert egress_country("NL", None) == "NL"

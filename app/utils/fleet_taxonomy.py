@@ -19,13 +19,26 @@ from typing import Optional
 
 __all__ = [
     "TIER_PATTERNS",
+    "EGRESS_COUNTRY_OVERRIDES",
     "classify_tier",
+    "egress_country",
     "flag_to_iso",
     "exit_label",
     "exit_slot",
     "entry_key",
     "link_key",
 ]
+
+# Egress addresses the geo services get wrong, with the country the registry
+# actually records. Only for cases checked against RIPE or ARIN — this exists
+# to stop the audit crying wolf every night, not to paper over a mislabelled
+# server. A host whose flag really is wrong should be renamed, not listed here.
+#
+#   85.204.107.56 — RIPE: RO, "ZetServers Bucharest". ip-api and ipinfo both
+#                   place it in France.
+EGRESS_COUNTRY_OVERRIDES = {
+    "85.204.107.56": "RO",
+}
 
 # tier label -> regex capturing the tier index ("UNIVERSAL 2" -> 2). The index
 # is optional: a handful of entries are named without one ("ELITE LUX - PL",
@@ -97,6 +110,17 @@ def exit_slot(remark: str) -> str:
     # "FAST 1 ♾️ - TR" splits on the ♾️ and leaves the dash behind, which then
     # rides along into every matrix column as "- TR".
     return text.lstrip("-—– ").strip().upper() or "?"
+
+
+def egress_country(reported: Optional[str], egress_ip: Optional[str]) -> Optional[str]:
+    """What country the traffic really surfaced in.
+
+    Geo services are guesses over a database, and they are not always right;
+    where the registry says otherwise, the registry wins.
+    """
+    if egress_ip and egress_ip in EGRESS_COUNTRY_OVERRIDES:
+        return EGRESS_COUNTRY_OVERRIDES[egress_ip]
+    return reported
 
 
 def entry_key(tier: str, tier_index: Optional[int], node_id=None) -> str:
