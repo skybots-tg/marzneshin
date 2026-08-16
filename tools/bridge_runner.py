@@ -69,7 +69,8 @@ def parse_geo(raw, shape):
     return None, None
 
 
-def run_job(job, socks_port, timeout, geo_offset=0, deadline=None):
+def run_job(job, socks_port, timeout, geo_offset=0, deadline=None,
+            geo_tries=None):
     cfg = job["client"]
     cfg["inbounds"][0]["port"] = socks_port
     f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
@@ -87,6 +88,12 @@ def run_job(job, socks_port, timeout, geo_offset=0, deadline=None):
             return {"verdict": "fail", "error": "xray_client_exited",
                     "detail": log.read()[-300:]}
         rotated = GEO[geo_offset % len(GEO):] + GEO[:geo_offset % len(GEO)]
+        # A failing job pays for every endpoint in turn, which is what makes a
+        # full sweep slow. The watchdog trades that thoroughness for speed: one
+        # endpoint is enough to answer "did anything come back", and a rate
+        # limit mistaken for a failure costs a streak, not a hidden host.
+        if geo_tries:
+            rotated = rotated[:geo_tries]
         for url, shape in rotated:
             budget = timeout
             if deadline:
@@ -131,6 +138,7 @@ def main():
     workers = int(req.get("workers", 6))
     timeout = int(req.get("timeout", 12))
     attempts = int(req.get("attempts", 2))
+    geo_tries = int(req.get("geo_tries") or 0) or None
     if not ensure_xray():
         print(json.dumps({"error": "no xray binary on this vantage"}))
         return
@@ -152,7 +160,8 @@ def main():
             return
         try:
             results[job["id"]] = run_job(job, base + idx, timeout,
-                                         geo_offset=idx, deadline=deadline)
+                                         geo_offset=idx, deadline=deadline,
+                                         geo_tries=geo_tries)
         except Exception as exc:  # noqa: BLE001
             results[job["id"]] = {"verdict": "fail", "error": "runner_crash",
                                   "detail": str(exc)[:200]}

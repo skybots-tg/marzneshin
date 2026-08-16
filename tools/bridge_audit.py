@@ -108,6 +108,12 @@ def cmd_scan(args) -> int:
         complete = False
         print(f"quick run: {len(probe_targets)} link representative(s) "
               f"stand in for {len(targets)} host(s)")
+        # What makes the full sweep slow is the failing jobs: each pays for
+        # three geo endpoints, twice over. A watchdog only needs to know
+        # whether anything came back, so it asks once. Being wrong costs a
+        # streak, not a hidden host — two runs still have to agree.
+        args.geo_tries = args.geo_tries or 1
+        args.attempts = 1
 
     vantages = resolve_vantages(args, targets)
     if not vantages:
@@ -131,7 +137,9 @@ def cmd_scan(args) -> int:
 
     per_vantage = bp.probe_all(probe_targets, vantages, args.user,
                                workers=args.jobs, timeout=args.timeout,
-                               on_vantage_done=done)
+                               on_vantage_done=done,
+                               geo_tries=args.geo_tries,
+                               attempts=args.attempts)
     bp.merge(probe_targets, per_vantage, origins)
     for t in targets:
         # Hosts a quick run stood down for still belong to their link; they just
@@ -633,6 +641,12 @@ def main() -> int:
     s.add_argument("--vantage", default="",
                    help="explicit vantage node ids, or 'panel'")
     s.add_argument("--timeout", type=int, default=12)
+    s.add_argument("--geo-attempts", dest="geo_tries", type=int, default=0,
+                   help="how many geo endpoints a failing probe may try "
+                        "(0 = all of them)")
+    s.add_argument("--attempts", type=int, default=2,
+                   help="sweeps over the failures; the second one catches "
+                        "geo rate limits")
     s.add_argument("--user", default=bl.DEFAULT_USER)
     s.add_argument("--include-direct", action="store_true",
                    help="also probe non-bridge RU Direct hosts")

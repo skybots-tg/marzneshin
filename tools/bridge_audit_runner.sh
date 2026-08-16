@@ -37,14 +37,14 @@ flock -n 9 || exit 0   # a scan is already running
 
 run_scan() {
     local report="$1" extra="$2" reason="$3"
-    local apply=""
+    local apply="" JOBS="${JOBS:-6}"
     [ "$AUTO_APPLY" = "1" ] && apply="--apply"
     cd "$TOOLS" || exit 1
     {
         echo "=== bridge audit ($reason) started $(date -Is) ==="
         # shellcheck disable=SC2086
         python3 -u bridge_audit.py --report "$report" scan \
-            --tier all --vantage "$VANTAGES" --jobs 6 $extra $apply
+            --tier all --vantage "$VANTAGES" --jobs "$JOBS" $extra $apply
         rc=$?
         echo "=== finished $(date -Is) rc=$rc ==="
     } >"$LOG" 2>&1
@@ -74,6 +74,7 @@ if [ "$(age_of "$QUICK_STAMP")" -ge "$QUICK_INTERVAL" ]; then
     # A separate file: the page's report is meant to be the last *complete*
     # picture of the fleet, and a quick run only has an opinion about one host
     # per link. The panel reads this one alongside it.
-    run_scan "$DATA/bridge_audit.quick.json" "--quick" "scheduled quick check"
+    JOBS=12 run_scan "$DATA/bridge_audit.quick.json" "--quick" \
+        "scheduled quick check"
     touch "$QUICK_STAMP"
 fi

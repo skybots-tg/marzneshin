@@ -60,11 +60,13 @@ GEO_ENDPOINTS = 3
 JOB_OVERHEAD = 8
 
 
-def vantage_deadline(n_jobs: int, workers: int, timeout: int) -> int:
+def vantage_deadline(n_jobs: int, workers: int, timeout: int,
+                     geo_tries: int | None = None, attempts: int = 2) -> int:
     """Seconds one vantage may spend before it must hand back what it has."""
     waves = -(-n_jobs // max(1, workers))
-    per_job = JOB_OVERHEAD + GEO_ENDPOINTS * (timeout + 5)
-    return max(120, min(2400, waves * per_job))
+    lookups = min(geo_tries or GEO_ENDPOINTS, GEO_ENDPOINTS)
+    per_job = JOB_OVERHEAD + lookups * (timeout + 5)
+    return max(120, min(2400, waves * per_job * max(1, attempts)))
 
 
 def _build_jobs(targets, user_uuid: str) -> list[dict]:
@@ -78,14 +80,17 @@ def _build_jobs(targets, user_uuid: str) -> list[dict]:
 
 
 def probe_from_vantage(vantage: dict, targets, user_uuid: str,
-                       workers: int = 6, timeout: int = 12) -> dict:
+                       workers: int = 6, timeout: int = 12,
+                       geo_tries: int | None = None,
+                       attempts: int = 2) -> dict:
     """Ship the runner to one node, execute all jobs there, return results."""
     jobs = _build_jobs(targets, user_uuid)
     if not jobs:
         return {}
-    deadline = vantage_deadline(len(jobs), workers, timeout)
+    deadline = vantage_deadline(len(jobs), workers, timeout, geo_tries, attempts)
     payload = json.dumps({"jobs": jobs, "workers": workers,
-                          "timeout": timeout, "deadline": deadline})
+                          "timeout": timeout, "deadline": deadline,
+                          "geo_tries": geo_tries or 0, "attempts": attempts})
 
     if vantage["address"] == PANEL:
         r = subprocess.run(["python3", RUNNER], input=payload,
@@ -109,13 +114,15 @@ def probe_from_vantage(vantage: dict, targets, user_uuid: str,
 
 
 def probe_all(targets, vantages, user_uuid: str, workers: int = 6,
-              timeout: int = 12, on_vantage_done=None) -> dict:
+              timeout: int = 12, on_vantage_done=None,
+              geo_tries: int | None = None, attempts: int = 2) -> dict:
     """Probe every target from every vantage, in parallel across vantages."""
     per_vantage: dict[str, dict] = {}
 
     def one(v):
         key = vantage_key(v)
-        res = probe_from_vantage(v, targets, user_uuid, workers, timeout)
+        res = probe_from_vantage(v, targets, user_uuid, workers, timeout,
+                                 geo_tries, attempts)
         per_vantage[key] = res
         if on_vantage_done:
             on_vantage_done(v, res)
