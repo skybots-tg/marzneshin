@@ -199,8 +199,8 @@ def db_sql(plans, node_id, address) -> str:
 
 def verify_and_reveal(node_id, plans, user_uuid, apply: bool, vantages=None):
     """Probe each freshly created host; reveal the ones that carry traffic."""
-    fresh = {t.tag: t for t in bl.load_targets(tiers=("universal", "elite"),
-                                               node_ids={node_id})}
+    fresh = {t.tag: t for t in bl.numbered(
+        bl.load_targets(tiers=("universal", "elite"), node_ids={node_id}))}
     wanted = [fresh[p["tag"]] for p in plans if p["tag"] in fresh]
     if wanted:
         probe_from_ru(wanted, user_uuid, vantages)
@@ -227,7 +227,7 @@ def run(args) -> int:
     slots = [s.strip().upper() for s in args.slots]
 
     print(f"loading current state and probing donors for {entry_key} ...")
-    targets = bl.load_targets(tiers=("universal", "elite"))
+    targets = bl.numbered(bl.load_targets(tiers=("universal", "elite")))
     tgt_meta = target_entry_meta(targets, entry_key)
     if not tgt_meta:
         raise SystemExit(f"unknown entry {entry_key}")

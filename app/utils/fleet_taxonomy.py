@@ -27,11 +27,14 @@ __all__ = [
     "link_key",
 ]
 
-# tier label -> regex capturing the tier index ("UNIVERSAL 2" -> 2)
+# tier label -> regex capturing the tier index ("UNIVERSAL 2" -> 2). The index
+# is optional: a handful of entries are named without one ("ELITE LUX - PL",
+# "ELITE DE РАБОТАЕТ ВСЕГДА") and they are in real subscriptions, so refusing to
+# classify them means never auditing them.
 TIER_PATTERNS = {
-    "universal": re.compile(r"UNIVERSAL\s+(\d+)", re.IGNORECASE),
-    "elite": re.compile(r"ELITE\s+(\d+)", re.IGNORECASE),
-    "fast": re.compile(r"FAST\s+(\d+)", re.IGNORECASE),
+    "universal": re.compile(r"UNIVERSAL\s+(\d+)?", re.IGNORECASE),
+    "elite": re.compile(r"ELITE\s+(\d+)?", re.IGNORECASE),
+    "fast": re.compile(r"FAST\s+(\d+)?", re.IGNORECASE),
 }
 
 # Separators remarks use between the tier and the exit it offers.
@@ -43,11 +46,17 @@ _SLOT_NOISE = re.compile(r"\[.*?\]|\(.*?\)|\bxhttp\b", re.IGNORECASE)
 
 
 def classify_tier(remark: str) -> tuple[Optional[str], Optional[int]]:
-    """``("universal", 2)`` for a UNIVERSAL 2 remark, ``(None, None)`` if none."""
+    """``("universal", 2)`` for a UNIVERSAL 2 remark, ``(None, None)`` if none.
+
+    The index is ``None`` for a tier named without one. Callers that group by
+    entry — the topology dashboard — should skip those; callers that only need
+    to know which tier a host belongs to should not.
+    """
     for tier, pattern in TIER_PATTERNS.items():
         match = pattern.search(remark or "")
         if match:
-            return tier, int(match.group(1))
+            index = match.group(1)
+            return tier, int(index) if index else None
     return None, None
 
 
@@ -84,11 +93,21 @@ def exit_slot(remark: str) -> str:
     text = exit_label(remark)
     text = re.sub(r"[^\x00-\x7f]", " ", text)
     text = _SLOT_NOISE.sub(" ", text)
-    return re.sub(r"\s+", " ", text).strip().upper() or "?"
+    text = re.sub(r"\s+", " ", text).strip()
+    # "FAST 1 ♾️ - TR" splits on the ♾️ and leaves the dash behind, which then
+    # rides along into every matrix column as "- TR".
+    return text.lstrip("-—– ").strip().upper() or "?"
 
 
-def entry_key(tier: str, tier_index: int) -> str:
-    """Stable id of an entry group, e.g. ``universal-2``."""
+def entry_key(tier: str, tier_index: Optional[int], node_id=None) -> str:
+    """Stable id of an entry group, e.g. ``universal-2``.
+
+    An entry named without an index falls back to its node (``elite-n33``) so
+    that unnumbered entries on different servers stay distinct rather than
+    piling into one row.
+    """
+    if tier_index is None:
+        return f"{tier}-n{node_id}" if node_id is not None else f"{tier}-?"
     return f"{tier}-{tier_index}"
 
 

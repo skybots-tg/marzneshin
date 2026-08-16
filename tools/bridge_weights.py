@@ -80,7 +80,7 @@ def main() -> int:
     p.add_argument("--apply", action="store_true")
     args = p.parse_args()
 
-    targets = bl.load_targets(tiers=(args.tier,))
+    targets = bl.numbered(bl.load_targets(tiers=(args.tier,)))
     if not targets:
         print(f"no {args.tier} hosts")
         return 1

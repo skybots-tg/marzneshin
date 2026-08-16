@@ -62,7 +62,9 @@ def build_topology(db: Session) -> dict:
         if host.is_disabled:
             continue
         tier, idx = classify_tier(host.remark)
-        if tier is None:
+        if tier is None or idx is None:
+            # An entry without a tier number has no place in a grid keyed by
+            # "UNIVERSAL 2"; the audit still covers those hosts.
             continue
         iso = flag_to_iso(host.remark)
         label = exit_label(host.remark)

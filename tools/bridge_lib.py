@@ -95,7 +95,7 @@ class Target:
     is_disabled: bool
     weight: int
     tier: str
-    tier_index: int
+    tier_index: Optional[int]
     slot: str
     iso: Optional[str]
 
@@ -120,7 +120,7 @@ class Target:
 
     @property
     def entry_key(self) -> str:
-        return _taxonomy.entry_key(self.tier, self.tier_index)
+        return _taxonomy.entry_key(self.tier, self.tier_index, self.node_id)
 
     @property
     def is_bridge(self) -> bool:
@@ -165,6 +165,16 @@ class Target:
             "address": self.address, "port": self.port,
             "is_bridge": self.is_bridge, **self.result,
         }
+
+
+def numbered(targets) -> list[Target]:
+    """Only the hosts that belong to a numbered entry group.
+
+    Weight blocks and bridge cloning are both defined in terms of "UNIVERSAL 2",
+    so a handful of entries named without an index ("ELITE LUX - PL") have no
+    place in either. The audit still covers them.
+    """
+    return [t for t in targets if t.tier_index is not None]
 
 
 def load_targets(tiers=("universal",), node_ids=None) -> list[Target]:
