@@ -102,8 +102,9 @@ def link_key(entry_node_id: int, exit_ref, variant: str = "tcp") -> str:
     identity -- and its failure streak -- across that backfill.
 
     ``variant`` keeps tcp and xhttp apart: they ride the same pair of servers
-    but fail independently. A direct (non-bridge) inbound has no exit leg and
-    passes ``exit_ref=None``.
+    but fail independently. A direct (non-bridge) inbound has no exit leg; it
+    passes its own identity as ``exit_ref``, or ``None`` for the degenerate
+    "the node itself" case.
     """
     exit_part = "direct" if exit_ref in (None, "") else str(exit_ref)
     return f"{entry_node_id}>{exit_part}/{variant}"

@@ -137,10 +137,16 @@ class Target:
 
     @property
     def link_key(self) -> str:
-        """The entry->exit leg this host rides, shared with its siblings."""
-        return _taxonomy.link_key(
-            self.node_id, self.slot if self.is_bridge else None, self.variant
-        )
+        """What this host shares its fate with.
+
+        For a bridge that is the entry->exit leg, keyed by exit slot: every
+        host riding it rises and falls with it. A direct host has no second
+        leg, so it is keyed by its own inbound instead — two direct hosts on
+        one node are separate endpoints on separate ports, and one of them
+        dying says nothing about the other.
+        """
+        exit_ref = self.slot if self.is_bridge else f"i{self.inbound_id}"
+        return _taxonomy.link_key(self.node_id, exit_ref, self.variant)
 
     @property
     def label(self) -> str:
