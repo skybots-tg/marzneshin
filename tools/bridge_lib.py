@@ -12,9 +12,9 @@ matters: does traffic actually come out the other side, and in which country.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
-import re
 import signal
 import subprocess
 import tempfile
@@ -23,6 +23,27 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import marz_common as mc
+
+# Remark/tag parsing is shared with the panel's topology page, so both agree on
+# what "UNIVERSAL 2" and the "DE-2" slot mean. ``import app.utils...`` is not an
+# option here: ``app/__init__.py`` pulls in uvicorn and the settings object,
+# neither of which exists on the panel *host* where this runs. The taxonomy
+# module is stdlib-only precisely so it can be loaded straight off disk.
+_TAXONOMY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "app", "utils", "fleet_taxonomy.py",
+)
+_spec = importlib.util.spec_from_file_location("fleet_taxonomy", _TAXONOMY_PATH)
+_taxonomy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_taxonomy)
+
+classify_tier = _taxonomy.classify_tier
+entry_key = _taxonomy.entry_key
+exit_label = _taxonomy.exit_label
+exit_slot = _taxonomy.exit_slot
+flag_to_iso = _taxonomy.flag_to_iso
+link_key = _taxonomy.link_key
+TIER_RE = _taxonomy.TIER_PATTERNS
 
 # A real service-1 user. Probing with a provisioned account (rather than an
 # invented UUID) is what makes this an end-to-end check: xray rejects unknown
@@ -38,12 +59,6 @@ GEO_ENDPOINTS = [
     ("http://ip-api.com/json/?fields=status,countryCode,query", "ipapi"),
 ]
 
-TIER_RE = {
-    "universal": re.compile(r"UNIVERSAL\s+(\d+)", re.I),
-    "elite": re.compile(r"ELITE\s+(\d+)", re.I),
-    "fast": re.compile(r"FAST\s+(\d+)", re.I),
-}
-
 HOST_COLS = [
     "id", "remark", "address", "port", "sni", "fingerprint", "security",
     "reality_public_key", "reality_short_ids", "flow", "path", "host_network",
@@ -57,35 +72,19 @@ def _nv(x):
     return None if x in ("NULL", "", None) else x
 
 
-def flag_to_iso(text: str) -> Optional[str]:
-    """ISO2 of the first regional-indicator flag emoji in `text`."""
-    ind = [chr(ord(c) - 0x1F1E6 + ord("A"))
-           for c in text if 0x1F1E6 <= ord(c) <= 0x1F1FF]
-    return "".join(ind[:2]) if len(ind) >= 2 else None
+def _fingerprint(raw) -> Optional[str]:
+    """The uTLS fingerprint a client should use, or None to fall back.
 
-
-def exit_slot(remark: str) -> str:
-    """The exit *slot* a remark advertises, e.g. 'FR-2', 'DE', 'RU'.
-
-    Slot, not ISO: DE and DE-2 are distinct exit servers the user picks
-    between, so the gap analysis must treat them as separate columns.
+    ``hosts.fingerprint`` is a SQLAlchemy enum stored by *name*, so "no explicit
+    fingerprint" arrives here as the literal string ``"none"`` rather than as
+    NULL. Handing that to xray is fatal -- REALITY rejects it with
+    ``unknown "fingerprint": none`` and the client never starts, which the audit
+    would then read as a dead host. The panel makes the same call the other way
+    round (the enum's *value* for ``none`` is ""), so falling back to the
+    inbound's ``fp`` here is what keeps a probe faithful to the subscription.
     """
-    txt = remark
-    for sep in ("\u267e\ufe0f", " - ", "\u2014"):
-        if sep in txt:
-            txt = txt.rsplit(sep, 1)[-1]
-            break
-    txt = re.sub(r"[^\x00-\x7f]", " ", txt)
-    txt = re.sub(r"\[.*?\]|\(.*?\)|\bxhttp\b", " ", txt, flags=re.I)
-    return re.sub(r"\s+", " ", txt).strip().upper() or "?"
-
-
-def classify_tier(remark: str):
-    for tier, pat in TIER_RE.items():
-        m = pat.search(remark or "")
-        if m:
-            return tier, int(m.group(1))
-    return None, None
+    value = _nv(raw)
+    return None if value == "none" else value
 
 
 @dataclass
@@ -121,7 +120,7 @@ class Target:
 
     @property
     def entry_key(self) -> str:
-        return f"{self.tier}-{self.tier_index}"
+        return _taxonomy.entry_key(self.tier, self.tier_index)
 
     @property
     def is_bridge(self) -> bool:
@@ -208,7 +207,7 @@ def load_targets(tiers=("universal",), node_ids=None) -> list[Target]:
             sni=_nv(h["sni"]) or (inb_sni[0] if inb_sni else ""),
             pbk=_nv(h["reality_public_key"]) or cfg.get("pbk") or "",
             sid=host_sid or cfg.get("sid") or "",
-            fp=_nv(h["fingerprint"]) or cfg.get("fp") or "chrome",
+            fp=_fingerprint(h["fingerprint"]) or cfg.get("fp") or "chrome",
             flow=_nv(h["flow"]) or cfg.get("flow"),
             path=_nv(h["path"]) or cfg.get("path"),
         ))

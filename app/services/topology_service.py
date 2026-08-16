@@ -14,45 +14,19 @@ that *fills* the gaps lives in ``app.routes.topology``.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Inbound, InboundHost, Node
+from app.utils.fleet_taxonomy import (
+    classify_tier,
+    entry_key,
+    exit_label,
+    flag_to_iso,
+)
 
-# tier label -> (regex capturing the tier index)
-_TIER_PATTERNS = {
-    "universal": re.compile(r"UNIVERSAL\s+(\d+)", re.IGNORECASE),
-    "elite": re.compile(r"ELITE\s+(\d+)", re.IGNORECASE),
-    "fast": re.compile(r"FAST\s+(\d+)", re.IGNORECASE),
-}
-
-
-def flag_to_iso(text: str) -> Optional[str]:
-    """Extract the first regional-indicator flag emoji and return its ISO2.
-
-    Regional indicator symbols live at U+1F1E6 (A) .. U+1F1FF (Z); a flag
-    is two of them. Returns e.g. ``"RO"`` or ``None`` if no flag present.
-    """
-    indicators = [
-        chr(ord(c) - 0x1F1E6 + ord("A"))
-        for c in text
-        if 0x1F1E6 <= ord(c) <= 0x1F1FF
-    ]
-    if len(indicators) >= 2:
-        return "".join(indicators[:2])
-    return None
-
-
-def _exit_label(remark: str) -> str:
-    """Best-effort human exit label = text after the last separator."""
-    # remarks use ♾️ (universal), - (elite/fast) or similar as separators
-    for sep in ("♾️", " - ", "—"):
-        if sep in remark:
-            return remark.rsplit(sep, 1)[-1].strip()
-    return remark.strip()
+__all__ = ["build_topology", "flag_to_iso"]
 
 
 @dataclass
@@ -68,15 +42,7 @@ class EntryNode:
 
     @property
     def key(self) -> str:
-        return f"{self.tier}-{self.index}"
-
-
-def _classify_remark(remark: str):
-    for tier, pat in _TIER_PATTERNS.items():
-        m = pat.search(remark or "")
-        if m:
-            return tier, int(m.group(1))
-    return None, None
+        return entry_key(self.tier, self.index)
 
 
 def build_topology(db: Session) -> dict:
@@ -95,11 +61,11 @@ def build_topology(db: Session) -> dict:
     for host, inbound, node in rows:
         if host.is_disabled:
             continue
-        tier, idx = _classify_remark(host.remark)
+        tier, idx = classify_tier(host.remark)
         if tier is None:
             continue
         iso = flag_to_iso(host.remark)
-        label = _exit_label(host.remark)
+        label = exit_label(host.remark)
         if iso:
             all_isos.add(iso)
 
@@ -110,7 +76,7 @@ def build_topology(db: Session) -> dict:
                 )["node_ids"].add(node.id)
             continue
 
-        key = f"{tier}-{idx}"
+        key = entry_key(tier, idx)
         entry = entries.get(key)
         if entry is None:
             entry = EntryNode(

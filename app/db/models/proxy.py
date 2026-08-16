@@ -124,8 +124,8 @@ class InboundHost(Base):
     fingerprint = Column(
         Enum(InboundHostFingerprint),
         nullable=False,
-        default=InboundHostSecurity.none,
-        server_default=InboundHostSecurity.none.name,
+        default=InboundHostFingerprint.none,
+        server_default=InboundHostFingerprint.none.name,
     )
 
     fragment = Column(JSON())
