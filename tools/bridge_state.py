@@ -166,16 +166,17 @@ def _verdicts_by_node(links: dict[str, LinkView]) -> dict[int, list[str]]:
 
 
 def _node_is_silent(node_id, traffic: dict[int, int], status: str) -> bool:
-    """No bytes over the window *and* the panel cannot reach it either.
+    """The node is reachable, and nobody has moved a byte through it.
 
-    Both halves matter. Silence alone can mean a location nobody picked today;
-    an unhealthy status alone can mean one flaky gRPC poll. Together they are
-    as close to proof of a dead node as this side of the wire gets.
+    The reachability half is what makes the byte count mean anything. Usage is
+    collected by the panel over gRPC, so a node the panel cannot talk to always
+    reads zero — the number stops being a measurement of the node and becomes a
+    measurement of the connection to it. Only a *healthy* node's silence is its
+    own.
     """
-    if node_id is None:
+    if node_id is None or status != "healthy":
         return False
-    return (traffic.get(int(node_id), 0) < SILENT_NODE_BYTES
-            and status != "healthy")
+    return traffic.get(int(node_id), 0) < SILENT_NODE_BYTES
 
 
 def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
@@ -266,8 +267,10 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
         else:
             fail_streak = 0
             pass_streak = prev.get("pass_streak", 0) + 1
-            # Refuse to restore into silence: if nothing is moving through the
-            # node, a passing probe is the only witness and that is not enough.
+            # Refuse to restore into silence: if nothing is moving through a
+            # node the panel can otherwise see, a passing probe is the only
+            # witness and that is not enough. A node the panel cannot see at
+            # all reports silence it has not earned, so that does not count.
             quiet = entry_silent or exit_silent
             ready = pass_streak >= PASS_STREAK_TO_RESTORE and not quiet
             restored = []

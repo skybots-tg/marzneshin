@@ -95,25 +95,34 @@ def test_wrong_geo_still_counts_as_traffic_flowing():
     assert decisions["disable"] == []
 
 
-def test_silent_and_unhealthy_node_is_hidden_at_once():
-    """Zero bytes plus an unreachable node is proof enough without a streak."""
+def test_a_reachable_node_moving_nothing_is_hidden_at_once():
+    """The panel can see the node, and it has carried nothing: that is real."""
     _, _, decisions = run(
         [FakeTarget(1, "fail")], traffic={25: 0, 14: 0},
-        statuses={25: "unhealthy", 14: "healthy"},
+        statuses={25: "healthy", 14: "healthy"},
     )
     assert decisions["disable"] == [1]
     assert decisions["links"][LINK]["reason"] == "node_silent"
 
 
-def test_one_witness_cannot_call_a_node_silent():
-    """Byte count and health flag both ride the panel's own link to the node.
+def test_an_unreachable_node_reports_silence_it_has_not_earned():
+    """Usage is collected over the same gRPC link the health flag rides.
 
-    A node the panel merely cannot route to reports zero and unhealthy while
-    serving its users; with nobody to corroborate, that is not evidence.
+    A node the panel cannot route to always reads zero bytes, whether or not
+    its users are happily connected, so the shortcut must not fire.
     """
+    _, _, decisions = run(
+        [FakeTarget(1, "fail")], traffic={25: 0, 14: BUSY},
+        statuses={25: "unhealthy", 14: "healthy"},
+    )
+    assert decisions["disable"] == []
+    assert decisions["links"][LINK]["reason"] == "link_down_pending"
+
+
+def test_one_witness_cannot_take_the_shortcut():
     lone = [FakeTarget(1, "fail", witnesses=1)]
-    _, state, decisions = run(lone, traffic={25: 0, 14: 0},
-                              statuses={25: "unhealthy", 14: "healthy"})
+    _, _, decisions = run(lone, traffic={25: 0, 14: 0},
+                          statuses={25: "healthy", 14: "healthy"})
     assert decisions["disable"] == []
     assert decisions["links"][LINK]["reason"] == "link_down_pending_alone"
 
@@ -126,14 +135,6 @@ def test_one_witness_still_acts_once_it_has_persisted():
         assert decisions["disable"] == []
     _, state, decisions = run(lone, state)
     assert decisions["disable"] == [1]
-
-
-def test_silence_alone_does_not_trigger_the_fast_path():
-    _, _, decisions = run(
-        [FakeTarget(1, "fail")], traffic={25: 0, 14: 0},
-        statuses={25: "healthy", 14: "healthy"},
-    )
-    assert decisions["disable"] == []
 
 
 def test_one_failing_link_beside_working_ones_is_not_contested():
