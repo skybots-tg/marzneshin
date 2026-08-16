@@ -411,11 +411,14 @@ def print_summary(report):
                   f"{note.get('verdict', '?')}/{note.get('reason', '')}")
     contested = [ln for ln in report.get("links") or [] if ln.get("contested")]
     if contested:
-        print(f"\nPROBE AND TRAFFIC DISAGREE ({len(contested)}) — worth a look "
-              f"before trusting either:")
+        nodes = sorted({ln["entry_node_name"] for ln in contested})
+        print(f"\nHELD BACK ({len(contested)} link(s) on {len(nodes)} node(s)) "
+              f"— every link on the node failed while the node is still "
+              f"carrying traffic, so this is the probe's footing, not the "
+              f"fleet. Nothing was hidden:")
         for ln in contested:
             print(f"  {ln['link']:<16} {ln['entry_node_name'][:26]:<28} "
-                  f"probe={ln['verdict']} node_bytes={ln.get('entry_bytes', 0)}")
+                  f"node moved {ln.get('entry_bytes', 0):,} bytes")
     partial = [h for h in report["hosts"] if h.get("partial")]
     if partial:
         print(f"\nREACHABLE FROM SOME VANTAGES ONLY ({len(partial)}) "

@@ -112,9 +112,31 @@ def test_silence_alone_does_not_trigger_the_fast_path():
     assert decisions["disable"] == []
 
 
-def test_failure_against_live_traffic_is_flagged_contested():
-    _, _, decisions = run([FakeTarget(1, "fail")])
+def test_one_failing_link_beside_working_ones_is_not_contested():
+    """A busy node proves nothing about one leg among many."""
+    targets = [FakeTarget(1, "fail"),
+               FakeTarget(2, "pass", link="25>DE/tcp")]
+    _, _, decisions = run(targets)
+    assert decisions["links"][LINK]["contested"] is False
+
+
+def test_a_node_failing_everywhere_while_busy_is_not_believed():
+    """Fifteen legs do not die in the same second; the probe lost its footing."""
+    targets = [FakeTarget(1, "fail"),
+               FakeTarget(2, "fail", link="25>DE/tcp"),
+               FakeTarget(3, "fail", link="25>NL/tcp")]
+    _, state, _ = run(targets)
+    _, _, decisions = run(targets, state)
+    assert decisions["disable"] == []
     assert decisions["links"][LINK]["contested"] is True
+    assert decisions["links"][LINK]["reason"] == "node_unreachable_but_busy"
+
+
+def test_a_node_failing_everywhere_and_silent_is_believed():
+    targets = [FakeTarget(1, "fail"), FakeTarget(2, "fail", link="25>DE/tcp")]
+    _, _, decisions = run(targets, traffic={25: 0, 14: 0},
+                          statuses={25: "unhealthy", 14: "healthy"})
+    assert decisions["disable"] == [1, 2]
 
 
 def test_skipped_links_do_not_age_the_streak():

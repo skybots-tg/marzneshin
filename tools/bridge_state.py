@@ -13,9 +13,12 @@ disappears for everyone. So nothing here acts on one observation:
   before it comes back;
 * the probe is cross-checked against ``node_usages``, which counts bytes real
   users moved. A node sitting at a flat zero while its status is unhealthy is
-  hidden immediately -- no streak needed, the evidence is already in. A node
-  visibly carrying traffic while the probe calls it dead is still hidden on the
-  streak, but the disagreement is recorded so it is visible on the page;
+  hidden immediately -- no streak needed, the evidence is already in. And when
+  *every* link on a node fails at once while that node is visibly carrying
+  traffic, nothing is hidden at all: fifteen legs do not die in the same second,
+  so the probe lost its footing rather than the fleet. That is not
+  hypothetical -- node 43 once refused TLS from the panel and from two RU
+  vantages while node 30 and real subscribers were using it perfectly well;
 * only hosts this module hid are ever un-hidden. Hosts hidden by hand stay
   hidden -- most were retired on purpose while a node was being replaced.
 
@@ -135,6 +138,15 @@ def save(state: dict, path: str = STATE_PATH) -> None:
     os.replace(tmp, path)
 
 
+def _verdicts_by_node(links: dict[str, LinkView]) -> dict[int, list[str]]:
+    """entry node -> the verdict of each of its links that was probed at all."""
+    out: dict[int, list[str]] = {}
+    for link in links.values():
+        if link.verdict != "skip":
+            out.setdefault(link.entry_node_id, []).append(link.verdict)
+    return out
+
+
 def _node_is_silent(node_id, traffic: dict[int, int], status: str) -> bool:
     """No bytes over the window *and* the panel cannot reach it either.
 
@@ -161,6 +173,7 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
     remark_of = remark_of or {}
     link_state = state["links"]
     auto = state["auto_disabled"]
+    verdicts_by_node = _verdicts_by_node(links)
 
     disable: list[int] = []
     enable: list[int] = []
@@ -187,9 +200,17 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             fail_streak = prev.get("fail_streak", 0) + 1
             pass_streak = 0
             silent = entry_silent or exit_silent
-            contested = not silent and entry_bytes >= SILENT_NODE_BYTES
-            should_hide = silent or fail_streak >= FAIL_STREAK_TO_HIDE
-            reason = ("node_silent" if silent else
+            # Everything on this node failed, yet the node is moving real
+            # traffic: believe the users, not the probe.
+            probed = verdicts_by_node.get(link.entry_node_id, [])
+            contested = (not silent
+                         and entry_bytes >= SILENT_NODE_BYTES
+                         and len(probed) > 1
+                         and all(v == "down" for v in probed))
+            should_hide = not contested and (
+                silent or fail_streak >= FAIL_STREAK_TO_HIDE)
+            reason = ("node_unreachable_but_busy" if contested else
+                      "node_silent" if silent else
                       "link_down" if should_hide else "link_down_pending")
             if should_hide:
                 for host_id in link.enabled_host_ids:
