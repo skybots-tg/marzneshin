@@ -34,11 +34,20 @@ const STATE_GLYPH: Record<string, string> = {
     absent: "·",
 };
 
+// "universal-2" sorts by its number; an entry named without one ("elite-n33")
+// falls back to its node and sorts after the numbered ones, by name.
 const sortEntries = (keys: string[]) =>
     [...keys].sort((a, b) => {
         const [ta, ia] = a.split("-");
         const [tb, ib] = b.split("-");
-        return ta === tb ? Number(ia) - Number(ib) : ta.localeCompare(tb);
+        if (ta !== tb) return ta.localeCompare(tb);
+        const na = Number(ia);
+        const nb = Number(ib);
+        if (Number.isNaN(na) || Number.isNaN(nb)) {
+            if (Number.isNaN(na) && Number.isNaN(nb)) return ia.localeCompare(ib);
+            return Number.isNaN(na) ? 1 : -1;
+        }
+        return na - nb;
     });
 
 export const BridgeMatrix: FC<{ matrix: Grid }> = ({ matrix }) => {

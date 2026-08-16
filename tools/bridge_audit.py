@@ -476,7 +476,13 @@ def print_matrix(report):
         return
     w = max(max((len(s) for s in slots), default=4), 4) + 1
     print("\nentry".ljust(14) + "".join(s.ljust(w) for s in slots))
-    for ek in sorted(grid, key=lambda k: (k.split("-")[0], int(k.split("-")[1]))):
+
+    def order(entry_key):
+        """Numbered entries first, in order; the unnumbered ones after."""
+        tier, _, index = entry_key.partition("-")
+        return (tier, 0, int(index)) if index.isdigit() else (tier, 1, index)
+
+    for ek in sorted(grid, key=order):
         line = ek.ljust(14)
         for s in slots:
             cell = grid[ek].get(s)
