@@ -33,7 +33,8 @@ class FakeTarget:
     """The handful of Target attributes roll_up actually reads."""
 
     def __init__(self, host_id, verdict, *, link=LINK, node_id=25,
-                 is_disabled=False, remark=None, exit_node_id=14):
+                 is_disabled=False, remark=None, exit_node_id=14,
+                 witnesses=3):
         self.host_id = host_id
         self.link_key = link
         self.node_id = node_id
@@ -46,7 +47,7 @@ class FakeTarget:
         self.is_bridge = True
         self.is_disabled = is_disabled
         self.remark = remark or f"host-{host_id}"
-        self.result = {"verdict": verdict}
+        self.result = {"verdict": verdict, "witnesses": witnesses}
 
 
 def run(targets, state=None, traffic=None, statuses=None):
@@ -102,6 +103,29 @@ def test_silent_and_unhealthy_node_is_hidden_at_once():
     )
     assert decisions["disable"] == [1]
     assert decisions["links"][LINK]["reason"] == "node_silent"
+
+
+def test_one_witness_cannot_call_a_node_silent():
+    """Byte count and health flag both ride the panel's own link to the node.
+
+    A node the panel merely cannot route to reports zero and unhealthy while
+    serving its users; with nobody to corroborate, that is not evidence.
+    """
+    lone = [FakeTarget(1, "fail", witnesses=1)]
+    _, state, decisions = run(lone, traffic={25: 0, 14: 0},
+                              statuses={25: "unhealthy", 14: "healthy"})
+    assert decisions["disable"] == []
+    assert decisions["links"][LINK]["reason"] == "link_down_pending_alone"
+
+
+def test_one_witness_still_acts_once_it_has_persisted():
+    lone = [FakeTarget(1, "fail", witnesses=1)]
+    state = bs.load("/nonexistent/state.json")
+    for _ in range(bs.FAIL_STREAK_SINGLE_WITNESS - 1):
+        _, state, decisions = run(lone, state)
+        assert decisions["disable"] == []
+    _, state, decisions = run(lone, state)
+    assert decisions["disable"] == [1]
 
 
 def test_silence_alone_does_not_trigger_the_fast_path():

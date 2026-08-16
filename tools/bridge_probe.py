@@ -206,6 +206,10 @@ def merge(targets, per_vantage: dict, origins: dict[str, str] | None = None) -> 
                 if good else next(iter(views.values())))
         t.result = dict(best)
         t.result["audience"] = audience
+        # How many vantages actually spoke to this verdict. One is not a
+        # consensus: a single vantage with a routing problem of its own would
+        # otherwise be enough to condemn a server that everybody else reaches.
+        t.result["witnesses"] = len(views)
         t.result["vantages_ok"] = sorted(good)
         t.result["vantages_tried"] = sorted(views)
         t.result["by_vantage"] = {

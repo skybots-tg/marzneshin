@@ -13,10 +13,15 @@ disappears for everyone. So nothing here acts on one observation:
   before it comes back;
 * the probe is cross-checked against ``node_usages``, which counts bytes real
   users moved. A node sitting at a flat zero while its status is unhealthy is
-  hidden immediately -- no streak needed, the evidence is already in. And when
-  *every* link on a node fails at once while that node is visibly carrying
-  traffic, nothing is hidden at all: fifteen legs do not die in the same second,
-  so the probe lost its footing rather than the fleet. That is not
+  hidden immediately -- no streak needed -- but only when more than one vantage
+  saw it fail. Both of those signals reach the panel down the same gRPC
+  connection, so a node the panel merely cannot *route* to reports zero bytes
+  and unhealthy while serving its users perfectly well; nodes 24, 33 and 41 sat
+  in exactly that state, answering from elsewhere while the panel called them
+  dead. One witness is never enough to act quickly on;
+* and when *every* link on a node fails at once while that node is visibly
+  carrying traffic, nothing is hidden at all: fifteen legs do not die in the
+  same second, so the probe lost its footing rather than the fleet. That is not
   hypothetical -- node 43 once refused TLS from the panel and from two RU
   vantages while node 30 and real subscribers were using it perfectly well;
 * only hosts this module hid are ever un-hidden. Hosts hidden by hand stay
@@ -40,6 +45,14 @@ STATE_PATH = os.path.join(DATA_DIR, "bridge_state.json")
 # genuinely dead link in subscriptions for long.
 FAIL_STREAK_TO_HIDE = 2
 PASS_STREAK_TO_RESTORE = 2
+
+# When only one vantage could speak for a link -- which is every FAST host,
+# since the panel is the only foreign viewpoint we have -- its word alone is
+# thin. A routing fault on that one machine is indistinguishable from the
+# server being down. Waiting for four runs, roughly an hour, is long enough
+# for a transient path problem to clear and still short enough that a genuinely
+# dead server does not stay in subscriptions for the day.
+FAIL_STREAK_SINGLE_WITNESS = 4
 
 # How far back to ask node_usages, and how few bytes counts as "nothing". The
 # table is written in hourly buckets, so the window has to span several of them
@@ -68,6 +81,7 @@ class LinkView:
     enabled_host_ids: list[int] = field(default_factory=list)
     live_host_ids: list[int] = field(default_factory=list)
     dead_host_ids: list[int] = field(default_factory=list)
+    witnesses: int = 0
 
     @property
     def verdict(self) -> str:
@@ -80,7 +94,8 @@ class LinkView:
 
     def brief(self) -> dict:
         return {
-            "link": self.key, "entry_key": self.entry_key, "slot": self.slot,
+            "link": self.key, "witnesses": self.witnesses,
+            "entry_key": self.entry_key, "slot": self.slot,
             "variant": self.variant, "entry_node_id": self.entry_node_id,
             "entry_node_name": self.entry_node_name,
             "exit_node_id": self.exit_node_id, "is_bridge": self.is_bridge,
@@ -115,6 +130,9 @@ def roll_up(targets) -> dict[str, LinkView]:
             link.live_host_ids.append(t.host_id)
         elif verdict == "fail":
             link.dead_host_ids.append(t.host_id)
+        if verdict != "skip":
+            link.witnesses = max(link.witnesses,
+                                 int((t.result or {}).get("witnesses") or 0))
     return links
 
 
@@ -219,12 +237,20 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
                          and len(probed) > 1
                          and all(v == "down" for v in probed))
             confirmed = confirmed_links is None or key in confirmed_links
+            # Silence is only evidence when someone other than the panel saw
+            # the failure too — the byte counter and the health flag both come
+            # down the panel's own connection to the node.
+            alone = link.witnesses <= 1
+            threshold = (FAIL_STREAK_SINGLE_WITNESS if alone
+                         else FAIL_STREAK_TO_HIDE)
             should_hide = not contested and confirmed and (
-                silent or fail_streak >= FAIL_STREAK_TO_HIDE)
+                (silent and not alone) or fail_streak >= threshold)
             reason = ("node_unreachable_but_busy" if contested else
                       "unconfirmed" if not confirmed else
-                      "node_silent" if silent else
-                      "link_down" if should_hide else "link_down_pending")
+                      "node_silent" if silent and not alone else
+                      "link_down" if should_hide else
+                      "link_down_pending_alone" if alone else
+                      "link_down_pending")
             if should_hide:
                 for host_id in link.enabled_host_ids:
                     disable.append(host_id)
@@ -235,6 +261,7 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
                 "verdict": "down", "fail_streak": fail_streak,
                 "pass_streak": 0, "reason": reason, "contested": contested,
                 "confirmed": confirmed, "entry_bytes": entry_bytes,
+                "witnesses": link.witnesses,
             }
         else:
             fail_streak = 0
