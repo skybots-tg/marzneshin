@@ -162,12 +162,22 @@ def _node_is_silent(node_id, traffic: dict[int, int], status: str) -> bool:
 
 def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
            node_status: dict[int, str], visible_by_remark=None,
-           remark_of=None) -> dict:
+           remark_of=None, confirmed_links=None, node_wide_rule=True) -> dict:
     """Fold this run into the state and return the actions it justifies.
 
     ``visible_by_remark``/``remark_of`` implement the long-standing rule that a
     host never comes back while another visible host already answers to its
     name -- un-hiding those puts two identical entries in every subscription.
+
+    ``confirmed_links`` names the links whose failure was established the
+    thorough way. ``None`` means all of them, which is what a full sweep gets.
+    A quick run passes only the ones it re-probed, so an unconfirmed failure
+    can start a streak but never finish one -- otherwise a cold start would
+    record a fleet's worth of hasty verdicts and the very next run would act on
+    them.
+
+    ``node_wide_rule`` is off for scans narrowed to a few hosts, where "every
+    link on this node failed" is a property of the filter, not the node.
     """
     visible_by_remark = visible_by_remark or {}
     remark_of = remark_of or {}
@@ -203,13 +213,16 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             # Everything on this node failed, yet the node is moving real
             # traffic: believe the users, not the probe.
             probed = verdicts_by_node.get(link.entry_node_id, [])
-            contested = (not silent
+            contested = (node_wide_rule
+                         and not silent
                          and entry_bytes >= SILENT_NODE_BYTES
                          and len(probed) > 1
                          and all(v == "down" for v in probed))
-            should_hide = not contested and (
+            confirmed = confirmed_links is None or key in confirmed_links
+            should_hide = not contested and confirmed and (
                 silent or fail_streak >= FAIL_STREAK_TO_HIDE)
             reason = ("node_unreachable_but_busy" if contested else
+                      "unconfirmed" if not confirmed else
                       "node_silent" if silent else
                       "link_down" if should_hide else "link_down_pending")
             if should_hide:
@@ -221,7 +234,7 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             notes[key] = {
                 "verdict": "down", "fail_streak": fail_streak,
                 "pass_streak": 0, "reason": reason, "contested": contested,
-                "entry_bytes": entry_bytes,
+                "confirmed": confirmed, "entry_bytes": entry_bytes,
             }
         else:
             fail_streak = 0
@@ -255,6 +268,7 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             "fail_streak": notes[key]["fail_streak"],
             "pass_streak": notes[key]["pass_streak"],
             "verdict": verdict,
+            "confirmed": notes[key].get("confirmed", True),
             "reason": notes[key]["reason"],
             "updated_at": int(time.time()),
         }

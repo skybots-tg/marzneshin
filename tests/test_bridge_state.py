@@ -197,6 +197,42 @@ def test_a_visible_twin_blocks_the_restore():
     assert decisions["enable"] == []
 
 
+def test_an_unconfirmed_failure_never_finishes_a_streak():
+    """A quick run may start the clock; only a thorough one may act on it."""
+    targets = [FakeTarget(1, "fail")]
+    state = bs.load("/nonexistent/state.json")
+    for _ in range(4):
+        links = bs.roll_up(targets)
+        decisions = bs.decide(links, state, {25: BUSY, 14: BUSY},
+                              {25: "healthy", 14: "healthy"},
+                              confirmed_links=set())
+    assert decisions["disable"] == []
+    assert decisions["links"][LINK]["reason"] == "unconfirmed"
+    assert state["links"][LINK]["fail_streak"] == 4
+
+
+def test_a_confirmed_failure_acts_on_the_streak_it_inherited():
+    targets = [FakeTarget(1, "fail")]
+    state = bs.load("/nonexistent/state.json")
+    links = bs.roll_up(targets)
+    bs.decide(links, state, {25: BUSY, 14: BUSY}, {25: "healthy"},
+              confirmed_links=set())
+    decisions = bs.decide(links, state, {25: BUSY, 14: BUSY}, {25: "healthy"},
+                          confirmed_links={LINK})
+    assert decisions["disable"] == [1]
+
+
+def test_the_node_wide_rule_is_off_for_a_filtered_scan():
+    """Probing three links of a node says nothing about the other twelve."""
+    targets = [FakeTarget(1, "fail"), FakeTarget(2, "fail", link="25>DE/tcp")]
+    _, state, _ = run(targets)
+    links = bs.roll_up(targets)
+    decisions = bs.decide(links, state, {25: BUSY, 14: BUSY}, {25: "healthy"},
+                          node_wide_rule=False)
+    assert decisions["links"][LINK]["contested"] is False
+    assert decisions["disable"] == [1, 2]
+
+
 def test_links_that_leave_the_fleet_are_forgotten():
     _, state, _ = run([FakeTarget(1, "fail")])
     assert LINK in state["links"]

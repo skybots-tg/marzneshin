@@ -147,10 +147,11 @@ def cmd_scan(args) -> int:
         t.result.setdefault("verdict", "skip")
 
     state = bs.load()
+    confirmed = None
     if args.quick:
-        recheck_new_failures(targets, probe_targets, state, vantages,
-                             origins, args)
-    decisions = weigh(targets, state, args)
+        confirmed = recheck_new_failures(targets, probe_targets, state,
+                                         vantages, origins, args)
+    decisions = weigh(targets, state, args, confirmed, complete)
     report = build_report(targets, round(time.time() - started, 1), complete,
                           decisions)
     report["vantages"] = [
@@ -196,7 +197,7 @@ def one_per_link(targets) -> list:
 
 
 def recheck_new_failures(targets, probe_targets, state, vantages, origins,
-                         args) -> None:
+                         args) -> set[str]:
     """Re-probe properly anything the quick run has just turned against.
 
     A quick probe asks one geo endpoint once, so it calls a link dead more
@@ -205,19 +206,19 @@ def recheck_new_failures(targets, probe_targets, state, vantages, origins,
     down, and not fine at all for one that was working a quarter of an hour
     ago: two such misreads in a row would hide a healthy server.
 
-    So only the *transitions* are re-probed, with the full geo rotation and the
-    retry sweep. That is a handful of links, not the whole fleet, which is what
-    keeps the watchdog inside its window.
+    So the ones that *turned* are re-probed with the full geo rotation and the
+    retry sweep behind them. Returns the links whose failure is now established
+    — the caller only lets those act. A link already confirmed down stays
+    confirmed and is not re-probed; there is nothing left to establish.
     """
-    was_down = {key for key, s in state.get("links", {}).items()
-                if s.get("verdict") == "down"}
+    confirmed_down = {key for key, s in state.get("links", {}).items()
+                      if s.get("verdict") == "down" and s.get("confirmed")}
     links = bs.roll_up(targets)
-    suspect = {t.link_key for t in probe_targets
-               if links[t.link_key].verdict == "down"
-               and t.link_key not in was_down}
+    down_now = {key for key, link in links.items() if link.verdict == "down"}
+    suspect = down_now - confirmed_down
     retry = [t for t in probe_targets if t.link_key in suspect]
     if not retry:
-        return
+        return down_now & confirmed_down
 
     print(f"\n  {len(retry)} link(s) turned since the last run; re-checking "
           f"them the slow way before acting")
@@ -226,6 +227,10 @@ def recheck_new_failures(targets, probe_targets, state, vantages, origins,
     bp.merge(retry, per_vantage, origins)
     recovered = sum(1 for t in retry if t.result.get("verdict") != "fail")
     print(f"  {recovered} of {len(retry)} came back on the second look")
+    rechecked = bs.roll_up(targets)
+    still_down = {t.link_key for t in retry
+                  if rechecked[t.link_key].verdict == "down"}
+    return (down_now & confirmed_down) | still_down
 
 
 def visible_by_remark(targets) -> dict[str, list[int]]:
@@ -236,7 +241,7 @@ def visible_by_remark(targets) -> dict[str, list[int]]:
     return out
 
 
-def weigh(targets, state, args) -> dict:
+def weigh(targets, state, args, confirmed=None, complete=True) -> dict:
     """Turn this run's probe results into actions, with memory and corroboration.
 
     The probe alone does not get to decide: ``bridge_state`` folds it together
@@ -256,6 +261,10 @@ def weigh(targets, state, args) -> dict:
         links, state, traffic, node_status,
         visible_by_remark=visible_by_remark(targets),
         remark_of={t.host_id: t.remark for t in targets},
+        confirmed_links=confirmed,
+        # "every link on this node failed" is only evidence when the scan was
+        # free to look at all of them.
+        node_wide_rule=complete,
     )
     decisions["views"] = {k: v.brief() for k, v in links.items()}
     return decisions
