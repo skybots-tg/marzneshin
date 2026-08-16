@@ -31,12 +31,17 @@ class SubscriptionSettings(BaseModel):
     exclude_unhealthy_nodes: bool = False
     # When enabled, the host remark in the generated subscription gets
     # ``host_remark_adblock_suffix_text`` appended whenever the host's
-    # ingress *or* exit node has ``adblock_enabled=True`` in its
-    # NodeFilteringConfig. Editing the suffix text does not require
-    # restarting xray on the nodes — it is applied at subscription
-    # render time only.
+    # ingress node has ``adblock_enabled=True`` in its NodeFilteringConfig.
+    # Editing the suffix text does not require restarting xray on the nodes —
+    # it is applied at subscription render time only.
     host_remark_adblock_suffix_enabled: bool = False
     host_remark_adblock_suffix_text: str = " NO ADS"
+    # A bridge host's traffic really does surface through its exit node, so an
+    # adblocking *exit* arguably earns the suffix too. It stays opt-in because
+    # turning it on renames existing entries in every live subscription, and
+    # clients tell servers apart by remark — a rename reads as one server
+    # vanishing and another appearing.
+    host_remark_adblock_suffix_follows_exit: bool = False
     rules: list[SubscriptionRule]
 
 

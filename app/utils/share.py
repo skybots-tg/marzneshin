@@ -294,8 +294,8 @@ def setup_format_variables(extra_data: dict) -> dict:
 
 def _resolve_adblock_context(
     subscription_settings: SubscriptionSettings | None,
-) -> tuple[frozenset[int], str]:
-    """Return ``(adblock_node_ids, suffix_text)`` for remark post-processing.
+) -> tuple[frozenset[int], str, bool]:
+    """Return ``(adblock_node_ids, suffix_text, follows_exit)``.
 
     When the feature is disabled (or settings cannot be loaded), the
     returned set is empty so the caller short-circuits without ever
@@ -305,21 +305,24 @@ def _resolve_adblock_context(
     if subscription_settings is None or not getattr(
         subscription_settings, "host_remark_adblock_suffix_enabled", False
     ):
-        return frozenset(), ""
+        return frozenset(), "", False
 
     suffix_text = (
         getattr(subscription_settings, "host_remark_adblock_suffix_text", "")
         or ""
     )
     if not suffix_text:
-        return frozenset(), ""
+        return frozenset(), "", False
 
     from app.db.crud.system import get_adblock_node_ids_cached
 
     with GetDB() as db:
         node_ids = get_adblock_node_ids_cached(db)
 
-    return node_ids, suffix_text
+    follows_exit = bool(getattr(
+        subscription_settings, "host_remark_adblock_suffix_follows_exit", False
+    ))
+    return node_ids, suffix_text, follows_exit
 
 
 def generate_user_configs(
@@ -352,9 +355,8 @@ def generate_user_configs(
         with GetDB() as db:
             hosts = get_hosts_for_user(db, user_id, service_ids=service_ids)
 
-    adblock_node_ids, adblock_suffix_text = _resolve_adblock_context(
-        subscription_settings
-    )
+    (adblock_node_ids, adblock_suffix_text,
+     adblock_follows_exit) = _resolve_adblock_context(subscription_settings)
 
     for host in hosts:
         # Skip hosts with default "Marz" remark — они не должны попадать
@@ -370,24 +372,33 @@ def generate_user_configs(
             node_coefficients=node_coefficients,
             adblock_node_ids=adblock_node_ids,
             adblock_suffix_text=adblock_suffix_text,
+            adblock_follows_exit=adblock_follows_exit,
         )
         configs.append(data)
 
     return configs
 
 
-def _host_touches_adblock_node(host, adblock_node_ids: frozenset[int]) -> bool:
-    """True if the host's ingress *or* exit node has adblock enabled."""
+def _host_touches_adblock_node(host, adblock_node_ids: frozenset[int],
+                               follows_exit: bool = False) -> bool:
+    """True if a node with adblock enabled handles this host's traffic.
+
+    The ingress node always counts. The exit node counts only when
+    ``host_remark_adblock_suffix_follows_exit`` is on: a bridge's traffic does
+    surface through its exit, but ``inbounds.exit_node_id`` is being backfilled
+    across the fleet, and letting that backfill silently rename live
+    subscription entries is not a trade worth making by default.
+    """
     inbound = getattr(host, "inbound", None)
     if inbound is None:
         return False
     ingress = getattr(inbound, "node_id", None)
     if ingress is not None and ingress in adblock_node_ids:
         return True
+    if not follows_exit:
+        return False
     egress = getattr(inbound, "exit_node_id", None)
-    if egress is not None and egress in adblock_node_ids:
-        return True
-    return False
+    return egress is not None and egress in adblock_node_ids
 
 
 def create_config(
@@ -396,6 +407,7 @@ def create_config(
     node_coefficients: dict[int, float] | None = None,
     adblock_node_ids: frozenset[int] | None = None,
     adblock_suffix_text: str = "",
+    adblock_follows_exit: bool = False,
 ):
     if next_hosts is None:
         next_hosts = []
@@ -484,7 +496,8 @@ def create_config(
     if (
         adblock_suffix_text
         and adblock_node_ids
-        and _host_touches_adblock_node(host, adblock_node_ids)
+        and _host_touches_adblock_node(host, adblock_node_ids,
+                                       adblock_follows_exit)
         and not remark.endswith(adblock_suffix_text)
     ):
         remark = f"{remark}{adblock_suffix_text}"

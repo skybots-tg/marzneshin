@@ -51,6 +51,21 @@ export const AdblockSuffixField = () => {
                     </FormItem>
                 )}
             />
+            {enabled && (
+                <>
+                    <CheckboxField
+                        name="host_remark_adblock_suffix_follows_exit"
+                        label={t(
+                            "page.settings.subscription-settings.adblock-suffix-follows-exit",
+                        )}
+                    />
+                    <FormDescription>
+                        {t(
+                            "page.settings.subscription-settings.adblock-suffix-follows-exit-desc",
+                        )}
+                    </FormDescription>
+                </>
+            )}
         </div>
     );
 };

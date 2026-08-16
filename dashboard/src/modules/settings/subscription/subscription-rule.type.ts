@@ -14,5 +14,6 @@ export type SubscriptionSettingsType = {
     update_interval: number;
     host_remark_adblock_suffix_enabled?: boolean;
     host_remark_adblock_suffix_text?: string;
+    host_remark_adblock_suffix_follows_exit?: boolean;
     rules: SubscriptionRuleType[];
 }

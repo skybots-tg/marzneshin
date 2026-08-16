@@ -18,6 +18,7 @@ export const schema = z.object({
     update_interval: z.coerce.number().int().default(0),
     host_remark_adblock_suffix_enabled: z.boolean().default(false),
     host_remark_adblock_suffix_text: z.string().default(" NO ADS"),
+    host_remark_adblock_suffix_follows_exit: z.boolean().default(false),
 })
 
 export type Schema = z.infer<typeof schema>

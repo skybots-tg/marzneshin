@@ -20,6 +20,7 @@ export const useSubscriptionSettingsQuery = () => {
             update_interval: 0,
             host_remark_adblock_suffix_enabled: false,
             host_remark_adblock_suffix_text: " NO ADS",
+            host_remark_adblock_suffix_follows_exit: false,
             rules: [],
         },
     });
