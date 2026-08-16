@@ -147,6 +147,9 @@ def cmd_scan(args) -> int:
         t.result.setdefault("verdict", "skip")
 
     state = bs.load()
+    if args.quick:
+        recheck_new_failures(targets, probe_targets, state, vantages,
+                             origins, args)
     decisions = weigh(targets, state, args)
     report = build_report(targets, round(time.time() - started, 1), complete,
                           decisions)
@@ -190,6 +193,39 @@ def one_per_link(targets) -> list:
     for t in sorted(targets, key=lambda t: (t.is_disabled, t.host_id)):
         chosen.setdefault(t.link_key, t)
     return list(chosen.values())
+
+
+def recheck_new_failures(targets, probe_targets, state, vantages, origins,
+                         args) -> None:
+    """Re-probe properly anything the quick run has just turned against.
+
+    A quick probe asks one geo endpoint once, so it calls a link dead more
+    readily than a full sweep does — around twenty extra out of a hundred and
+    eighty, mostly rate limits. That is fine for a link already known to be
+    down, and not fine at all for one that was working a quarter of an hour
+    ago: two such misreads in a row would hide a healthy server.
+
+    So only the *transitions* are re-probed, with the full geo rotation and the
+    retry sweep. That is a handful of links, not the whole fleet, which is what
+    keeps the watchdog inside its window.
+    """
+    was_down = {key for key, s in state.get("links", {}).items()
+                if s.get("verdict") == "down"}
+    links = bs.roll_up(targets)
+    suspect = {t.link_key for t in probe_targets
+               if links[t.link_key].verdict == "down"
+               and t.link_key not in was_down}
+    retry = [t for t in probe_targets if t.link_key in suspect]
+    if not retry:
+        return
+
+    print(f"\n  {len(retry)} link(s) turned since the last run; re-checking "
+          f"them the slow way before acting")
+    per_vantage = bp.probe_all(retry, vantages, args.user, workers=args.jobs,
+                               timeout=args.timeout, geo_tries=0, attempts=2)
+    bp.merge(retry, per_vantage, origins)
+    recovered = sum(1 for t in retry if t.result.get("verdict") != "fail")
+    print(f"  {recovered} of {len(retry)} came back on the second look")
 
 
 def visible_by_remark(targets) -> dict[str, list[int]]:
