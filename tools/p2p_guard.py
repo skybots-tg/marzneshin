@@ -96,6 +96,7 @@ def validate(ip, cfg):
 def cmd_scan(args):
     strict_ids = parse_ids(args.strict)
     bad = 0
+    unreachable = []
     for nid, name, ip, status in nodes():
         if args.node and nid not in args.node:
             continue
@@ -103,6 +104,7 @@ def cmd_scan(args):
             cfg = mc.node_cfg(ip)
         except Exception as e:
             print(f"{nid:>3} {name[:34]:34s} unreachable: {str(e)[:60]}")
+            unreachable.append(nid)
             continue
         missing = guard.audit(cfg, strict=nid in strict_ids)
         if missing:
@@ -111,6 +113,10 @@ def cmd_scan(args):
         else:
             print(f"{nid:>3} {name[:34]:34s} ok ({status})")
     print(f"\n{bad} node(s) need the guard applied")
+    if unreachable:
+        # Not "fine": these were never inspected, so nothing is known about them.
+        print("not inspected at all (unreachable): "
+              + ", ".join(map(str, unreachable)))
     return 1 if bad else 0
 
 
