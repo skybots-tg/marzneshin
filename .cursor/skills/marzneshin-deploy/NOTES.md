@@ -68,13 +68,31 @@ VPS Advanced NVMe unlimited RU, открыт 07.06.2026, hostname
 
 Откат переключения: `/var/lib/marzneshin/rollback_u2_swap_20260817.sql`.
 
-**Где лежат креды.** Пароль root — в волте (`~/.cursor/ssh-vault/servers.json`,
-алиас `vpn_datacheap_ru_1_new`), плюс алиас в `~/.ssh/config`. В репозиторий не
-кладём: тут действует своё правило «keep secrets out of the repo», а NOTES.md
-уходит на GitHub. В штатное шифрованное хранилище панели
-(`node_ssh_credentials`) не записан: `encrypt_credentials()` требует PIN
-оператора, а произвольный PIN сделал бы запись нерасшифровываемой вместе с
-остальными четырьмя. Повседневный доступ пароля не требует — ключ прописан.
+**Где лежат креды.** Три места, ни одно из них не репозиторий (тут действует
+своё правило «keep secrets out of the repo», а NOTES.md уходит на GitHub):
+
+1. ключ панели прописан на ноде — повседневный доступ пароля не требует;
+2. волт `~/.cursor/ssh-vault/servers.json`, алиас `vpn_datacheap_ru_1_new`,
+   плюс алиас в `~/.ssh/config`;
+3. штатное шифрованное хранилище панели `node_ssh_credentials` — запись для
+   ноды 41 добавлена, обратная расшифровка сверена.
+
+Про хранилище панели: ключ выводится из **PIN оператора + `get_secret_key()`**
+(PBKDF2, 480k итераций, AES-256-GCM), см. `app/utils/crypto.py`. Формат записи —
+`{"ssh_user", "ssh_port", "ssh_password", "ssh_key"}`. Записывать туда без
+правильного PIN нельзя: запись просто не расшифруется вместе с остальными.
+Проверить PIN можно, расшифровав любую существующую строку:
+
+```python
+from app.ai.ssh_runner import decrypt_node_credentials
+from app.db import GetDB
+from app.db.models import NodeSSHCredentials
+with GetDB() as db:
+    row = db.query(NodeSSHCredentials).filter_by(node_id=30).first()
+    decrypt_node_credentials(row, "<PIN>")   # ValueError → PIN не тот
+```
+
+Сам PIN здесь не пишем — он у оператора.
 
 ## 2026-08-17 — UNIVERSAL 7 на FirstVDS + топология выводится из БД
 
