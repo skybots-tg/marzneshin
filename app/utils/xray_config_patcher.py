@@ -4,6 +4,7 @@ import copy
 import json
 
 from app.models.node_filtering import DnsProvider
+from app.utils import p2p_guard
 
 _DEFAULT_DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
 
@@ -93,6 +94,10 @@ def patch_config_enable(
     config["outbounds"] = _ensure_block_outbound(config.get("outbounds", []))
     config["inbounds"] = _ensure_sniffing_on_inbounds(config.get("inbounds", []))
 
+    # Ad-blocking is a toggle; P2P blocking is not. Re-assert it on every write
+    # so flipping this switch can never be what drops it (see app/utils/p2p_guard).
+    p2p_guard.ensure(config)
+
     return json.dumps(config, indent=4, ensure_ascii=False)
 
 
@@ -108,5 +113,8 @@ def patch_config_disable(config_str: str) -> str:
     rules = routing.get("rules", [])
     routing["rules"] = _remove_ads_rule(rules)
     config["routing"] = routing
+
+    # Turning ad-blocking off must not turn P2P blocking off with it.
+    p2p_guard.ensure(config)
 
     return json.dumps(config, indent=4, ensure_ascii=False)
