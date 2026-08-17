@@ -17,7 +17,7 @@ The rules themselves live in app/utils/p2p_guard.py — the same module the pane
 uses when it rewrites a node config, so there is one definition of "blocked".
 """
 import argparse
-import importlib.util
+import fcntl
 import json
 import os
 import subprocess
@@ -28,19 +28,12 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import marz_common as mc  # noqa: E402
 
-# Imported by path, not as app.utils.p2p_guard: importing the package would drag
-# in the whole FastAPI app, which is not installed on the host.
-_GUARD_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "app", "utils", "p2p_guard.py",
-)
-_spec = importlib.util.spec_from_file_location("p2p_guard_rules", _GUARD_PATH)
-guard = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(guard)
+guard = mc.p2p_guard  # app/utils/p2p_guard.py — one definition of "blocked"
 
 PANEL = os.environ.get("PANEL_API", "http://127.0.0.1:40215/api")
 PANEL_CONTAINER = "marzneshin-marzneshin-1"
 SUDO_ADMIN = os.environ.get("PANEL_ADMIN", "resist")
+LOCK = "/var/lib/marzneshin/p2p_guard.lock"
 
 _TEST = r'''
 set -u
@@ -121,8 +114,30 @@ def cmd_scan(args):
     return 1 if bad else 0
 
 
+def take_lock():
+    """Two concurrent runs push RestartBackend twice at the same node, and the
+    second call cancels the first mid-restart — that is how node 43 ended up
+    with no xray at all on 17.08. One writer at a time."""
+    fh = open(LOCK, "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit("another p2p_guard run holds " + LOCK)
+    return fh  # kept open for the lifetime of the process
+
+
+def backend_running(nid, tok):
+    try:
+        node = api("GET", f"/nodes/{nid}", tok)
+    except Exception:
+        return None
+    backends = node.get("backends") or []
+    return all(b.get("running") for b in backends) if backends else None
+
+
 def cmd_apply(args):
     strict_ids = parse_ids(args.strict)
+    lock = None if args.dry_run else take_lock()  # noqa: F841
     tok = None if args.dry_run else token()
     failed = []
     for nid, name, ip, status in nodes():
@@ -166,8 +181,12 @@ def cmd_apply(args):
         if left:
             print(f"{label} pushed but still missing {', '.join(left)}")
             failed.append(nid)
-        else:
-            print(f"{label} applied{' (strict)' if strict else ''}")
+            continue
+        if backend_running(nid, tok) is False:
+            print(f"{label} applied BUT xray is not running — restart marznode")
+            failed.append(nid)
+            continue
+        print(f"{label} applied{' (strict)' if strict else ''}")
 
     if failed:
         print("\nnodes needing attention: " + ", ".join(map(str, failed)))

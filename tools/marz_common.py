@@ -17,6 +17,7 @@ Architecture recap (multihop):
     provision users and build subscription links); the DB `hosts` table holds
     one user-visible entry per (inbound, branding).
 """
+import importlib.util
 import json
 import os
 import re
@@ -25,6 +26,17 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# The P2P rule set, loaded by path: importing app.utils.p2p_guard as a package
+# would pull in the whole FastAPI app, which is not installed on the panel host.
+_GUARD_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "app", "utils", "p2p_guard.py",
+)
+_spec = importlib.util.spec_from_file_location("p2p_guard_rules", _GUARD_PATH)
+p2p_guard = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(p2p_guard)
+
 try:
     from _secrets import DB_ROOT_PW
 except ImportError as _e:  # pragma: no cover - operator must provide _secrets.py
@@ -223,7 +235,14 @@ docker ps --filter "name=$c" --format '{{.Names}} {{.Status}}'
 
 def deploy(ip, new_cfg):
     """Validate (xray -test), backup, atomically swap and restart marznode.
-    Returns (ok: bool, output: str)."""
+    Returns (ok: bool, output: str).
+
+    Every config that reaches a node goes through here, so this is where the
+    P2P guard is asserted: a node built from a reference config, or repaired by
+    any of the bridge tools, cannot come up without the BitTorrent rules.
+    """
+    if p2p_guard.ensure(new_cfg):
+        print("p2p guard: added the BitTorrent/P2P rules to this config")
     out = ssh(ip, _DEPLOY, inp=json.dumps(new_cfg, ensure_ascii=False, indent=2),
               timeout=120)
     ok = "TEST_OK" in out.stdout and "RESTARTED" in out.stdout
