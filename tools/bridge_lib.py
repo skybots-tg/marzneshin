@@ -168,6 +168,114 @@ class Target:
         }
 
 
+@dataclass
+class Entry:
+    """One entry group as the database has it: which node carries which tier."""
+    node_id: int
+    address: str
+    tier: str
+    index: int
+    node_status: str
+    hosts: int
+
+    @property
+    def kind(self) -> str:
+        """Upper-case tier, the spelling the provisioning tools use."""
+        return self.tier.upper()
+
+    @property
+    def weight_base(self) -> int:
+        """Bottom of this entry's weight band."""
+        return 100 + (self.index - 1) * 10
+
+
+def entry_nodes(tiers=("universal", "elite")) -> list[Entry]:
+    """The entry fleet, read from the database instead of from a constant.
+
+    A hand-kept list of "node 25 is UNIVERSAL 1" goes stale the first time
+    anything moves, and does so silently: the one in add_exit_country.py had
+    node 40 branded UNIVERSAL 6 while its hosts said UNIVERSAL 3, and still
+    listed node 12, which no longer exists. Adding a country from that list
+    would have stamped one entry's branding onto another's hosts.
+
+    The hosts are the branding, so they are the authority. A node's tier is
+    whatever the majority of its hosts claim; ties cannot happen in practice
+    because provisioning writes one tier per node.
+    """
+    rows = mc.db_query(
+        "SELECT i.node_id, n.address, n.status, h.remark "
+        "FROM hosts h JOIN inbounds i ON i.id = h.inbound_id "
+        "JOIN nodes n ON n.id = i.node_id;"
+    )
+    tally: dict[int, dict] = {}
+    for row in rows:
+        if len(row) < 4:
+            continue
+        node_id, address, status, remark = int(row[0]), row[1], row[2], row[3]
+        tier, index = classify_tier(remark)
+        if tier not in tiers or index is None:
+            continue
+        node = tally.setdefault(node_id, {"address": address, "status": status,
+                                          "counts": {}})
+        key = (tier, index)
+        node["counts"][key] = node["counts"].get(key, 0) + 1
+
+    out = []
+    for node_id, node in tally.items():
+        (tier, index), hosts = max(node["counts"].items(), key=lambda kv: kv[1])
+        out.append(Entry(node_id=node_id, address=node["address"], tier=tier,
+                         index=index, node_status=node["status"], hosts=hosts))
+    return sorted(out, key=lambda e: (e.tier, e.index))
+
+
+def next_entry_index(tier="universal") -> int:
+    """The first unused number in a tier, for onboarding a new entry."""
+    used = {e.index for e in entry_nodes(tiers=(tier,))}
+    n = 1
+    while n in used:
+        n += 1
+    return n
+
+
+def exit_catalog(tier="universal") -> dict[str, dict]:
+    """inbound tag -> {"iso", "label", "sub"}, learned from the fleet.
+
+    The provisioning tools used to carry this as a literal, so a country added
+    to the fleet stayed invisible to the next node onboarded until someone
+    remembered to edit two dictionaries. Reading it off the entry that carries
+    the most exits means a new country propagates on its own.
+
+    ``sub`` is the offset inside the entry's weight band, which is what keeps
+    exits in the same order in every subscription.
+    """
+    rows = mc.db_query(
+        "SELECT i.node_id, i.tag, h.remark, h.weight "
+        "FROM hosts h JOIN inbounds i ON i.id = h.inbound_id;"
+    )
+    by_node: dict[int, list] = {}
+    for row in rows:
+        if len(row) < 4:
+            continue
+        by_node.setdefault(int(row[0]), []).append(row[1:])
+
+    best = {e.node_id: e for e in entry_nodes(tiers=(tier,))}
+    if not best:
+        return {}
+    richest = max(best.values(), key=lambda e: len(by_node.get(e.node_id, [])))
+    catalog = {}
+    for tag, remark, weight in by_node.get(richest.node_id, []):
+        try:
+            sub = int(weight) - richest.weight_base
+        except (TypeError, ValueError):
+            sub = 9
+        catalog[tag] = {
+            "iso": flag_to_iso(remark) or "",
+            "label": exit_label(remark),
+            "sub": sub if 0 <= sub < 10 else 9,
+        }
+    return catalog
+
+
 def numbered(targets) -> list[Target]:
     """Only the hosts that belong to a numbered entry group.
 

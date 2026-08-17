@@ -290,7 +290,13 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
                 "verdict": "up", "fail_streak": 0, "pass_streak": pass_streak,
                 "reason": "restored" if restored else
                           ("held_no_traffic" if quiet else "up"),
-                "contested": quiet,
+                # Deliberately not `contested`: that word is reserved for a
+                # failure the traffic contradicts. A passing link on a silent
+                # node is only barred from being *restored*, which is a
+                # different thing and belongs under its own name — a new node
+                # that has not carried a byte yet trips this on every link.
+                "restore_held": quiet,
+                "contested": False,
                 "entry_bytes": entry_bytes,
             }
 

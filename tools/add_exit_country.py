@@ -23,22 +23,31 @@ import argparse
 import copy
 import sys
 
+import bridge_lib as bl
 import marz_common as mc
 
-# ---- entry-node fleet (id, ip, kind, number). Disabled / non-bridge nodes
-#      (old U2 node15, aeza 34/36, ELITE LUX node33, unhealthy 41) are excluded.
-ENTRY_NODES = [
-    (25, "89.191.225.218", "UNIVERSAL", 1),
-    (43, "45.81.33.150",   "UNIVERSAL", 2),
-    (12, "5.35.125.174",   "UNIVERSAL", 3),
-    (30, "45.150.239.178", "UNIVERSAL", 4),
-    (31, "185.219.41.121", "UNIVERSAL", 5),
-    (40, "185.179.191.236", "UNIVERSAL", 6),
-    (32, "158.160.212.139", "ELITE", 1),
-    (10, "84.201.177.241", "ELITE", 2),
-    (28, "51.250.82.209",  "ELITE", 3),
-    (19, "51.250.92.21",   "ELITE", 4),
-]
+def entry_fleet():
+    """(node_id, ip, KIND, number) for every entry that should get the country.
+
+    Derived from the database, not from a list kept by hand. The list this
+    replaced had drifted: node 40 was down as UNIVERSAL 6 while its hosts said
+    UNIVERSAL 3, and node 12 had been gone for a while. Adding a country from
+    it would have stamped one entry's branding onto another's hosts, and the
+    real UNIVERSAL 6 would have been skipped.
+
+    Unhealthy nodes are left out — deploying to a node the panel cannot reach
+    fails anyway — but they are named, so a skip is never silent.
+    """
+    fleet, skipped = [], []
+    for e in bl.entry_nodes():
+        if e.node_status != "healthy":
+            skipped.append("%s %d (node %d, %s)" % (e.kind, e.index, e.node_id,
+                                                    e.node_status))
+            continue
+        fleet.append((e.node_id, e.address, e.kind, e.index))
+    if skipped:
+        print("skipping unhealthy entry node(s): " + ", ".join(skipped))
+    return fleet
 
 # country registry
 COUNTRIES = {
@@ -226,7 +235,7 @@ def main():
         c = json.loads(rows[0][0])
         exit_pub, exit_sid = c["pbk"], c["sid"]
 
-    for node_id, ip, kind, num in ENTRY_NODES:
+    for node_id, ip, kind, num in entry_fleet():
         try:
             setup_entry(node_id, ip, kind, num, C, exit_pub, exit_sid, args.apply)
         except Exception as e:

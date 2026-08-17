@@ -204,6 +204,10 @@ def test_restore_waits_for_the_node_to_carry_traffic_again():
     _, state, decisions = run(recovered, state, **quiet)
     assert decisions["enable"] == []
     assert decisions["links"][LINK]["reason"] == "held_no_traffic"
+    # A passing link held back from restore is not a contested failure; a brand
+    # new node trips this on every link and must not read as an outage.
+    assert decisions["links"][LINK]["restore_held"] is True
+    assert decisions["links"][LINK]["contested"] is False
 
 
 def test_a_visible_twin_blocks_the_restore():

@@ -19,47 +19,35 @@ import argparse
 import copy
 import sys
 
+import bridge_lib as bl
 import marz_common as mc
 
 REF_IP_DEFAULT = "89.191.225.218"   # node 25 = UNIVERSAL 1 (full reference)
 
-# tag -> (flag_code, host label). Mirrors the existing universal naming.
-HOSTMAP = {
-    "RU Direct": ("RU", "RU (\u042f \u0437\u0430 \u0433\u0440\u0430\u043d\u0438\u0446\u0435\u0439)"),
-    "RU Direct (XHTTP)": ("RU", "RU xhttp"),
-    "RU->FL Bridge": ("FI", "FI"),
-    "RU->FL Bridge (XHTTP)": ("FI", "FI xhttp"),
-    "RU->FI-1 Bridge": ("FI", "FI-2"),
-    "RU->FI-2 Bridge": ("FI", "FI-3"),
-    "RU->EE Bridge": ("EE", "EE"),
-    "RU->EE Bridge (XHTTP)": ("EE", "EE xhttp"),
-    "RU->FR Bridge": ("FR", "FR"),
-    "RU->FR Bridge (XHTTP)": ("FR", "FR xhttp"),
-    "RU->FR-2 Bridge": ("FR", "FR-2"),
-    "RU->TR-1 Bridge": ("TR", "TR"),
-    "RU->US Bridge": ("US", "US"),
-    "RU->USA-2 Bridge": ("US", "US-2"),
-    "RU->PL-1 Bridge": ("PL", "PL"),
-    "RU->PL-1 Bridge (XHTTP)": ("PL", "PL xhttp"),
-    "RU->NL-1 Bridge": ("NL", "NL"),
-    "RU->GE-1 Bridge": ("DE", "DE"),
-    "RU->GE-1 Bridge (XHTTP)": ("DE", "DE xhttp"),
-    "RU->GE-2 Bridge": ("DE", "DE-2"),
-}
+# tag -> {"iso", "label", "sub"}, read off the fleet rather than kept by hand.
+# The literal maps this replaced had already fallen behind: neither carried
+# "RU->RO Bridge", so every node onboarded after Romania was added silently came
+# up without it, and the FI-2 exit still claimed Finland after it was found to
+# surface in NL.
+_CATALOG = {}
 
-# intra-band sub-weight so exits group like the other universals
-SUB = {
-    "RU Direct": 0, "RU Direct (XHTTP)": 0,
-    "RU->FL Bridge": 1, "RU->FL Bridge (XHTTP)": 1,
-    "RU->FI-1 Bridge": 2, "RU->FI-2 Bridge": 2,
-    "RU->EE Bridge": 3, "RU->EE Bridge (XHTTP)": 3,
-    "RU->FR Bridge": 4, "RU->FR Bridge (XHTTP)": 4,
-    "RU->FR-2 Bridge": 5,
-    "RU->TR-1 Bridge": 6,
-    "RU->US Bridge": 7, "RU->USA-2 Bridge": 7,
-    "RU->PL-1 Bridge": 8, "RU->PL-1 Bridge (XHTTP)": 8, "RU->NL-1 Bridge": 8,
-    "RU->GE-1 Bridge": 9, "RU->GE-1 Bridge (XHTTP)": 9, "RU->GE-2 Bridge": 9,
-}
+
+def catalog():
+    if not _CATALOG:
+        _CATALOG.update(bl.exit_catalog("universal"))
+        if not _CATALOG:
+            sys.exit("cannot derive the exit catalog: no UNIVERSAL entry has "
+                     "hosts to learn from")
+    return _CATALOG
+
+
+def branding(tag, uni):
+    """(remark, weight) for one inbound on UNIVERSAL <uni>."""
+    entry = catalog().get(tag)
+    if entry is None:
+        return None, None
+    weight = 100 + (uni - 1) * 10 + entry["sub"]
+    return mc.universal_remark(uni, entry["iso"], entry["label"]), weight
 
 
 def hosts_only(node_id, uni, ip, apply):
@@ -70,11 +58,9 @@ def hosts_only(node_id, uni, ip, apply):
     sql, plan = [], []
     import json
     for tag, cfgjson in rows:
-        if tag not in HOSTMAP:
+        remark, w = branding(tag, uni)
+        if remark is None:
             continue
-        flag, label = HOSTMAP[tag]
-        w = 100 + (uni - 1) * 10 + SUB.get(tag, 9)
-        remark = mc.universal_remark(uni, flag, label)
         sql.append(mc.insert_host_sql(node_id, tag, remark, ip, w))
         plan.append(f"  {tag:30s} w={w}  {remark}")
     print(f"== UNIVERSAL {uni} hosts-only on node {node_id} ({ip}) ==")
@@ -170,9 +156,12 @@ def main():
           f"outbounds now {len(new['outbounds'])}, "
           f"rules now {len(new['routing']['rules'])}")
     for tag, net, pub, sid in db_rows:
-        flag, label = HOSTMAP.get(tag, ("", tag))
-        w = 100 + (uni - 1) * 10 + SUB.get(tag, 9)
-        print(f"  {tag:30s} {net:5s} w={w}  {mc.universal_remark(uni, flag, label)}")
+        remark, w = branding(tag, uni)
+        if remark is None:
+            print(f"  {tag:30s} {net:5s} no branding in the catalog — "
+                  f"inbound will be created, host will not")
+            continue
+        print(f"  {tag:30s} {net:5s} w={w}  {remark}")
 
     if not args.apply:
         print("\n(dry-run) re-run with --apply")
@@ -192,10 +181,10 @@ def main():
     for tag, *_ in db_rows:
         sql.append(mc.link_service_sql(node_id, tag))
     for tag, net, pub, sid in db_rows:
-        flag, label = HOSTMAP.get(tag, ("", tag))
-        w = 100 + (uni - 1) * 10 + SUB.get(tag, 9)
-        sql.append(mc.insert_host_sql(
-            node_id, tag, mc.universal_remark(uni, flag, label), ip, w))
+        remark, w = branding(tag, uni)
+        if remark is None:
+            continue
+        sql.append(mc.insert_host_sql(node_id, tag, remark, ip, w))
     r = mc.db("SET NAMES utf8mb4;\n" + "\n".join(sql) + "\n")
     print("DB:", "OK" if r.returncode == 0 else "FAILED")
     if r.returncode != 0:
