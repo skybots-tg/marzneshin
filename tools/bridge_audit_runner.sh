@@ -17,6 +17,9 @@ LOG="$DATA/bridge_audit.log"
 REPORT="$DATA/bridge_audit.json"
 QUICK_STAMP="$DATA/bridge_audit.quick"
 LOCK="$DATA/bridge_audit.lock"
+STATUS="$DATA/bridge_audit.status"
+HISTORY="$DATA/bridge_audit.history"
+REVIVE_LOG="$DATA/bridge_revive.log"
 
 # Two cadences. The quick run probes one host per link and is what actually
 # notices a leg going down; the full sweep probes everything and is what keeps
@@ -31,15 +34,37 @@ AUTO_APPLY=${AUTO_APPLY:-1}
 # RU vantages for the RU-entry tiers, the panel for FAST. Judging FAST from
 # Moscow is how servers that were dead for everyone abroad stayed visible.
 VANTAGES=${VANTAGES:-panel,25,30,40}
+# Keep the last few hundred runs. One overwritten log file was the only trace
+# the audit left, so an eleven-hour crash loop looked exactly like a healthy
+# fleet from the outside.
+HISTORY_LINES=${HISTORY_LINES:-500}
+
+# Before anything else, and outside the scan lock: if the audit has stopped
+# producing verdicts, hand back the hides it can no longer stand behind. This is
+# cheap (one query while healthy) and it is the half of the mechanism that must
+# keep working when the other half does not — hiding needs one run, restoring
+# needs two, so a crash loop can only ever leave hosts hidden.
+( cd "$TOOLS" && python3 -u bridge_audit.py revive ) >>"$REVIVE_LOG" 2>&1
+tail -n 2000 "$REVIVE_LOG" > "$REVIVE_LOG.tmp" 2>/dev/null &&
+    mv "$REVIVE_LOG.tmp" "$REVIVE_LOG"
 
 exec 9>"$LOCK"
 flock -n 9 || exit 0   # a scan is already running
 
+note_status() {
+    printf '{"kind": "%s", "started_at": %s, "finished_at": %s, "rc": %s}\n' \
+        "$1" "$2" "$(date +%s)" "$3" > "$STATUS"
+    cat "$STATUS" >> "$HISTORY"
+    tail -n "$HISTORY_LINES" "$HISTORY" > "$HISTORY.tmp" 2>/dev/null &&
+        mv "$HISTORY.tmp" "$HISTORY"
+}
+
 run_scan() {
     local report="$1" extra="$2" reason="$3"
-    local apply="" JOBS="${JOBS:-6}"
+    local apply="" JOBS="${JOBS:-6}" started rc
     [ "$AUTO_APPLY" = "1" ] && apply="--apply"
     cd "$TOOLS" || exit 1
+    started=$(date +%s)
     {
         echo "=== bridge audit ($reason) started $(date -Is) ==="
         # shellcheck disable=SC2086
@@ -48,6 +73,9 @@ run_scan() {
         rc=$?
         echo "=== finished $(date -Is) rc=$rc ==="
     } >"$LOG" 2>&1
+    # rc is set inside the redirected block, which runs in this shell, so it
+    # survives; grepping the log for it would break the moment wording changes.
+    note_status "$reason" "$started" "${rc:-1}"
 }
 
 age_of() {

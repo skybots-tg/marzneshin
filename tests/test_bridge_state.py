@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import time
 
 import pytest
 
@@ -34,23 +35,23 @@ class FakeTarget:
 
     def __init__(self, host_id, verdict, *, link=LINK, node_id=25,
                  is_disabled=False, remark=None, exit_node_id=14,
-                 witnesses=3):
+                 witnesses=3, slot="FR", entry_key="universal-2"):
         self.host_id = host_id
         self.link_key = link
         self.node_id = node_id
         self.node_name = "AdminVPS RU-2"
         self.node_status = "healthy"
         self.exit_node_id = exit_node_id
-        self.slot = "FR"
+        self.slot = slot
         self.variant = "tcp"
-        self.entry_key = "universal-2"
+        self.entry_key = entry_key
         self.is_bridge = True
         self.is_disabled = is_disabled
         self.remark = remark or f"host-{host_id}"
         self.result = {"verdict": verdict, "witnesses": witnesses}
 
 
-def run(targets, state=None, traffic=None, statuses=None):
+def run(targets, state=None, traffic=None, statuses=None, **kwargs):
     state = state if state is not None else bs.load("/nonexistent/state.json")
     links = bs.roll_up(targets)
     return links, state, bs.decide(
@@ -58,6 +59,7 @@ def run(targets, state=None, traffic=None, statuses=None):
         traffic if traffic is not None else {25: BUSY, 14: BUSY},
         statuses or {25: "healthy", 14: "healthy"},
         remark_of={t.host_id: t.remark for t in targets},
+        **kwargs,
     )
 
 
@@ -278,3 +280,227 @@ def test_links_that_leave_the_fleet_are_forgotten():
 def test_link_verdict_rollup(verdicts, expected):
     targets = [FakeTarget(i, v) for i, v in enumerate(verdicts, start=1)]
     assert bs.roll_up(targets)[LINK].verdict == expected
+
+
+# --------------------------------------------------------------------------
+# the far end of a bridge: one dead exit used to leave eight entries at once
+# --------------------------------------------------------------------------
+
+
+def legs_to_one_exit(verdict, count=3, exit_node_id=14):
+    """The same exit slot reached from several different entry nodes."""
+    return [
+        FakeTarget(i, verdict, link=f"{20 + i}>FR/tcp", node_id=20 + i,
+                   entry_key=f"universal-{i}", exit_node_id=exit_node_id)
+        for i in range(1, count + 1)
+    ]
+
+
+def busy_everywhere(targets, exit_node_id=14):
+    traffic = {t.node_id: BUSY for t in targets}
+    traffic[exit_node_id] = BUSY
+    statuses = {t.node_id: "healthy" for t in targets}
+    statuses[exit_node_id] = "healthy"
+    return {"traffic": traffic, "statuses": statuses}
+
+
+def test_an_exit_carrying_its_usual_load_is_believed_over_the_probe():
+    """Every entry's leg to one exit failing is a claim about the exit."""
+    targets = legs_to_one_exit("fail")
+    world = busy_everywhere(targets)
+    _, state, _ = run(targets, traffic_ratio={14: 0.9}, **world)
+    _, _, decisions = run(targets, state, traffic_ratio={14: 0.9}, **world)
+    assert decisions["disable"] == []
+    reasons = {n["reason"] for n in decisions["links"].values()}
+    assert reasons == {"exit_unreachable_but_busy"}
+
+
+def test_an_exit_whose_traffic_collapsed_is_taken_at_the_probes_word():
+    """20 MB where 5 GB is normal: the probe has corroboration, so act."""
+    targets = legs_to_one_exit("fail")
+    world = busy_everywhere(targets)
+    _, state, _ = run(targets, traffic_ratio={14: 0.004}, **world)
+    _, _, decisions = run(targets, state, traffic_ratio={14: 0.004}, **world)
+    assert decisions["disable"] == [1, 2, 3]
+    assert {n["reason"] for n in decisions["links"].values()} == {"exit_down"}
+
+
+def test_an_exit_with_no_history_earns_neither_belief():
+    """A brand new exit gets the ordinary streak rules, nothing more."""
+    targets = legs_to_one_exit("fail")
+    world = busy_everywhere(targets)
+    _, state, _ = run(targets, **world)
+    _, _, decisions = run(targets, state, **world)
+    assert decisions["disable"] == [1, 2, 3]
+    assert {n["reason"] for n in decisions["links"].values()} == {"link_down"}
+
+
+def test_one_leg_says_nothing_about_the_exit():
+    targets = legs_to_one_exit("fail", count=1)
+    world = busy_everywhere(targets)
+    _, state, _ = run(targets, traffic_ratio={14: 0.9}, **world)
+    _, _, decisions = run(targets, state, traffic_ratio={14: 0.9}, **world)
+    assert decisions["disable"] == [1]
+
+
+def test_a_working_leg_keeps_the_exit_out_of_it():
+    """If one entry still gets through, the far end is not the story."""
+    targets = legs_to_one_exit("fail") + [
+        FakeTarget(9, "pass", link="99>FR/tcp", node_id=99,
+                   entry_key="universal-9")]
+    world = busy_everywhere(targets)
+    _, state, _ = run(targets, traffic_ratio={14: 0.9}, **world)
+    _, _, decisions = run(targets, state, traffic_ratio={14: 0.9}, **world)
+    assert decisions["disable"] == [1, 2, 3]
+
+
+def test_the_exit_rule_is_off_for_a_filtered_scan():
+    targets = legs_to_one_exit("fail")
+    world = busy_everywhere(targets)
+    _, state, _ = run(targets, traffic_ratio={14: 0.9},
+                      exit_wide_rule=False, **world)
+    _, _, decisions = run(targets, state, traffic_ratio={14: 0.9},
+                          exit_wide_rule=False, **world)
+    assert decisions["disable"] == [1, 2, 3]
+
+
+# --------------------------------------------------------------------------
+# how much of the catalogue one run may take
+# --------------------------------------------------------------------------
+
+
+def many_failing_links(count):
+    """Failing legs on different entries, each to its own busy exit slot.
+
+    Distinct slots keep the exit-wide rule out of these cases: they are about
+    the rate limits, and a shared exit would hand every one of them the same
+    verdict for a different reason.
+    """
+    return [
+        FakeTarget(i, "fail", link=f"{20 + i}>S{i}/tcp", node_id=20 + i,
+                   entry_key=f"universal-{i}", slot=f"S{i}",
+                   exit_node_id=14)
+        for i in range(1, count + 1)
+    ]
+
+
+def counts_for(targets, per_entry=4, per_slot=4):
+    return {
+        "entry": {t.entry_key: per_entry for t in targets},
+        "slot": {t.slot: per_slot for t in targets},
+        "total": per_entry * len(targets),
+    }
+
+
+def confirm_twice(targets, **kwargs):
+    _, state, _ = run(targets, **kwargs)
+    return run(targets, state, **kwargs)
+
+
+def test_a_run_may_not_empty_the_catalogue_in_one_go():
+    targets = many_failing_links(10)
+    world = busy_everywhere(targets)
+    _, _, decisions = confirm_twice(
+        targets, visible_counts=counts_for(targets),
+        limits={"per_run": 4}, **world)
+    assert len(decisions["disable"]) == 4
+    assert len(decisions["deferred"]) == 6
+    assert {d["deferred"] for d in decisions["deferred"]} == {"rate_limit_run"}
+
+
+def test_a_deferred_link_keeps_its_streak_and_comes_back():
+    targets = many_failing_links(6)
+    world = busy_everywhere(targets)
+    kwargs = dict(visible_counts=counts_for(targets), limits={"per_run": 2})
+    _, state, _ = run(targets, **kwargs, **world)
+    _, state, first = run(targets, state, **kwargs, **world)
+    assert len(first["disable"]) == 2
+    # Nothing was forgotten: the next run picks up where the budget stopped.
+    _, state, second = run(targets, state, **kwargs, **world)
+    assert len(second["disable"]) == 2
+    assert state["links"]["21>S1/tcp"]["fail_streak"] >= 2
+
+
+def test_the_last_visible_host_of_an_entry_is_not_taken_quietly():
+    targets = many_failing_links(2)
+    world = busy_everywhere(targets)
+    counts = counts_for(targets, per_entry=1, per_slot=4)
+    _, _, decisions = confirm_twice(
+        targets, visible_counts=counts, limits={"keep_per_entry": 1}, **world)
+    assert decisions["disable"] == []
+    assert {d["deferred"] for d in decisions["deferred"]} == {
+        "last_visible_entry"}
+
+
+def test_the_last_visible_host_of_a_country_is_not_taken_quietly():
+    targets = many_failing_links(2)
+    world = busy_everywhere(targets)
+    counts = counts_for(targets, per_entry=4, per_slot=1)
+    _, _, decisions = confirm_twice(
+        targets, visible_counts=counts, limits={"keep_per_slot": 1}, **world)
+    assert decisions["disable"] == []
+    assert {d["deferred"] for d in decisions["deferred"]} == {
+        "last_visible_slot"}
+
+
+def test_the_days_allowance_is_spent_across_runs():
+    targets = many_failing_links(8)
+    world = busy_everywhere(targets)
+    counts = dict(counts_for(targets), total=20)
+    kwargs = dict(visible_counts=counts,
+                  limits={"per_run": 10, "per_day_pct": 15})
+    _, state, _ = run(targets, **kwargs, **world)
+    _, state, first = run(targets, state, **kwargs, **world)
+    assert len(first["disable"]) == 3          # 15% of 20
+    _, state, second = run(targets, state, **kwargs, **world)
+    assert second["disable"] == []
+    assert {d["deferred"] for d in second["deferred"]} == {"rate_limit_day"}
+
+
+def test_a_hide_the_traffic_counters_confirm_ignores_the_allowance():
+    """Corroborated verdicts are not the failure mode the brakes are for."""
+    targets = many_failing_links(6)
+    traffic = {t.node_id: 0 for t in targets}
+    statuses = {t.node_id: "healthy" for t in targets}
+    _, _, decisions = confirm_twice(
+        targets, traffic=traffic, statuses=statuses,
+        visible_counts=counts_for(targets, per_entry=1, per_slot=1),
+        limits={"per_run": 1, "keep_per_entry": 1, "keep_per_slot": 1})
+    assert len(decisions["disable"]) == 6
+    assert decisions["deferred"] == []
+
+
+# --------------------------------------------------------------------------
+# the dead man's switch
+# --------------------------------------------------------------------------
+
+
+def test_a_healthy_audit_releases_nothing():
+    state = {"auto_disabled": {"1": {"at": int(time.time()) - 600}},
+             "scanned_at": int(time.time()) - 60, "links": {}}
+    assert bs.hides_to_release(state) == {}
+
+
+def test_a_silent_audit_hands_back_its_recent_hides():
+    now = time.time()
+    state = {
+        "links": {},
+        "scanned_at": int(now) - 5 * 3600,
+        "auto_disabled": {
+            "1": {"at": int(now) - 3600},        # hidden just before it died
+            "2": {"at": int(now) - 40 * 3600},   # long-standing, stands
+        },
+    }
+    assert sorted(bs.hides_to_release(state, now=now)) == [1]
+
+
+def test_releasing_keeps_the_trail():
+    state = bs.load("/nonexistent/state.json")
+    state["auto_disabled"]["7"] = {"link": LINK, "at": 1}
+    bs.release(state, [7], by="watchdog_stalled")
+    assert "7" not in state["auto_disabled"]
+    assert state["released"]["7"]["released_by"] == "watchdog_stalled"
+
+
+def test_a_state_nobody_ever_scanned_reads_as_ancient():
+    assert bs.scan_age({}) > 10 ** 8

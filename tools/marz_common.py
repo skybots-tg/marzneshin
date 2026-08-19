@@ -127,6 +127,58 @@ def node_traffic(hours=6) -> dict[int, int]:
     return out
 
 
+# A node has to have carried at least this much per hour in the reference week
+# for the comparison below to mean anything. Under it, the "baseline" is noise
+# and dividing by it invents drama out of a few kilobytes.
+BASELINE_FLOOR_BYTES_PER_HOUR = 8 << 20
+
+
+def node_traffic_ratio(recent_hours=2, baseline_days=7) -> dict[int, float]:
+    """node_id -> how its last hours compare with the same hours of its week.
+
+    Absolute byte counts answer "is anyone using this node at all", which turns
+    out to be the wrong question for an exit. An exit that normally carries five
+    gigabytes an hour and now carries twenty megabytes is unmistakably broken,
+    and yet it clears any fixed threshold comfortably -- so the audit read it as
+    a healthy node and hid, one leg at a time, every bridge that pointed at it.
+
+    Comparing a node against *itself* fixes that, and comparing the same hours of
+    the day is what keeps a quiet night from looking like an outage. A node
+    without a meaningful week behind it is left out entirely rather than given a
+    made-up ratio: no answer is better than a confident wrong one.
+    """
+    recent_hours = max(1, int(recent_hours))
+    baseline_days = max(1, int(baseline_days))
+    hours = ", ".join(f"HOUR(NOW() - INTERVAL {h} HOUR)"
+                      for h in range(recent_hours + 1))
+    rows = db_query(
+        "SELECT node_id, "
+        f"  COALESCE(SUM(CASE WHEN created_at > NOW() - INTERVAL {recent_hours} "
+        "     HOUR THEN uplink + downlink END), 0), "
+        "  COALESCE(SUM(CASE WHEN created_at <= NOW() - INTERVAL 1 DAY "
+        f"    AND HOUR(created_at) IN ({hours}) "
+        "     THEN uplink + downlink END), 0) "
+        "FROM node_usages "
+        f"WHERE created_at > NOW() - INTERVAL {baseline_days + 1} DAY "
+        "GROUP BY node_id;"
+    )
+    # The reference window is the same clock hours, on each of the past days.
+    baseline_buckets = baseline_days * (recent_hours + 1)
+    out: dict[int, float] = {}
+    for row in rows:
+        if len(row) < 3 or row[0] in ("NULL", ""):
+            continue
+        try:
+            node_id, recent, past = int(row[0]), int(row[1]), int(row[2])
+        except ValueError:
+            continue
+        baseline = past / baseline_buckets
+        if baseline < BASELINE_FLOOR_BYTES_PER_HOUR:
+            continue
+        out[node_id] = (recent / recent_hours) / baseline
+    return out
+
+
 def node_cfg(ip):
     r = ssh(ip, "cat /var/lib/marznode/xray_config.json")
     try:

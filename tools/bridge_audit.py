@@ -7,6 +7,8 @@ Run ON THE PANEL, from this directory.
     python3 bridge_audit.py scan --apply         # + hide dead / restore fixed
     python3 bridge_audit.py scan --quick --apply # one host per link, the watchdog
     python3 bridge_audit.py apply                # act on the saved report
+    python3 bridge_audit.py revive               # undo recent hides if the
+                                                 #   audit itself has stalled
     python3 bridge_audit.py matrix               # last report as a grid
     python3 bridge_audit.py gaps                 # entry x exit combos to fill
     python3 bridge_audit.py fill U4 RO --apply   # add one missing bridge
@@ -40,8 +42,17 @@ REPORT_PATH = "/var/lib/marzneshin/bridge_audit.json"
 
 VERDICT_MARK = {"pass": "OK", "wrong_geo": "GEO", "fail": "--", "skip": "??"}
 
-# Below this many probed hosts the "too many failures" guard is meaningless.
+# Below this many probed *visible* hosts the "too many failures" guard is
+# meaningless: a targeted re-check of known suspects is supposed to fail.
 MIN_HOSTS_FOR_GUARD = 20
+
+# How often a quick run also looks at the hidden half of the fleet. Hidden hosts
+# are only probed to notice a recovery, and hourly is soon enough for that.
+QUICK_ROUNDS_PER_SWEEP = 4
+
+# Share of the *visible* hosts that may fail before an apply is refused. See
+# `failure_rate` for why the population matters more than the number.
+MAX_VISIBLE_FAIL_PCT = 30
 
 
 # --------------------------------------------------------------------------
@@ -85,6 +96,13 @@ def cmd_scan(args) -> int:
     node_ids = {int(x) for x in args.nodes.split(",")} if args.nodes else None
     targets = bl.load_targets(tiers=tiers, node_ids=node_ids)
     complete = not (args.slot or args.hosts)
+    # Two corroboration rules ask "did *everything* fail here", and each needs
+    # its own notion of a complete picture. Narrowing to a node still leaves
+    # every one of that node's links in view, so the entry-wide rule holds;
+    # the exit-wide one does not, because the other entries' legs to the same
+    # exit were never looked at.
+    node_wide = complete
+    exit_wide = complete and not node_ids
     if args.slot:
         want = {s.strip().upper() for s in args.slot.split(",")}
         targets = [t for t in targets if t.slot in want]
@@ -103,11 +121,27 @@ def cmd_scan(args) -> int:
         return 1
 
     probe_targets = targets
+    state = bs.load()
+    ledger_seed(state)
     if args.quick:
-        probe_targets = one_per_link(targets)
+        # The hidden half of the fleet is only probed to find out whether
+        # something has recovered, and nothing recovers in fifteen minutes that
+        # would not still be recovered an hour later. Skipping it most rounds is
+        # what keeps the watchdog inside its own cadence: probing what users can
+        # actually see costs a quarter of the time, and a run that overruns is a
+        # run that decides nothing.
+        rounds = int(state.get("quick_round") or 0) + 1
+        state["quick_round"] = rounds
+        with_hidden = rounds % QUICK_ROUNDS_PER_SWEEP == 0
+        probe_targets = one_per_link(targets, include_hidden=with_hidden)
+        # A run that only looked at the visible half cannot claim that every
+        # link on a node or into an exit failed.
+        node_wide = node_wide and with_hidden
+        exit_wide = exit_wide and with_hidden
         complete = False
         print(f"quick run: {len(probe_targets)} link representative(s) "
-              f"stand in for {len(targets)} host(s)")
+              f"stand in for {len(targets)} host(s)"
+              f"{'' if with_hidden else ', hidden links sitting this round out'}")
         # What makes the full sweep slow is the failing jobs: each pays for
         # three geo endpoints, twice over. A watchdog only needs to know
         # whether anything came back, so it asks once. Being wrong costs a
@@ -146,12 +180,12 @@ def cmd_scan(args) -> int:
         # carry no opinion of their own this time round.
         t.result.setdefault("verdict", "skip")
 
-    state = bs.load()
     confirmed = None
     if args.quick:
         confirmed = recheck_new_failures(targets, probe_targets, state,
                                          vantages, origins, args)
-    decisions = weigh(targets, state, args, confirmed, complete)
+    decisions = weigh(targets, state, args, confirmed,
+                      node_wide=node_wide, exit_wide=exit_wide)
     report = build_report(targets, round(time.time() - started, 1), complete,
                           decisions)
     report["vantages"] = [
@@ -171,7 +205,7 @@ def cmd_scan(args) -> int:
             # Streaks only advance on runs that were allowed to act. A dry run
             # that aged them would let `scan` (no --apply) silently arm the next
             # `scan --apply` to hide something on its first look.
-            bs.save(state)
+            bs.save(state, scanned=True)
         return rc
     changes = report["changes"]
     if changes["disable"] or changes["enable"]:
@@ -181,19 +215,20 @@ def cmd_scan(args) -> int:
     return 0
 
 
-def one_per_link(targets) -> list:
+def one_per_link(targets, include_hidden: bool = True) -> list:
     """One host per link, enough to tell whether that leg still carries traffic.
 
     A watchdog that runs every quarter of an hour cannot afford to probe all
     ~190 hosts, and it does not need to: hosts on the same leg rise and fall
-    together. Enabled hosts are preferred as the stand-in, but a link whose
-    hosts are all hidden still gets probed — otherwise nothing would ever be
-    restored.
+    together. Enabled hosts are preferred as the stand-in, and with
+    ``include_hidden`` a link whose hosts are all hidden gets probed too —
+    without that nothing would ever be restored, but it need not happen on
+    every round.
     """
     chosen: dict[str, object] = {}
     for t in sorted(targets, key=lambda t: (t.is_disabled, t.host_id)):
         chosen.setdefault(t.link_key, t)
-    return list(chosen.values())
+    return [t for t in chosen.values() if include_hidden or not t.is_disabled]
 
 
 def recheck_new_failures(targets, probe_targets, state, vantages, origins,
@@ -241,7 +276,28 @@ def visible_by_remark(targets) -> dict[str, list[int]]:
     return out
 
 
-def weigh(targets, state, args, confirmed=None, complete=True) -> dict:
+def visible_counts(targets) -> dict:
+    """How many visible hosts each entry and each exit slot has right now.
+
+    The floors in ``bridge_state`` are expressed in these terms: an entry with
+    nothing left visible has effectively vanished from every subscription, and so
+    has a country. Both read to a subscriber as "your server is gone", which is
+    a different kind of event from one bridge being tidied away.
+    """
+    entry: dict[str, int] = defaultdict(int)
+    slot: dict[str, int] = defaultdict(int)
+    total = 0
+    for t in targets:
+        if t.is_disabled:
+            continue
+        entry[t.entry_key] += 1
+        slot[t.slot] += 1
+        total += 1
+    return {"entry": dict(entry), "slot": dict(slot), "total": total}
+
+
+def weigh(targets, state, args, confirmed=None, node_wide=True,
+          exit_wide=True) -> dict:
     """Turn this run's probe results into actions, with memory and corroboration.
 
     The probe alone does not get to decide: ``bridge_state`` folds it together
@@ -256,15 +312,24 @@ def weigh(targets, state, args, confirmed=None, complete=True) -> dict:
         # an empty map simply means no link gets the fast "silent node" path.
         print(f"  node traffic unavailable ({exc}); relying on probes alone")
         traffic = {}
+    try:
+        ratio = mc.node_traffic_ratio()
+    except Exception as exc:
+        print(f"  traffic baselines unavailable ({exc}); no exit will be "
+              f"judged by its own history this run")
+        ratio = {}
     node_status = {t.node_id: t.node_status for t in targets}
     decisions = bs.decide(
         links, state, traffic, node_status,
         visible_by_remark=visible_by_remark(targets),
         remark_of={t.host_id: t.remark for t in targets},
         confirmed_links=confirmed,
+        traffic_ratio=ratio,
         # "every link on this node failed" is only evidence when the scan was
-        # free to look at all of them.
-        node_wide_rule=complete,
+        # free to look at all of them. The same goes for the far end.
+        node_wide_rule=node_wide,
+        exit_wide_rule=exit_wide,
+        visible_counts=visible_counts(targets),
     )
     decisions["views"] = {k: v.brief() for k, v in links.items()}
     return decisions
@@ -299,6 +364,7 @@ def build_report(targets, elapsed, complete: bool = True,
         "links": [dict(view, **decisions["links"].get(key, {}))
                   for key, view in sorted(decisions["views"].items())],
         "changes": {"disable": to_disable, "enable": to_enable},
+        "deferred": decisions.get("deferred") or [],
     }
 
 
@@ -466,12 +532,25 @@ def print_summary(report):
     if contested:
         nodes = sorted({ln["entry_node_name"] for ln in contested})
         print(f"\nHELD BACK ({len(contested)} link(s) on {len(nodes)} node(s)) "
-              f"— every link on the node failed while the node is still "
-              f"carrying traffic, so this is the probe's footing, not the "
-              f"fleet. Nothing was hidden:")
+              f"— every link on one side failed while that server is still "
+              f"carrying its usual traffic, so this is the probe's footing, not "
+              f"the fleet. Nothing was hidden:")
         for ln in contested:
+            far = ln.get("exit_ratio")
+            evidence = (f"exit at {far:.0%} of its usual" if far is not None
+                        and ln.get("reason", "").startswith("exit")
+                        else f"node moved {ln.get('entry_bytes', 0):,} bytes")
             print(f"  {ln['link']:<16} {ln['entry_node_name'][:26]:<28} "
-                  f"node moved {ln.get('entry_bytes', 0):,} bytes")
+                  f"{evidence}")
+    deferred = report.get("deferred") or []
+    if deferred:
+        print(f"\nDEFERRED ({len(deferred)} link(s)) — these failed their "
+              f"streak and were still not hidden, because doing so now would "
+              f"take more of the catalogue than one run is allowed to. They "
+              f"come back next run; if one keeps appearing, decide by hand:")
+        for d in deferred:
+            print(f"  {d['link']:<16} hosts {str(d['host_ids']):<18} "
+                  f"{d['reason']:<12} held by {d['deferred']}")
     partial = [h for h in report["hosts"] if h.get("partial")]
     if partial:
         print(f"\nREACHABLE FROM SOME VANTAGES ONLY ({len(partial)}) "
@@ -551,18 +630,29 @@ def print_matrix(report):
 # --------------------------------------------------------------------------
 
 
+def failure_rate(report) -> tuple[int, int]:
+    """Failures among the hosts users can currently see, and how many those are.
+
+    Counting every probed host instead makes the number meaningless: most of a
+    mature fleet's report is the graveyard, which fails by definition, and it
+    drifts upward as more hosts are hidden. This deployment sat at 46-51%
+    against a 60% threshold with only one visible host actually failing — the
+    guard was nine points from firing in normal operation and would never have
+    caught the thing it exists for. Among visible hosts a healthy run is 1-6%,
+    so a real loss of egress stands out by an order of magnitude.
+    """
+    visible = [h for h in report["hosts"] if not h["is_disabled"]]
+    return sum(1 for h in visible if h["verdict"] == "fail"), len(visible)
+
+
 def apply_report(report, targets, args) -> int:
     ch = report["changes"]
-    tested = report["total"]
-    fails = report["counts"].get("fail", 0)
-    # The guard is about spotting a fleet-wide outage. On a handful of hosts —
-    # a targeted re-check of known suspects, say — a high failure rate is the
-    # expected outcome, not a red flag.
-    if (tested >= MIN_HOSTS_FOR_GUARD
-            and fails * 100 // tested > args.max_fail_pct and not args.force):
-        print(f"\nREFUSING TO APPLY: {fails}/{tested} probes failed "
-              f"(> {args.max_fail_pct}%). That usually means the panel itself "
-              f"lost egress, not that every bridge died. Re-run, or pass "
+    fails, visible = failure_rate(report)
+    if (visible >= MIN_HOSTS_FOR_GUARD
+            and fails * 100 // visible > args.max_fail_pct and not args.force):
+        print(f"\nREFUSING TO APPLY: {fails} of {visible} visible host(s) "
+              f"failed (> {args.max_fail_pct}%). That usually means the panel "
+              f"itself lost egress, not that the fleet died. Re-run, or pass "
               f"--force if the outage is real.")
         return 3
     if not ch["disable"] and not ch["enable"]:
@@ -580,9 +670,95 @@ def apply_report(report, targets, args) -> int:
     if r.returncode != 0:
         print("DB UPDATE FAILED:", r.stderr[:400])
         return 4
+    ledger_record(report, ch["disable"], ch["enable"])
     print(f"\nAPPLIED: hid {len(ch['disable'])} host(s), "
           f"restored {len(ch['enable'])} host(s).")
     return 0
+
+
+# --------------------------------------------------------------------------
+# the ledger: which hides were the automation's, kept where backups reach
+# --------------------------------------------------------------------------
+
+LEDGER_DDL = """
+CREATE TABLE IF NOT EXISTS bridge_auto_hidden (
+  host_id INT NOT NULL PRIMARY KEY,
+  link VARCHAR(64) NOT NULL,
+  reason VARCHAR(48) NOT NULL,
+  hidden_at DATETIME NOT NULL,
+  released_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
+
+def ledger_record(report, disabled, enabled) -> None:
+    """Mirror the automation's own hides into the database.
+
+    ``bridge_state.json`` is the working copy and it is the only record of which
+    hosts the automation hid — which means deleting that file, or losing the
+    volume, strands every hidden host: nothing knows it may be restored, so
+    nothing ever will. The table costs one insert per change and lives where the
+    nightly database backup already goes. The JSON stays authoritative for
+    decisions; this is the copy that survives.
+    """
+    by_id = {h["host_id"]: h for h in report["hosts"]}
+    reason_of = {ln["link"]: ln.get("reason") or ""
+                 for ln in report.get("links") or []}
+    rows = []
+    for host_id in disabled:
+        host = by_id.get(host_id, {})
+        link = (host.get("link") or "")[:64]
+        reason = (reason_of.get(link) or "link_down")[:48]
+        rows.append(f"({int(host_id)}, {mc.sqlstr(link)}, "
+                    f"{mc.sqlstr(reason)}, NOW(), NULL)")
+    sql = [LEDGER_DDL]
+    if rows:
+        sql.append(
+            "INSERT INTO bridge_auto_hidden "
+            "(host_id, link, reason, hidden_at, released_at) VALUES "
+            + ", ".join(rows) +
+            " ON DUPLICATE KEY UPDATE link=VALUES(link), "
+            "reason=VALUES(reason), hidden_at=VALUES(hidden_at), "
+            "released_at=NULL;")
+    if enabled:
+        ids = ",".join(str(int(i)) for i in enabled)
+        sql.append("UPDATE bridge_auto_hidden SET released_at=NOW() "
+                   f"WHERE host_id IN ({ids});")
+    r = mc.db("\n".join(sql) + "\n")
+    if r.returncode != 0:
+        # The ledger is a safety copy, not the decision: losing it must not turn
+        # a successful apply into a failure.
+        print("note: could not update bridge_auto_hidden:", r.stderr[:200])
+
+
+def ledger_seed(state) -> int:
+    """Rebuild the automation's ledger from the database if the file lost it.
+
+    Only when the file's ledger is empty, which is the shape of the accident
+    this guards against: without it, a state file that goes missing takes with it
+    the knowledge that dozens of hidden hosts were hidden by a machine and may be
+    given back, and they stay hidden for good.
+    """
+    if state.get("auto_disabled"):
+        return 0
+    try:
+        rows = mc.db_query(
+            "SELECT b.host_id, b.link, b.reason, UNIX_TIMESTAMP(b.hidden_at) "
+            "FROM bridge_auto_hidden b JOIN hosts h ON h.id = b.host_id "
+            "WHERE b.released_at IS NULL AND h.is_disabled = 1;")
+    except Exception:
+        return 0  # no table yet, which is the normal case on a fresh panel
+    for row in rows:
+        if len(row) < 4:
+            continue
+        state["auto_disabled"][str(int(row[0]))] = {
+            "link": row[1], "reason": row[2], "at": int(row[3]),
+            "from_ledger": True,
+        }
+    if rows:
+        print(f"restored {len(rows)} auto-hide record(s) from the database "
+              f"ledger; the state file had none")
+    return len(rows)
 
 
 # --------------------------------------------------------------------------
@@ -627,6 +803,82 @@ def cmd_apply(args) -> int:
     print(f"report is {age // 60} min old, covers {report['total']} host(s)")
     report = dict(report, changes=ch)
     return apply_report(report, [], args)
+
+
+def cmd_revive(args) -> int:
+    """Give back recent automatic hides when the audit itself has gone quiet.
+
+    The asymmetry this exists for: hiding a host takes one confirmed failure,
+    restoring it takes two clean runs. So anything that stops the audit — a
+    wedged vantage, a crash loop, a full disk — leaves the fleet pinned at its
+    most hidden and keeps it there for as long as nobody notices. This is the way
+    out that does not depend on the probe working, and it runs from the same
+    timer, every minute, doing nothing at all while the audit is healthy.
+
+    Deliberately narrow: hides older than the lease stand, because they were
+    re-examined on every run while the audit still worked, and a host whose entry
+    node the panel now calls unhealthy is not worth putting back into a
+    subscription.
+    """
+    state = bs.load()
+    ledger_seed(state)
+    age = bs.scan_age(state)
+    candidates = bs.hides_to_release(state, lease=args.lease * 3600,
+                                     stale_after=args.stale_after * 60)
+    if not candidates:
+        if age >= args.stale_after * 60:
+            print(f"audit silent for {age // 60} min, but no hide is recent "
+                  f"enough to release (lease {args.lease}h)")
+        return 0
+
+    live = {}
+    for row in mc.db_query(
+            "SELECT h.id, h.remark, h.is_disabled, n.status "
+            "FROM hosts h JOIN inbounds i ON i.id = h.inbound_id "
+            "JOIN nodes n ON n.id = i.node_id "
+            "WHERE h.id IN (%s);"
+            % ",".join(str(i) for i in sorted(candidates))):
+        if len(row) >= 4:
+            live[int(row[0])] = {"remark": row[1], "hidden": row[2] == "1",
+                                 "node_status": row[3]}
+    visible = {r[0] for r in mc.db_query(
+        "SELECT remark FROM hosts WHERE is_disabled = 0;")}
+
+    releasing, skipped = [], []
+    for host_id in sorted(candidates):
+        host = live.get(host_id)
+        if host is None or not host["hidden"]:
+            releasing.append(host_id)  # gone or already visible: forget it
+            continue
+        if host["node_status"] != "healthy":
+            skipped.append((host_id, host["remark"], "node unhealthy"))
+            continue
+        if host["remark"] in visible:
+            skipped.append((host_id, host["remark"], "a visible twin"))
+            continue
+        releasing.append(host_id)
+
+    show = [i for i in releasing if live.get(i, {}).get("hidden")]
+    print(f"audit has been silent for {age // 60} min; releasing "
+          f"{len(show)} of {len(candidates)} recent hide(s)")
+    for host_id in show:
+        print(f"  #{host_id:<4} {live[host_id]['remark'][:52]}")
+    for host_id, remark, why in skipped:
+        print(f"  kept #{host_id:<4} {remark[:44]:<46} — {why}")
+    if args.dry_run:
+        print("dry run; nothing changed")
+        return 0
+    if show:
+        r = mc.db("UPDATE hosts SET is_disabled=0 WHERE id IN (%s);\n"
+                  % ",".join(str(i) for i in show))
+        if r.returncode != 0:
+            print("DB UPDATE FAILED:", r.stderr[:400])
+            return 4
+        mc.db(LEDGER_DDL + "UPDATE bridge_auto_hidden SET released_at=NOW() "
+              "WHERE host_id IN (%s);\n" % ",".join(str(i) for i in show))
+    bs.release(state, releasing, by="watchdog_stalled")
+    bs.save(state)
+    return 0
 
 
 def cmd_matrix(args) -> int:
@@ -706,13 +958,25 @@ def main() -> int:
                         "the frequent watchdog run")
     s.add_argument("--apply", action="store_true")
     s.add_argument("--force", action="store_true")
-    s.add_argument("--max-fail-pct", type=int, default=60)
+    s.add_argument("--max-fail-pct", type=int, default=MAX_VISIBLE_FAIL_PCT,
+                   help="refuse to apply when this share of the *visible* "
+                        "hosts failed; a healthy run sits at a few percent")
     s.set_defaults(func=cmd_scan)
 
     a = sub.add_parser("apply", help="apply the saved report, no re-probe")
     a.add_argument("--force", action="store_true")
-    a.add_argument("--max-fail-pct", type=int, default=60)
+    a.add_argument("--max-fail-pct", type=int, default=MAX_VISIBLE_FAIL_PCT)
     a.set_defaults(func=cmd_apply, apply=True)
+
+    rv = sub.add_parser("revive", help="release recent hides when the audit "
+                                       "has stopped reporting")
+    rv.add_argument("--stale-after", type=int,
+                    default=bs.STALE_STATE_SEC // 60,
+                    help="minutes of silence before the audit counts as down")
+    rv.add_argument("--lease", type=int, default=bs.HIDE_LEASE_SEC // 3600,
+                    help="hours a hide stands on its own; older ones are kept")
+    rv.add_argument("--dry-run", action="store_true")
+    rv.set_defaults(func=cmd_revive)
 
     sub.add_parser("matrix", help="print the last report").set_defaults(
         func=cmd_matrix)
