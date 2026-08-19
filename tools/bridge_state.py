@@ -195,6 +195,12 @@ def load(path: str = STATE_PATH) -> dict:
         state = {}
     state.setdefault("links", {})
     state.setdefault("auto_disabled", {})
+    # A file written before scanned_at existed: the only timestamp it has was
+    # written by a scan anyway, so adopt it once. Without this the first
+    # liveness check on an upgraded host reads "never scanned" and the first
+    # bit of housekeeping would overwrite the real answer with its own.
+    if "scanned_at" not in state and state.get("updated_at"):
+        state["scanned_at"] = state["updated_at"]
     return state
 
 
@@ -219,8 +225,15 @@ def save(state: dict, path: str = STATE_PATH, scanned: bool = False) -> None:
 
 
 def scan_age(state: dict, now: float | None = None) -> int:
-    """Seconds since a probe last produced a verdict, or a very large number."""
-    stamp = int(state.get("scanned_at") or state.get("updated_at") or 0)
+    """Seconds since a probe last produced a verdict, or a very large number.
+
+    Only ``scanned_at`` counts. Falling back to ``updated_at`` would let the
+    release below silence the very alarm that triggered it: it writes the file,
+    the file looks fresh, and the audit looks alive again for as long as it
+    keeps failing. ``load`` adopts the old timestamp once so upgraded hosts do
+    not read as never-scanned.
+    """
+    stamp = int(state.get("scanned_at") or 0)
     if not stamp:
         return 10 ** 9
     return max(0, int((now or time.time()) - stamp))

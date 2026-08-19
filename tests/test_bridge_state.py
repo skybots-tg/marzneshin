@@ -9,6 +9,7 @@ be imported straight off disk rather than through the ``app`` package.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import time
@@ -504,3 +505,30 @@ def test_releasing_keeps_the_trail():
 
 def test_a_state_nobody_ever_scanned_reads_as_ancient():
     assert bs.scan_age({}) > 10 ** 8
+
+
+def test_releasing_hides_cannot_silence_the_alarm(tmp_path):
+    """The release writes the file, so the file's mtime says nothing.
+
+    If staleness were read off the last write, the first release would make the
+    audit look alive again and the rest of its hides would stay put for as long
+    as it kept failing -- the one situation this whole mechanism exists for.
+    """
+    path = str(tmp_path / "state.json")
+    dead_since = int(time.time()) - 5 * 3600
+    bs.save({"links": {}, "auto_disabled": {}, "scanned_at": dead_since}, path)
+
+    state = bs.load(path)
+    state["auto_disabled"]["7"] = {"link": LINK, "at": int(time.time()) - 600}
+    bs.release(state, [7], by="watchdog_stalled")
+    bs.save(state, path)
+
+    assert bs.scan_age(bs.load(path)) >= 5 * 3600
+
+
+def test_an_upgraded_state_file_keeps_its_only_timestamp(tmp_path):
+    path = str(tmp_path / "state.json")
+    scanned = int(time.time()) - 7200
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"links": {}, "updated_at": scanned}, f)
+    assert bs.load(path)["scanned_at"] == scanned
