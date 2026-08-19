@@ -8,6 +8,8 @@ belongs inside the API container. The two halves meet in
     bridge_audit.json      the report the host runner writes
     bridge_audit.quick.json  the frequent watchdog's partial view
     bridge_audit.log       live progress of the current/last run
+    bridge_audit.status    how the last run ended, and when
+    bridge_state.json      the streak memory, and when a probe last decided
     bridge_audit.request   touched by the panel to ask for a scan
 
 So the panel never shells out — it reads a report, writes a one-line request
@@ -30,11 +32,21 @@ REPORT_PATH = os.path.join(DATA_DIR, "bridge_audit.json")
 QUICK_REPORT_PATH = os.path.join(DATA_DIR, "bridge_audit.quick.json")
 LOG_PATH = os.path.join(DATA_DIR, "bridge_audit.log")
 REQUEST_PATH = os.path.join(DATA_DIR, "bridge_audit.request")
+STATUS_PATH = os.path.join(DATA_DIR, "bridge_audit.status")
+STATE_PATH = os.path.join(DATA_DIR, "bridge_state.json")
 
 # A run older than this is reported as stale so the page can nudge for a rescan.
 STALE_AFTER_SEC = 24 * 3600
 # Guard against acting on a report taken while the panel itself was offline.
-MAX_FAIL_PCT = 60
+# Measured against the hosts that are *visible*, because a mature fleet's report
+# is mostly the graveyard: half of all probes failing is the normal state of
+# affairs, while half of the visible ones failing never is.
+MAX_FAIL_PCT = 30
+# How long the watchdog may say nothing before the page calls it out. Hiding a
+# host needs one confirmed failure and restoring it needs two clean runs, so a
+# watchdog that has stopped is not neutral — it holds the fleet at its most
+# hidden until somebody looks.
+WATCHDOG_SILENT_SEC = 2 * 3600
 
 
 def _live_disabled(db: Session, host_ids: list[int]) -> dict[int, bool]:
@@ -104,8 +116,7 @@ def read_report(db: Session) -> dict:
         (shadowed if visible.get(host["remark"]) else to_enable).append(host_id)
 
     generated = report.get("generated_at", 0)
-    counts = report.get("counts", {})
-    total = report.get("total", 0) or 1
+    failed, tested = visible_failure_rate(hosts)
     report.update({
         "available": True,
         "scan_running": scan_running(),
@@ -115,11 +126,56 @@ def read_report(db: Session) -> dict:
         "shadowed": shadowed,
         "duplicates": [{"remark": r, "host_ids": ids}
                        for r, ids in sorted(visible.items()) if len(ids) > 1],
-        "apply_blocked": counts.get("fail", 0) * 100 // total > MAX_FAIL_PCT,
+        "apply_blocked": bool(tested) and failed * 100 // tested > MAX_FAIL_PCT,
+        "visible_failed": failed,
+        "visible_tested": tested,
         "removed_since_scan": orphaned,
         "quick": read_quick(),
+        "watchdog": read_watchdog(),
     })
     return report
+
+
+def visible_failure_rate(hosts: list[dict]) -> tuple[int, int]:
+    """Failures among hosts users can currently see, and how many those are.
+
+    Counting the whole report instead is what made the old guard useless: the
+    hidden half fails by definition and grows over time, so the ratio drifted
+    towards its own threshold while telling nobody anything about the fleet.
+    """
+    live = [h for h in hosts if not h.get("is_disabled")]
+    return sum(1 for h in live if h.get("verdict") == "fail"), len(live)
+
+
+def read_watchdog() -> dict:
+    """Whether the thing that hides and restores hosts is actually running.
+
+    Worth its own block on the page, because its failure does not look like a
+    failure: the last report stays on screen, the numbers stay plausible, and
+    the only visible symptom is that hosts which recovered never come back.
+    """
+    out: dict = {"silent": False, "last_rc": None, "last_kind": None}
+    try:
+        with open(STATUS_PATH, encoding="utf-8") as f:
+            status = json.load(f)
+        out["last_rc"] = status.get("rc")
+        out["last_kind"] = status.get("kind")
+        out["finished_at"] = status.get("finished_at")
+    except (FileNotFoundError, ValueError):
+        pass
+    try:
+        with open(STATE_PATH, encoding="utf-8") as f:
+            state = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return out
+    decided = int(state.get("scanned_at") or state.get("updated_at") or 0)
+    if decided:
+        age = max(0, int(time.time()) - decided)
+        out["decided_at"] = decided
+        out["decided_age_sec"] = age
+        out["silent"] = age > WATCHDOG_SILENT_SEC
+    out["auto_hidden"] = len(state.get("auto_disabled") or {})
+    return out
 
 
 def read_quick() -> Optional[dict]:
@@ -166,10 +222,11 @@ def apply_pending(
     if report["apply_blocked"] and not force:
         return {
             "error": (
-                f"{report['counts'].get('fail', 0)} of {report['total']} probes "
-                f"failed (>{MAX_FAIL_PCT}%). That normally means the panel host "
-                f"lost egress during the scan, not that the whole fleet died. "
-                f"Re-scan, or apply with force=true if the outage is real."
+                f"{report['visible_failed']} of {report['visible_tested']} "
+                f"visible host(s) failed (>{MAX_FAIL_PCT}%). That normally "
+                f"means the panel host lost egress during the scan, not that "
+                f"the whole fleet died. Re-scan, or apply with force=true if "
+                f"the outage is real."
             )
         }
 

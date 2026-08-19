@@ -71,6 +71,23 @@ export interface BridgeHealthReport {
     shadowed?: number[];
     duplicates?: { remark: string; host_ids: number[] }[];
     apply_blocked?: boolean;
+    visible_failed?: number;
+    visible_tested?: number;
+    deferred?: {
+        link: string;
+        reason: string;
+        deferred: string;
+        host_ids: number[];
+    }[];
+    watchdog?: {
+        silent: boolean;
+        last_rc: number | null;
+        last_kind: string | null;
+        finished_at?: number;
+        decided_at?: number;
+        decided_age_sec?: number;
+        auto_hidden?: number;
+    };
     vantages?: { node_id: number; name: string; address: string; error?: string }[];
 }
 

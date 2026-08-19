@@ -103,6 +103,8 @@ export const BridgeHealthPage: FC = () => {
     const counts = report?.counts ?? {};
     const pending = report?.pending ?? { disable: [], enable: [] };
     const pendingTotal = pending.disable.length + pending.enable.length;
+    const watchdog = report?.watchdog;
+    const deferred = report?.deferred ?? [];
 
     return (
         <Page title={t("bridge-health")}>
@@ -181,10 +183,42 @@ export const BridgeHealthPage: FC = () => {
                         )}
                     </div>
 
+                    {watchdog?.silent && (
+                        <Card className="border-destructive">
+                            <CardContent className="p-3 text-sm">
+                                {t("page.bridge_health.watchdog_silent", {
+                                    age: humanAge(watchdog.decided_age_sec ?? 0),
+                                })}
+                                {watchdog.last_rc
+                                    ? ` ${t("page.bridge_health.watchdog_rc", {
+                                          rc: watchdog.last_rc,
+                                      })}`
+                                    : ""}
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {report.apply_blocked && (
                         <Card className="border-destructive">
                             <CardContent className="p-3 text-sm">
                                 {t("page.bridge_health.apply_blocked")}
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {deferred.length > 0 && (
+                        <Card className="border-amber-500/60">
+                            <CardContent className="p-3 text-sm space-y-1">
+                                <div>
+                                    {t("page.bridge_health.deferred", {
+                                        n: deferred.length,
+                                    })}
+                                </div>
+                                <div className="text-xs text-muted-foreground font-mono">
+                                    {deferred
+                                        .map((d) => `${d.link} (${d.deferred})`)
+                                        .join(", ")}
+                                </div>
                             </CardContent>
                         </Card>
                     )}
