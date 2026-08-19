@@ -116,13 +116,27 @@ def probe_from_vantage(vantage: dict, targets, user_uuid: str,
 def probe_all(targets, vantages, user_uuid: str, workers: int = 6,
               timeout: int = 12, on_vantage_done=None,
               geo_tries: int | None = None, attempts: int = 2) -> dict:
-    """Probe every target from every vantage, in parallel across vantages."""
+    """Probe every target from every vantage, in parallel across vantages.
+
+    One vantage misbehaving must never cost the whole run. A node whose remote
+    runner outlives the ssh deadline raises out of the thread pool, and an
+    uncaught raise here used to abort the scan *after* the other vantages had
+    already answered — so the audit produced nothing at all and the fleet stayed
+    frozen in whatever state it was last left in. Hiding is immediate and
+    restoring needs two clean runs, so a crash loop is a one-way ratchet: it can
+    only leave hosts hidden. Failures are therefore recorded per vantage, in the
+    same shape a runner error takes, and ``merge`` ignores those viewpoints
+    instead of reading them as evidence that everything is down.
+    """
     per_vantage: dict[str, dict] = {}
 
     def one(v):
         key = vantage_key(v)
-        res = probe_from_vantage(v, targets, user_uuid, workers, timeout,
-                                 geo_tries, attempts)
+        try:
+            res = probe_from_vantage(v, targets, user_uuid, workers, timeout,
+                                     geo_tries, attempts)
+        except Exception as exc:  # noqa: BLE001
+            res = {"__error__": f"{type(exc).__name__}: {str(exc)[:200]}"}
         per_vantage[key] = res
         if on_vantage_done:
             on_vantage_done(v, res)

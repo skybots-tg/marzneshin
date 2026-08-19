@@ -133,6 +133,12 @@ def run_job(job, socks_port, timeout, geo_offset=0, deadline=None,
 
 
 def main():
+    # The clock starts here, not after the setup below: the dispatcher's ssh
+    # timeout is derived from the same budget, so anything spent before the
+    # wall clock exists is time the dispatcher has already counted and this
+    # process has not. Copying the xray binary out of the container is usually
+    # instant and occasionally is not, which is exactly how a run overshoots.
+    started = time.time()
     req = json.load(sys.stdin)
     jobs = req["jobs"]
     workers = int(req.get("workers", 6))
@@ -146,7 +152,11 @@ def main():
     # Hard wall clock. Without it a handful of stalled probes can outlive the
     # dispatcher's ssh timeout, and the whole vantage is then thrown away —
     # turning a slow node into "nothing is reachable from here".
-    deadline = time.time() + float(req.get("deadline") or 3600)
+    deadline = started + float(req.get("deadline") or 3600)
+    # The longest a single job can take: xray warm-up, every geo lookup it is
+    # allowed, and the teardown. Starting a job with less than this left is how
+    # the run overshoots the deadline it was given.
+    worst_job = 2 + (geo_tries or len(GEO)) * (timeout + 5) + 5
     results = {}
 
     def one(pair):
@@ -154,7 +164,7 @@ def main():
         # Every job gets its own listen port for the whole run. Reusing ports
         # across jobs lets a lingering xray from a finished probe answer the
         # next one's curl, which silently reports another server's country.
-        if time.time() >= deadline:
+        if time.time() + worst_job > deadline:
             results.setdefault(job["id"], {"verdict": "skip",
                                            "error": "deadline"})
             return
