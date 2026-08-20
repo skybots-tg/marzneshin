@@ -43,6 +43,7 @@ from app.models.proxy import (
 from app.models.settings import SubscriptionSettings
 from app.models.user import UserResponse, UserExpireStrategy
 from app.templates import render_template
+from app.utils.fleet_taxonomy import flag_to_iso
 from app.utils.keygen import gen_uuid, gen_password, generate_curve25519_pbk
 from app.utils.system import get_public_ip, readable_size
 
@@ -102,6 +103,38 @@ def generate_subscription_template(
         SUBSCRIPTION_PAGE_TEMPLATE,
         {"user": UserResponse.model_validate(db_user), "links": links},
     )
+
+
+# Клиенты подключаются к первой записи в подписке, и российский выход в этой
+# роли — тупик: человек ставил VPN как раз чтобы из страны выйти. Порядок задаёт
+# weight, но bridge-health в любой момент прячет упавшие хосты, и наверх
+# всплывает тот, кто остался. Поэтому голову списка проверяем отдельно от весов.
+_HOME_COUNTRY = "RU"
+
+
+def _is_home_country(config) -> bool:
+    return flag_to_iso(getattr(config, "remark", "") or "") == _HOME_COUNTRY
+
+
+def _lead_with_foreign(configs: list) -> list:
+    """Поставить в начало первый нероссийский конфиг, остальной порядок сохранив."""
+    if not configs or not _is_home_country(configs[0]):
+        return configs
+    for index, config in enumerate(configs):
+        if not _is_home_country(config):
+            return [config] + configs[:index] + configs[index + 1:]
+    return configs  # весь список российский — выбирать не из чего
+
+
+def _promote_foreign_head(handler) -> None:
+    """Ещё раз поправить голову — уже после отбраковки в ``add_proxies``.
+
+    clash и sing-box выкидывают конфиги с транспортом, который не умеют, так
+    что нероссийский лидер может до рендера и не дожить.
+    """
+    accepted = getattr(handler, "_configs", None)
+    if isinstance(accepted, list):
+        accepted[:] = _lead_with_foreign(accepted)
 
 
 def _load_subscription_settings_or_none() -> SubscriptionSettings | None:
@@ -189,8 +222,16 @@ def generate_subscription(
             subscription_settings=subscription_settings,
         )
 
-    subscription_handler.add_proxies(configs)
-    config = subscription_handler.render(sort=True, shuffle=shuffle)
+    if shuffle:
+        # Перемешивание — осознанный выбор администратора, гарантий порядка нет
+        subscription_handler.add_proxies(configs)
+        config = subscription_handler.render(sort=True, shuffle=True)
+    else:
+        subscription_handler.add_proxies(
+            _lead_with_foreign(sorted(configs, key=lambda c: c.weight))
+        )
+        _promote_foreign_head(subscription_handler)
+        config = subscription_handler.render(sort=False, shuffle=False)
 
     return (
         config if not as_base64 else base64.b64encode(config.encode()).decode()
