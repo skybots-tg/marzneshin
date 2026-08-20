@@ -306,12 +306,22 @@ def bus_user_subscription(
     db_user: SubUserDep,
     request: Request,
     db: DBDep,
+    background_tasks: BackgroundTasks,
     user_agent: str = Header(default=""),
 ):
     """
     Subscription link (alias for /sub), result format depends on subscription settings
     """
-    return user_subscription(db_user, request, db, user_agent)
+    # Аргументы по именам: раньше здесь стояли позиционные, и когда в
+    # user_subscription добавился background_tasks, в этот слот молча попал
+    # user_agent — алиас с тех пор отвечал 500 на каждый запрос.
+    return user_subscription(
+        db_user=db_user,
+        request=request,
+        db=db,
+        background_tasks=background_tasks,
+        user_agent=user_agent,
+    )
 
 
 @bus_router.get("/{username}/{key}/info", response_model=UserResponse)
