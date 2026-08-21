@@ -47,6 +47,11 @@ MAX_FAIL_PCT = 30
 # watchdog that has stopped is not neutral — it holds the fleet at its most
 # hidden until somebody looks.
 WATCHDOG_SILENT_SEC = 2 * 3600
+# The full sweep runs daily. Missing its slot by another half cycle means it is
+# not merely late, and it needs its own alarm: the quick checks keep
+# ``scanned_at`` fresh, so a dead sweep leaves every timestamp the silence
+# alarm reads looking perfectly healthy while the fleet's portrait ages.
+FULL_SWEEP_SILENT_SEC = 36 * 3600
 
 
 def _live_disabled(db: Session, host_ids: list[int]) -> dict[int, bool]:
