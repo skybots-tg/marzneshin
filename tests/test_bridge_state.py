@@ -471,6 +471,48 @@ def test_a_hide_the_traffic_counters_confirm_ignores_the_allowance():
     assert decisions["deferred"] == []
 
 
+def test_a_leg_that_keeps_failing_outlives_the_days_allowance():
+    """The allowance may delay a fresh verdict, never a long-proven one.
+
+    It is there so a systemically wrong run costs a few locations instead of
+    the catalogue. A leg the probe has watched fail this many times running is
+    not that mistake, and holding the hide back only keeps a server users
+    cannot reach in every subscription until the date rolls over -- which is
+    where 31>FI/tcp sat, visible at twenty-two consecutive failures.
+    """
+    targets = many_failing_links(8)
+    world = busy_everywhere(targets)
+    kwargs = dict(visible_counts=dict(counts_for(targets), total=20),
+                  limits={"per_run": 10, "per_day_pct": 15})
+    state, decisions = None, None
+    for _ in range(bs.HIDE_CONFIDENT_STREAK - 1):
+        _, state, decisions = run(targets, state, **kwargs, **world)
+    # The day's three hides are long spent and the streak is one run short.
+    assert decisions["disable"] == []
+    assert {d["deferred"] for d in decisions["deferred"]} == {"rate_limit_day"}
+
+    _, state, decisions = run(targets, state, **kwargs, **world)
+    assert len(decisions["disable"]) == 8
+    assert decisions["deferred"] == []
+
+
+def test_the_per_run_cap_still_holds_a_long_proven_leg():
+    """Only the day's allowance yields to a streak, not the per-run cap.
+
+    How much of the catalogue moves in one go stays worth bounding however sure
+    the verdict is: it is the blast radius, not the confidence, that the cap is
+    about.
+    """
+    targets = many_failing_links(4)
+    world = busy_everywhere(targets)
+    kwargs = dict(visible_counts=counts_for(targets), limits={"per_run": 1})
+    state, decisions = None, None
+    for _ in range(bs.HIDE_CONFIDENT_STREAK):
+        _, state, decisions = run(targets, state, **kwargs, **world)
+    assert len(decisions["disable"]) == 1
+    assert {d["deferred"] for d in decisions["deferred"]} == {"rate_limit_run"}
+
+
 # --------------------------------------------------------------------------
 # the dead man's switch
 # --------------------------------------------------------------------------
@@ -493,6 +535,43 @@ def test_a_silent_audit_hands_back_its_recent_hides():
         },
     }
     assert sorted(bs.hides_to_release(state, now=now)) == [1]
+
+
+def test_a_silent_audit_keeps_the_hides_it_proved_many_times_over():
+    """Silence casts doubt on a thin verdict, not on a long-proven one.
+
+    19>TR/tcp was handed back by this mechanism while dead, sat in every
+    subscription, and was hidden again by the next full sweep a day later.
+    """
+    now = time.time()
+    state = {
+        "links": {
+            "25>FR/tcp": {"fail_streak": bs.HIDE_CONFIDENT_STREAK},
+            "25>PL/tcp": {"fail_streak": bs.FAIL_STREAK_TO_HIDE},
+        },
+        "scanned_at": int(now) - 5 * 3600,
+        "auto_disabled": {
+            "1": {"at": int(now) - 3600, "link": "25>FR/tcp"},
+            "2": {"at": int(now) - 3600, "link": "25>PL/tcp"},
+        },
+    }
+    assert sorted(bs.hides_to_release(state, now=now)) == [2]
+
+
+def test_a_silent_audit_keeps_what_the_byte_counters_condemned():
+    """The probe was not the only witness, so its silence proves nothing."""
+    now = time.time()
+    state = {
+        "links": {},
+        "scanned_at": int(now) - 5 * 3600,
+        "auto_disabled": {
+            "1": {"at": int(now) - 3600, "link": "25>FR/tcp",
+                  "reason": "exit_down"},
+            "2": {"at": int(now) - 3600, "link": "25>PL/tcp",
+                  "reason": "link_down"},
+        },
+    }
+    assert sorted(bs.hides_to_release(state, now=now)) == [2]
 
 
 def test_releasing_keeps_the_trail():

@@ -97,6 +97,17 @@ EXIT_WIDE_MIN_LINKS = 2
 # only leaves a dead server in subscriptions for longer.
 CORROBORATED_REASONS = ("node_silent", "exit_down")
 
+# Consecutive failures after which a hide is no longer up for review. The two
+# mechanisms below both exist to protect a working server from a thin verdict:
+# the daily allowance keeps a systemic misjudgement from costing the catalogue,
+# and the release hands back hides a stalled probe can no longer stand behind.
+# Neither argument survives a leg that has failed this many runs in a row --
+# there the only thing being protected is a server nobody can reach. Both of
+# those went wrong in production: 31>FI/tcp stayed visible at twenty-two
+# consecutive failures because the day's allowance was spent, and 19>TR/tcp was
+# handed back dead by the release and re-hidden a day later.
+HIDE_CONFIDENT_STREAK = 4 * FAIL_STREAK_TO_HIDE
+
 # How much of the visible fleet the automation may hide on its own initiative.
 # The point is not to be right in the individual case -- the streak rules
 # already are -- but to make a wrong *systemic* verdict cost minutes instead of
@@ -255,14 +266,28 @@ def hides_to_release(state: dict, now: float | None = None,
     for as long as the audit was healthy, so they are the ones most likely to be
     real; and a wholesale un-hiding would put a fleet's worth of dead servers
     into every subscription at once.
+
+    Recent is not the only test. A hide only becomes doubtful if the probe was
+    the sole witness *and* it acted early; one the byte counters corroborated,
+    or one the probe reached after watching the leg fail
+    ``HIDE_CONFIDENT_STREAK`` runs running, is evidence the audit's silence does
+    not touch. Handing those back is how a dead leg re-enters every
+    subscription and stays there until the next full sweep.
     """
     now = now or time.time()
     if scan_age(state, now) < stale_after:
         return {}
+    links = state.get("links") or {}
     out = {}
     for host_id, record in state.get("auto_disabled", {}).items():
-        if now - int(record.get("at") or 0) <= lease:
-            out[int(host_id)] = record
+        if now - int(record.get("at") or 0) > lease:
+            continue
+        if record.get("reason") in CORROBORATED_REASONS:
+            continue
+        link = links.get(record.get("link")) or {}
+        if int(link.get("fail_streak") or 0) >= HIDE_CONFIDENT_STREAK:
+            continue
+        out[int(host_id)] = record
     return out
 
 
@@ -372,6 +397,12 @@ def _rate_limit(candidates: list[dict], state: dict, visible_counts,
         if cand["reason"] in CORROBORATED_REASONS:
             allowed.append(cand)
             continue
+        # A streak this long is not the systemic misjudgement the day's
+        # allowance is there to make cheap, so the allowance does not get to
+        # hold it back. The per-run cap and the last-visible floors still do:
+        # they bound how much of the catalogue moves at once, which is worth
+        # bounding however sure the verdict is.
+        confident = (cand.get("fail_streak") or 0) >= HIDE_CONFIDENT_STREAK
         held = None
         if keep_entry and know_entries and \
                 per_entry.get(link.entry_key, 0) - count < keep_entry:
@@ -381,7 +412,8 @@ def _rate_limit(candidates: list[dict], state: dict, visible_counts,
             held = "last_visible_slot"
         elif per_run and used + count > per_run:
             held = "rate_limit_run"
-        elif per_day and budget.get("hidden", 0) + count > per_day:
+        elif per_day and not confident and \
+                budget.get("hidden", 0) + count > per_day:
             held = "rate_limit_day"
         if held:
             deferred.append(dict(cand, deferred=held))
@@ -516,7 +548,8 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             # deferral nobody asked for.
             if should_hide and link.enabled_host_ids:
                 wants_hiding.append({"key": key, "link": link,
-                                     "reason": reason})
+                                     "reason": reason,
+                                     "fail_streak": fail_streak})
         else:
             fail_streak = 0
             pass_streak = prev.get("pass_streak", 0) + 1

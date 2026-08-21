@@ -823,12 +823,16 @@ def cmd_revive(args) -> int:
     state = bs.load()
     ledger_seed(state)
     age = bs.scan_age(state)
+    # Stamped because this log is appended to once a minute and rotated by
+    # line count, so an undated "silent for N min" cannot be placed in time --
+    # which is exactly the reading anyone does first when the fleet looks wrong.
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     candidates = bs.hides_to_release(state, lease=args.lease * 3600,
                                      stale_after=args.stale_after * 60)
     if not candidates:
         if age >= args.stale_after * 60:
-            print(f"audit silent for {age // 60} min, but no hide is recent "
-                  f"enough to release (lease {args.lease}h)")
+            print(f"{stamp} audit silent for {age // 60} min, but no hide is "
+                  f"recent enough to release (lease {args.lease}h)")
         return 0
 
     live = {}
@@ -859,7 +863,7 @@ def cmd_revive(args) -> int:
         releasing.append(host_id)
 
     show = [i for i in releasing if live.get(i, {}).get("hidden")]
-    print(f"audit has been silent for {age // 60} min; releasing "
+    print(f"{stamp} audit has been silent for {age // 60} min; releasing "
           f"{len(show)} of {len(candidates)} recent hide(s)")
     for host_id in show:
         print(f"  #{host_id:<4} {live[host_id]['remark'][:52]}")
