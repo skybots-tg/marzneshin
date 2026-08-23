@@ -215,6 +215,114 @@ def do_front(exit_ip, domain, phase, entry_ips, apply_now):
     return finish(exit_ip, cfg, apply_now)
 
 
+def load_plan(path):
+    """Выход -> фронт, из файла назначений; ключи на _ — комментарии."""
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    return {k: v["front"] for k, v in raw.items()
+            if not k.startswith("_") and isinstance(v, dict)}
+
+
+def plan_phase1(plan, apply_now):
+    """Добавить новое имя каждому выходу. Перезапуск — только выходы."""
+    ok = True
+    for exit_ip, domain in sorted(plan.items()):
+        print(f"\n=== выход {exit_ip} -> {domain}")
+        problems = verify_front(exit_ip, domain)
+        if problems:
+            print(f"  ОТКАЗ: {domain} не годится как dest — нет: "
+                  f"{', '.join(problems)}")
+            ok = False
+            continue
+        try:
+            cfg = mc.node_cfg(exit_ip)
+        except RuntimeError as e:
+            print(f"  ! недоступен: {e}")
+            ok = False
+            continue
+        touched = False
+        for ib in reality_inbounds(cfg):
+            rs = ib["streamSettings"]["realitySettings"]
+            old = list(rs.get("serverNames") or [])
+            if domain in old:
+                print(f"  {ib.get('tag')}: {domain} уже принимается")
+                continue
+            show(f"{ib.get('tag')} serverNames", old, old + [domain])
+            rs["serverNames"] = old + [domain]
+            touched = True
+        ok = (finish(exit_ip, cfg, apply_now) if touched else True) and ok
+    return ok
+
+
+def plan_phase2(plan, entry_ips, apply_now):
+    """Перевести исходящие входов — ВСЕ разом на каждом входе.
+
+    Здесь и стоит вся экономия. Гонять фазу 2 выход за выходом означало бы
+    перезапускать каждый вход по разу на выход: тринадцать выходов на
+    одиннадцать входов — сто сорок три обрыва у пользователей вместо
+    одиннадцати. Один вход, один конфиг, один перезапуск.
+    """
+    ok = True
+    for ip in entry_ips:
+        try:
+            cfg = mc.node_cfg(ip)
+        except RuntimeError as e:
+            print(f"  ! вход {ip}: {e}")
+            ok = False
+            continue
+        moved = []
+        for o in cfg.get("outbounds", []):
+            s = (o.get("settings") or {})
+            vnext = (s.get("vnext") or s.get("servers") or [{}])
+            addr = (vnext[0] or {}).get("address")
+            domain = plan.get(addr)
+            if not domain:
+                continue
+            rs = ((o.get("streamSettings") or {}).get("realitySettings"))
+            if not rs or rs.get("serverName") == domain:
+                continue
+            moved.append(f"{o.get('tag')}: {rs.get('serverName')} -> {domain}")
+            rs["serverName"] = domain
+        print(f"\n=== вход {ip}: исходящих к переводу {len(moved)}")
+        for line in moved:
+            print(f"    {line}")
+        if moved:
+            ok = finish(ip, cfg, apply_now) and ok
+    return ok
+
+
+def plan_phase3(plan, apply_now):
+    """Убрать старые имена и перевести dest. Перезапуск — только выходы."""
+    ok = True
+    for exit_ip, domain in sorted(plan.items()):
+        print(f"\n=== выход {exit_ip} -> только {domain}")
+        try:
+            cfg = mc.node_cfg(exit_ip)
+        except RuntimeError as e:
+            print(f"  ! недоступен: {e}")
+            ok = False
+            continue
+        refuse = False
+        for ib in reality_inbounds(cfg):
+            rs = ib["streamSettings"]["realitySettings"]
+            if domain not in (rs.get("serverNames") or []):
+                print(f"  ОТКАЗ: {ib.get('tag')} ещё не принимает {domain} — "
+                      f"сначала фаза 1")
+                refuse = True
+        if refuse:
+            ok = False
+            continue
+        for ib in reality_inbounds(cfg):
+            rs = ib["streamSettings"]["realitySettings"]
+            show(f"{ib.get('tag')} serverNames",
+                 list(rs.get("serverNames") or []), [domain])
+            show(f"{ib.get('tag')} dest", rs.get("dest"), f"{domain}:443")
+            rs["serverNames"] = [domain]
+            rs["dest"] = f"{domain}:443"
+        ok = finish(exit_ip, cfg, apply_now) and ok
+    return ok
+
+
 def finish(ip, cfg, apply_now):
     if not apply_now:
         print(f"  (сухой прогон — {ip} не тронут; добавьте --apply)")
@@ -228,7 +336,8 @@ def finish(ip, cfg, apply_now):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exit", required=True, help="IP выходной ноды")
+    ap.add_argument("--exit", help="IP выходной ноды")
+    ap.add_argument("--plan", help="файл назначений выход->фронт для всего парка")
     ap.add_argument("--prune", action="store_true",
                     help="убрать имена, которые никто не посылает")
     ap.add_argument("--front", help="новый домен маскировки")
@@ -239,6 +348,20 @@ def main():
     ap.add_argument("--apply", action="store_true",
                     help="применить; без него только показать")
     args = ap.parse_args()
+    if args.plan:
+        if not args.phase:
+            ap.error("--plan требует --phase")
+        plan = load_plan(args.plan)
+        print(f"назначений в плане: {len(plan)}")
+        entry_ips = ([args.only_entry] if args.only_entry else entries())
+        if args.phase == 1:
+            return 0 if plan_phase1(plan, args.apply) else 1
+        if args.phase == 2:
+            return 0 if plan_phase2(plan, entry_ips, args.apply) else 1
+        return 0 if plan_phase3(plan, args.apply) else 1
+
+    if not args.exit:
+        ap.error("нужен --exit или --plan")
     if bool(args.prune) == bool(args.front):
         ap.error("нужен ровно один из --prune / --front")
     if args.front and not args.phase:
