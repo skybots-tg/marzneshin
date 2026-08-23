@@ -37,6 +37,7 @@ usage:
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 
@@ -49,10 +50,17 @@ import marz_common as mc
 # attention of their own. These are starting points to be measured, not
 # answers; add your own with --candidates.
 CANDIDATES = {
-    "FI": ["www.aalto.fi", "www.elisa.fi", "www.verkkokauppa.com"],
+    # elisa.fi не держит TLS 1.3 вовсе, а aalto.fi и verkkokauppa.com
+    # уезжают за зарубежный CDN и геолоцируются в US/CA — для узла в
+    # Хельсинки это ровно то несоответствие, от которого мы уходим.
+    "FI": ["www.tuni.fi", "www.gigantti.fi", "www.k-ruoka.fi",
+           "www.aalto.fi", "www.verkkokauppa.com"],
     "EE": ["www.ut.ee", "www.telia.ee", "www.rimi.ee"],
     "FR": ["www.sorbonne-universite.fr", "www.cdiscount.com", "www.free.fr"],
-    "TR": ["www.boun.edu.tr", "www.turkcell.com.tr", "www.hepsiburada.com"],
+    # boun.edu.tr и turkcell.com.tr поднимают TLS 1.3 с X25519, но не
+    # договариваются до h2, а hepsiburada.com геолоцируется в RO.
+    "TR": ["www.trendyol.com", "www.sahibinden.com", "www.migros.com.tr",
+           "www.hepsiburada.com"],
     "US": ["www.wisc.edu", "www.newegg.com", "www.digitalocean.com"],
     "PL": ["www.uw.edu.pl", "www.allegro.pl", "www.orange.pl"],
     "NL": ["www.tudelft.nl", "www.bol.com", "www.kpn.com"],
@@ -126,10 +134,20 @@ def covers(domain, names):
 
 
 def probe_node(node_ip, candidates, cache):
-    """Measure every candidate from ``node_ip``; returns rows, node geo."""
+    """Measure every candidate from ``node_ip``.
+
+    Returns ``(rows, node_cc, node_as, failure)``. ``failure`` is the reason the
+    probe never ran at all, and it has to be told apart from "no candidate
+    passed": a node the panel cannot ssh into produced an empty table that read
+    as a verdict on the domains -- 38.180.45.150 and 23.152.200.52 both did,
+    while their service ports were answering fine.
+    """
     node_cc, node_as = geo(node_ip, cache)
     cmd = REMOTE % " ".join(candidates)
-    r = mc.ssh(node_ip, cmd, timeout=45 + 12 * len(candidates))
+    try:
+        r = mc.ssh(node_ip, cmd, timeout=45 + 12 * len(candidates))
+    except subprocess.TimeoutExpired:
+        return [], node_cc, node_as, "ssh не ответил за отведённое время"
     rows = []
     for line in r.stdout.splitlines():
         if not line.startswith("RESULT|"):
@@ -152,7 +170,11 @@ def probe_node(node_ip, candidates, cache):
             "usable": ok_tls and x25519 and h2 and covers(dom, names),
             "incumbent": dom in INCUMBENTS,
         })
-    return rows, node_cc, node_as
+    if not rows:
+        why = (r.stderr or r.stdout or "").strip().splitlines()
+        return [], node_cc, node_as, (
+            why[-1][:160] if why else f"пробник ничего не вернул (rc={r.returncode})")
+    return rows, node_cc, node_as, None
 
 
 def score(row):
@@ -167,13 +189,17 @@ def score(row):
     return (prox, -ms)
 
 
-def render(node_ip, node_cc, node_as, rows):
+def render(node_ip, node_cc, node_as, rows, failure=None):
     # flush на каждый узел: обход десятка узлов идёт минуты, а таблица,
     # доезжающая только в конце, обесценивает саму возможность следить.
     def out(line=""):
         print(line, flush=True)
 
     out(f"\n=== узел {node_ip}  ({node_cc or '?'}, {node_as or '?'})")
+    if failure:
+        out(f"  ПРОБА НЕ ЗАПУСТИЛАСЬ: {failure}")
+        out("  (о доменах это не говорит ничего — узел недоступен)")
+        return
     out(f"{'домен':<30} {'TLS1.3':<7} {'X25519':<7} {'h2':<4} "
         f"{'cert':<5} {'гео':<4} {'сеть':<6} {'мс':>6}")
     for row in sorted(rows, key=score, reverse=True):
@@ -226,10 +252,11 @@ def main():
             print(f"=== узел {node_ip}: нет кандидатов для страны "
                   f"{node_cc or '?'} — задайте --candidates", file=sys.stderr)
             continue
-        rows, node_cc, node_as = probe_node(node_ip, cands, cache)
-        out[node_ip] = {"country": node_cc, "as": node_as, "candidates": rows}
+        rows, node_cc, node_as, failure = probe_node(node_ip, cands, cache)
+        out[node_ip] = {"country": node_cc, "as": node_as,
+                        "candidates": rows, "failure": failure}
         if not args.json:
-            render(node_ip, node_cc, node_as, rows)
+            render(node_ip, node_cc, node_as, rows, failure)
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
