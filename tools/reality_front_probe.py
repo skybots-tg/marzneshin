@@ -168,13 +168,18 @@ def score(row):
 
 
 def render(node_ip, node_cc, node_as, rows):
-    print(f"\n=== узел {node_ip}  ({node_cc or '?'}, {node_as or '?'})")
-    print(f"{'домен':<30} {'TLS1.3':<7} {'X25519':<7} {'h2':<4} "
-          f"{'cert':<5} {'гео':<4} {'сеть':<6} {'мс':>6}")
+    # flush на каждый узел: обход десятка узлов идёт минуты, а таблица,
+    # доезжающая только в конце, обесценивает саму возможность следить.
+    def out(line=""):
+        print(line, flush=True)
+
+    out(f"\n=== узел {node_ip}  ({node_cc or '?'}, {node_as or '?'})")
+    out(f"{'домен':<30} {'TLS1.3':<7} {'X25519':<7} {'h2':<4} "
+        f"{'cert':<5} {'гео':<4} {'сеть':<6} {'мс':>6}")
     for row in sorted(rows, key=score, reverse=True):
         mark = "*" if row["incumbent"] else " "
         prox = "AS" if row["same_as"] else ("страна" if row["same_country"] else "—")
-        print(f"{mark}{row['domain']:<29} "
+        out(f"{mark}{row['domain']:<29} "
               f"{'да' if row['tls13'] else 'НЕТ':<7} "
               f"{'да' if row['x25519'] else 'НЕТ':<7} "
               f"{'да' if row['h2'] else 'НЕТ':<4} "
@@ -186,10 +191,10 @@ def render(node_ip, node_cc, node_as, rows):
         b = best[0]
         where = "той же сети" if b["same_as"] else (
             "той же стране" if b["same_country"] else "другой стране")
-        print(f"  → лучший кандидат: {b['domain']} ({where}, {b['latency_ms']} мс)")
+        out(f"  → лучший кандидат: {b['domain']} ({where}, {b['latency_ms']} мс)")
     else:
-        print("  → ни один кандидат не прошёл обязательные проверки")
-    print("  (* — то, что стоит сейчас)")
+        out("  → ни один кандидат не прошёл обязательные проверки")
+    out("  (* — то, что стоит сейчас)")
 
 
 def main():
