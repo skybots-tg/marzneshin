@@ -12,11 +12,18 @@ Two actions, and they are different in kind.
 
 ``--prune`` drops the names no peer ever sends. The foreign exits accept seven,
 of which five (``microsoft.com``, ``www.microsoft.com``, ``dl.google.com``,
-``api-maps.yandex.ru``, ``www.googletagmanager.com``) are dead weight, and worse
-than dead: ``dest`` is ``www.apple.com``, so a prober sending any of them gets
-an Apple certificate back, and each spare name is one more free proof that the
-host is not what it claims. Removing them cannot break a handshake nobody
+``api-maps.yandex.ru``, ``www.googletagmanager.com``) are dead weight: every
+entry sends ``apple.com``, so removing them cannot break a handshake anybody
 makes.
+
+This is tidying, not a fix, and the distinction was worth measuring rather than
+reasoning about. A prober gets ``dest``'s certificate back whatever name it
+sends -- ``example.org`` and an invented name both returned ``www.apple.com``
+from an exit that never listed either -- because REALITY relays anything it
+cannot authenticate. So the list is not what a prober sees, and shortening it
+buys clarity, nothing more. What a prober does see is the disguise itself: a
+name whose real addresses are nowhere near this one, which is what ``--front``
+is for.
 
 ``--front`` moves the disguise to another domain, in three phases, because the
 list is what the server *accepts*: adding a name is safe, removing one refuses
