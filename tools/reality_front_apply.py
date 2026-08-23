@@ -291,10 +291,26 @@ def plan_phase2(plan, entry_ips, apply_now):
     return ok
 
 
-def plan_phase3(plan, apply_now):
-    """Убрать старые имена и перевести dest. Перезапуск — только выходы."""
+def plan_phase3(plan, apply_now, skip=(), keep=()):
+    """Перевести dest на новый фронт. Перезапуск — только выходы.
+
+    ``keep`` оставляет старые имена принимаемыми, и это не небрежность. Список
+    serverNames зонду не виден — проверено: выход отдаёт сертификат dest на
+    любое имя, включая отсутствующее в списке. Значит укорачивание списка не
+    даёт защиты, а стоит вполне реального: три входа (37.46.135.220,
+    23.152.200.52, 84.23.55.162) недоступны и фазу 2 не получили, так что
+    посылают ещё apple.com. Убрать это имя — значит гарантировать, что их
+    цепочки не поднимутся, если ноды вернутся. Существенная часть фазы 3 —
+    именно dest, а не длина списка.
+
+    ``skip`` не трогает выход, через который сейчас работает человек: его
+    перезапуск обрывает канал ровно тому, кто раскатку и ведёт.
+    """
     ok = True
     for exit_ip, domain in sorted(plan.items()):
+        if exit_ip in skip:
+            print(f"\n=== выход {exit_ip}: пропущен по --skip-exit")
+            continue
         print(f"\n=== выход {exit_ip} -> только {domain}")
         try:
             cfg = mc.node_cfg(exit_ip)
@@ -314,10 +330,12 @@ def plan_phase3(plan, apply_now):
             continue
         for ib in reality_inbounds(cfg):
             rs = ib["streamSettings"]["realitySettings"]
-            show(f"{ib.get('tag')} serverNames",
-                 list(rs.get("serverNames") or []), [domain])
+            old_names = list(rs.get("serverNames") or [])
+            new_names = [domain] + [n for n in keep if n in old_names
+                                    and n != domain]
+            show(f"{ib.get('tag')} serverNames", old_names, new_names)
             show(f"{ib.get('tag')} dest", rs.get("dest"), f"{domain}:443")
-            rs["serverNames"] = [domain]
+            rs["serverNames"] = new_names
             rs["dest"] = f"{domain}:443"
         ok = finish(exit_ip, cfg, apply_now) and ok
     return ok
@@ -343,6 +361,11 @@ def main():
     ap.add_argument("--front", help="новый домен маскировки")
     ap.add_argument("--phase", type=int, choices=(1, 2, 3),
                     help="фаза смены фронта")
+    ap.add_argument("--skip-exit", action="append", default=[],
+                    help="не трогать этот выход (например, тот, через "
+                         "который сейчас работаете)")
+    ap.add_argument("--keep-name", action="append", default=[],
+                    help="фаза 3: оставить это имя принимаемым")
     ap.add_argument("--only-entry",
                     help="фаза 2 только для этого входа (канарейка)")
     ap.add_argument("--apply", action="store_true",
@@ -358,7 +381,8 @@ def main():
             return 0 if plan_phase1(plan, args.apply) else 1
         if args.phase == 2:
             return 0 if plan_phase2(plan, entry_ips, args.apply) else 1
-        return 0 if plan_phase3(plan, args.apply) else 1
+        return 0 if plan_phase3(plan, args.apply, tuple(args.skip_exit),
+                                tuple(args.keep_name)) else 1
 
     if not args.exit:
         ap.error("нужен --exit или --plan")
