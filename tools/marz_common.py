@@ -370,7 +370,17 @@ def insert_host_sql(node_id, tag, remark, address, weight, sni="api-maps.yandex.
 
     Idempotency is by inbound (one host per inbound on this node) rather than by
     remark, because the same remark can legitimately exist on another node
-    (e.g. a decommissioned/disabled predecessor)."""
+    (e.g. a decommissioned/disabled predecessor).
+
+    ``sni`` is what the *client* will send, so it has to be a name the entry
+    node's own inbound accepts. The default is correct only while every entry
+    fronts as api-maps.yandex.ru -- which was true of 92 of 96 inbounds, and is
+    exactly the monoculture that made one blocklist entry cost the whole
+    catalogue. The exits have since been diversified (tools/reality_fronts.json);
+    when the entries follow, this default becomes a silent leak back to one
+    name, and the caller must start passing the node's actual front instead.
+    Four callers rely on it today: add_exit_country.py and
+    setup_universal_node.py."""
     return (
         "INSERT INTO hosts (remark, address, port, sni, security, fingerprint, "
         "inbound_id, is_disabled, weight, universal, mlkem_enabled) "
