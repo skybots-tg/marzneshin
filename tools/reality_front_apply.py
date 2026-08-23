@@ -234,6 +234,8 @@ def main():
     ap.add_argument("--front", help="новый домен маскировки")
     ap.add_argument("--phase", type=int, choices=(1, 2, 3),
                     help="фаза смены фронта")
+    ap.add_argument("--only-entry",
+                    help="фаза 2 только для этого входа (канарейка)")
     ap.add_argument("--apply", action="store_true",
                     help="применить; без него только показать")
     args = ap.parse_args()
@@ -255,8 +257,12 @@ def main():
 
     if args.prune:
         return 0 if do_prune(args.exit, sent, args.apply) else 1
+    # Фаза 2 перезапускает вход, а это короткий обрыв у ВСЕХ его
+    # пользователей, не только у тех, кто сейчас на этом выходе. Поэтому
+    # переводить парк имеет смысл по одному входу, убедившись на первом.
+    targets = [args.only_entry] if args.only_entry else entry_ips
     return 0 if do_front(args.exit, args.front, args.phase,
-                         entry_ips, args.apply) else 1
+                         targets, args.apply) else 1
 
 
 if __name__ == "__main__":
