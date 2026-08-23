@@ -41,6 +41,11 @@ import json
 import sys
 
 import marz_common as mc
+# Одна и та же функция на оба инструмента: пробник считал www.allegro.pl
+# годным по wildcard *.allegro.pl, а здесь простое вхождение подстроки
+# забраковало корректную смену. Двум инструментам, которые обязаны сходиться
+# в ответе «покрывает ли сертификат имя», нельзя иметь две реализации.
+from reality_front_probe import covers
 
 # The entry fleet: nodes whose outbounds carry traffic into the exits. Read from
 # the database rather than hard-coded, so a new entry cannot be forgotten.
@@ -91,7 +96,7 @@ def verify_front(exit_ip, domain):
     ok_tls = bool(got.get("cipher", "").strip())
     x25519 = "x25519" in got.get("group", "").lower()
     h2 = got.get("alpn", "").strip() == "h2"
-    covered = domain.lower() in got.get("names", "").lower()
+    covered = covers(domain, got.get("names", ""))
     problems = [
         name for name, good in (
             ("TLS 1.3", ok_tls), ("X25519", x25519),
