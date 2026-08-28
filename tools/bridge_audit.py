@@ -286,14 +286,25 @@ def visible_counts(targets) -> dict:
     """
     entry: dict[str, int] = defaultdict(int)
     slot: dict[str, int] = defaultdict(int)
+    # Per *node*, not just per tier and country. Whether a node's silence is its
+    # own or something we imposed is a question about that node: a FAST host
+    # sits on the exit itself, so "the fast-1 tier still has visible hosts"
+    # (in Romania) says nothing about node 26 having none left.
+    node: dict[int, int] = defaultdict(int)
+    exit_node: dict[int, int] = defaultdict(int)
     total = 0
     for t in targets:
         if t.is_disabled:
             continue
         entry[t.entry_key] += 1
         slot[t.slot] += 1
+        if t.node_id is not None:
+            node[int(t.node_id)] += 1
+        if t.exit_node_id is not None:
+            exit_node[int(t.exit_node_id)] += 1
         total += 1
-    return {"entry": dict(entry), "slot": dict(slot), "total": total}
+    return {"entry": dict(entry), "slot": dict(slot), "node": dict(node),
+            "exit_node": dict(exit_node), "total": total}
 
 
 def weigh(targets, state, args, confirmed=None, node_wide=True,

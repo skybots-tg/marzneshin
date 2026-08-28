@@ -220,25 +220,28 @@ def test_silence_we_imposed_ourselves_does_not_block_the_restore():
     probes from the RU vantages, and unable to come back because the automation
     had taken every visible host off them, so no byte could reach them to prove
     they worked.
+
+    The tally has to be per node. Judged per tier, a FAST host on node 26 looked
+    like it belonged to a tier with visible hosts -- in Romania, on a different
+    machine -- and stayed stuck.
     """
     failing = [FakeTarget(1, "fail")]
     _, state, _ = run(failing)
     _, state, _ = run(failing, state)
 
     recovered = [FakeTarget(1, "pass", is_disabled=True)]
-    # exit node 14 is healthy and carrying nothing, and its slot has no visible
-    # host left -- the silence is ours, not the node's
+    # exit node 14 is healthy and carrying nothing, and not one visible host
+    # points at it any more -- the silence is ours, not the node's
     muted = {"traffic": {25: BUSY, 14: 0},
              "statuses": {25: "healthy", 14: "healthy"},
-             "visible_counts": {"entry": {"universal-2": 4},
-                                "slot": {"FR": 0}, "total": 4}}
+             "visible_counts": {"node": {25: 4}, "exit_node": {}, "total": 4}}
     _, state, _ = run(recovered, state, **muted)
     _, state, decisions = run(recovered, state, **muted)
     assert decisions["enable"] == [1]
 
 
-def test_a_slot_that_is_still_visible_must_still_earn_its_restore():
-    """The exception is only for slots nobody can reach any more."""
+def test_an_exit_still_in_use_must_still_earn_its_restore():
+    """The exception is only for nodes nobody can reach any more."""
     failing = [FakeTarget(1, "fail")]
     _, state, _ = run(failing)
     _, state, _ = run(failing, state)
@@ -246,8 +249,8 @@ def test_a_slot_that_is_still_visible_must_still_earn_its_restore():
     recovered = [FakeTarget(1, "pass", is_disabled=True)]
     quiet = {"traffic": {25: BUSY, 14: 0},
              "statuses": {25: "healthy", 14: "healthy"},
-             "visible_counts": {"entry": {"universal-2": 4},
-                                "slot": {"FR": 3}, "total": 7}}
+             "visible_counts": {"node": {25: 4}, "exit_node": {14: 3},
+                                "total": 7}}
     _, state, _ = run(recovered, state, **quiet)
     _, state, decisions = run(recovered, state, **quiet)
     assert decisions["enable"] == []

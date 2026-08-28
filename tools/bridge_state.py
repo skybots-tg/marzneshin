@@ -579,12 +579,19 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             # evidence -- and hiding still costs one failure, so a wrong restore
             # is undone by the next run.
             counts = visible_counts or {}
-            # With no visibility snapshot there is no way to tell imposed
-            # silence from earned silence, so keep the stricter old behaviour.
+            # With no per-node visibility snapshot there is no way to tell
+            # imposed silence from earned silence, so keep the stricter old
+            # behaviour. The question is about one node, not about a tier or a
+            # country: a FAST host lives on the exit itself, so "the fast-1 tier
+            # still has visible hosts" -- in Romania -- says nothing about
+            # node 26 having none left.
+            by_node = counts.get("node") or {}
+            by_exit = counts.get("exit_node") or {}
             entry_muted = exit_muted = False
-            if counts:
-                entry_muted = not (counts.get("entry", {}).get(link.entry_key) or 0)
-                exit_muted = not (counts.get("slot", {}).get(link.slot) or 0)
+            if by_node:
+                entry_muted = not (by_node.get(link.entry_node_id) or 0)
+                exit_muted = (link.exit_node_id is not None
+                              and not (by_exit.get(link.exit_node_id) or 0))
             quiet = ((entry_silent and not entry_muted)
                      or (exit_silent and not exit_muted))
             ready = pass_streak >= PASS_STREAK_TO_RESTORE and not quiet
