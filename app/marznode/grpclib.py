@@ -83,6 +83,19 @@ def _is_spurious_appdata_error(exc: BaseException) -> bool:
     )
 
 
+# A node that just blipped deserves a prompt retry; one that has been gone for
+# days does not. Nodes 13, 24 and 33 were dead for weeks and wrote 34,503 log
+# lines between them in 48 hours -- one connect attempt, one status write and one
+# warning every fifteen seconds each. That is not a diagnosis, it is a place for
+# real errors to hide. The streak resets the moment a node answers, so a healthy
+# fleet keeps the old cadence.
+RECONNECT_BASE_SEC = 10
+RECONNECT_MAX_SEC = 300
+# Past the first few attempts, one line in this many stays at warning level so a
+# permanent outage remains visible in the log without flooding it.
+RECONNECT_QUIET_EVERY = 20
+
+
 class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
     def __init__(
         self,
@@ -107,6 +120,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
 
         self._channel = Channel(self._address, self._port, ssl=ctx)
         self._stub = MarzServiceStub(self._channel)
+        self._connect_fail_streak = 0
         self._monitor_task = asyncio.create_task(self._monitor_channel())
         self._streaming_task = None
 
@@ -178,6 +192,23 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                 "Node %i: error while force-closing channel", self.id
             )
 
+    def _note_connect_failure(self, error_msg: str) -> None:
+        """Count a failed reconnect and decide whether it earns a log line."""
+        self._connect_fail_streak += 1
+        n = self._connect_fail_streak
+        line = "Node %i: %s (attempt %d)"
+        if n <= 3 or n % RECONNECT_QUIET_EVERY == 0:
+            logger.warning(line, self.id, error_msg, n)
+        else:
+            logger.debug(line, self.id, error_msg, n)
+
+    def _reconnect_delay(self) -> float:
+        """How long to wait before trying this node again."""
+        n = self._connect_fail_streak
+        if n <= 0:
+            return RECONNECT_BASE_SEC
+        return min(RECONNECT_BASE_SEC * 2 ** min(n - 1, 8), RECONNECT_MAX_SEC)
+
     async def _monitor_channel(self):
         while state := self._channel._state:
             logger.debug("node %i channel state: %s", self.id, state.value)
@@ -185,7 +216,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                 await asyncio.wait_for(self._channel.__connect__(), timeout=5)
             except asyncio.TimeoutError:
                 error_msg = f"connection timeout (5s) to {self._address}:{self._port}"
-                logger.warning("Node %i: %s", self.id, error_msg)
+                self._note_connect_failure(error_msg)
                 self._record_error("connect", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
@@ -193,7 +224,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     self._streaming_task.cancel()
             except ssl.SSLError as e:
                 error_msg = f"SSL error: {e}"
-                logger.warning("Node %i: %s", self.id, error_msg)
+                self._note_connect_failure(error_msg)
                 self._record_error("ssl", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
@@ -201,7 +232,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     self._streaming_task.cancel()
             except ConnectionRefusedError:
                 error_msg = f"connection refused by {self._address}:{self._port}"
-                logger.warning("Node %i: %s", self.id, error_msg)
+                self._note_connect_failure(error_msg)
                 self._record_error("connect", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
@@ -209,7 +240,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     self._streaming_task.cancel()
             except OSError as e:
                 error_msg = f"network error: {e}"
-                logger.warning("Node %i: %s", self.id, error_msg)
+                self._note_connect_failure(error_msg)
                 self._record_error("network", error_msg)
                 await self._set_unhealthy(error_msg)
                 self.synced = False
@@ -246,7 +277,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                             error_msg = (
                                 f"sync failed: {type(e).__name__}: {e}"
                             )
-                        logger.warning("Node %i: %s", self.id, error_msg)
+                        self._note_connect_failure(error_msg)
                         self._record_error("sync", error_msg)
                         await self._set_unhealthy(error_msg)
                         # Drop the protocol so the next iteration starts
@@ -261,8 +292,14 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                             self._stream_user_updates()
                         )
                         await asyncio.to_thread(self.set_status, NodeStatus.healthy)
+                        if self._connect_fail_streak:
+                            logger.info(
+                                "Node %i: back after %d failed attempt(s)",
+                                self.id, self._connect_fail_streak,
+                            )
+                        self._connect_fail_streak = 0
                         logger.info("Connected to node %i", self.id)
-            await asyncio.sleep(10)
+            await asyncio.sleep(self._reconnect_delay())
 
     async def _stream_user_updates(self):
         try:
