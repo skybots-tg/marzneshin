@@ -213,6 +213,47 @@ def test_restore_waits_for_the_node_to_carry_traffic_again():
     assert decisions["links"][LINK]["contested"] is False
 
 
+def test_silence_we_imposed_ourselves_does_not_block_the_restore():
+    """Hidden -> no traffic -> "silent" -> stays hidden is a loop, not a check.
+
+    TR and NL-2 sat in it for ten and six days: both servers alive, answering
+    probes from the RU vantages, and unable to come back because the automation
+    had taken every visible host off them, so no byte could reach them to prove
+    they worked.
+    """
+    failing = [FakeTarget(1, "fail")]
+    _, state, _ = run(failing)
+    _, state, _ = run(failing, state)
+
+    recovered = [FakeTarget(1, "pass", is_disabled=True)]
+    # exit node 14 is healthy and carrying nothing, and its slot has no visible
+    # host left -- the silence is ours, not the node's
+    muted = {"traffic": {25: BUSY, 14: 0},
+             "statuses": {25: "healthy", 14: "healthy"},
+             "visible_counts": {"entry": {"universal-2": 4},
+                                "slot": {"FR": 0}, "total": 4}}
+    _, state, _ = run(recovered, state, **muted)
+    _, state, decisions = run(recovered, state, **muted)
+    assert decisions["enable"] == [1]
+
+
+def test_a_slot_that_is_still_visible_must_still_earn_its_restore():
+    """The exception is only for slots nobody can reach any more."""
+    failing = [FakeTarget(1, "fail")]
+    _, state, _ = run(failing)
+    _, state, _ = run(failing, state)
+
+    recovered = [FakeTarget(1, "pass", is_disabled=True)]
+    quiet = {"traffic": {25: BUSY, 14: 0},
+             "statuses": {25: "healthy", 14: "healthy"},
+             "visible_counts": {"entry": {"universal-2": 4},
+                                "slot": {"FR": 3}, "total": 7}}
+    _, state, _ = run(recovered, state, **quiet)
+    _, state, decisions = run(recovered, state, **quiet)
+    assert decisions["enable"] == []
+    assert decisions["links"][LINK]["reason"] == "held_no_traffic"
+
+
 def test_a_visible_twin_blocks_the_restore():
     """Two identical names in one subscription is worse than one hidden host."""
     failing = [FakeTarget(1, "fail", remark="FR")]

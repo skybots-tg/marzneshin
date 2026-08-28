@@ -568,7 +568,25 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             # node the panel can otherwise see, a passing probe is the only
             # witness and that is not enough. A node the panel cannot see at
             # all reports silence it has not earned, so that does not count.
-            quiet = entry_silent or exit_silent
+            #
+            # Neither does silence we imposed ourselves. Once the automation has
+            # hidden every visible host of a slot or an entry, no byte can reach
+            # it by definition, so demanding traffic before restoring closes a
+            # loop that never opens: hidden -> no traffic -> "silent" -> stays
+            # hidden. TR and NL-2 sat in exactly that state for ten and six days
+            # with both servers alive and answering probes. Where nothing is
+            # visible, two clean runs from the subscribers' own vantages are the
+            # evidence -- and hiding still costs one failure, so a wrong restore
+            # is undone by the next run.
+            counts = visible_counts or {}
+            # With no visibility snapshot there is no way to tell imposed
+            # silence from earned silence, so keep the stricter old behaviour.
+            entry_muted = exit_muted = False
+            if counts:
+                entry_muted = not (counts.get("entry", {}).get(link.entry_key) or 0)
+                exit_muted = not (counts.get("slot", {}).get(link.slot) or 0)
+            quiet = ((entry_silent and not entry_muted)
+                     or (exit_silent and not exit_muted))
             ready = pass_streak >= PASS_STREAK_TO_RESTORE and not quiet
             restored = []
             if ready:
