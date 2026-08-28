@@ -122,7 +122,9 @@ DEFAULT_LIMITS = {
 # An audit that has said nothing for this long cannot be trusted to undo its
 # own work, so its recent hides are handed back (``hides_to_release``). Older
 # ones stand: they were re-confirmed on every run for as long as the audit was
-# healthy, and most of them are servers that really are gone.
+# healthy, and most of them are servers that really are gone. "Recent" is
+# measured against the last verdict the audit produced, so the set of doubtful
+# hides does not shrink to nothing as the outage drags on.
 STALE_STATE_SEC = 2 * 3600
 HIDE_LEASE_SEC = 12 * 3600
 
@@ -277,10 +279,19 @@ def hides_to_release(state: dict, now: float | None = None,
     now = now or time.time()
     if scan_age(state, now) < stale_after:
         return {}
+    # The lease runs from the audit's last verdict, not from now. What earns a
+    # hide its trust is having been re-confirmed by a working audit, so the
+    # question is how long it stood *while the probe was still answering* --
+    # not how long the outage has run since. Measured from now, the window
+    # closed as the outage grew: past twelve hours nothing was ever handed back
+    # again, and the fleet stayed pinned at its most hidden for as long as the
+    # audit stayed down. That is the opposite of what this function is for, and
+    # it is the state it was found in after a three-day wedge.
+    reference = float(state.get("scanned_at") or now)
     links = state.get("links") or {}
     out = {}
     for host_id, record in state.get("auto_disabled", {}).items():
-        if now - int(record.get("at") or 0) > lease:
+        if reference - int(record.get("at") or 0) > lease:
             continue
         if record.get("reason") in CORROBORATED_REASONS:
             continue

@@ -16,6 +16,7 @@ REQUEST="$DATA/bridge_audit.request"
 LOG="$DATA/bridge_audit.log"
 REPORT="$DATA/bridge_audit.json"
 QUICK_STAMP="$DATA/bridge_audit.quick"
+FULL_STAMP="$DATA/bridge_audit.full"
 LOCK="$DATA/bridge_audit.lock"
 STATUS="$DATA/bridge_audit.status"
 HISTORY="$DATA/bridge_audit.history"
@@ -51,6 +52,17 @@ tail -n 2000 "$REVIVE_LOG" > "$REVIVE_LOG.tmp" 2>/dev/null &&
 exec 9>"$LOCK"
 flock -n 9 || exit 0   # a scan is already running
 
+note_start() {
+    # Record the attempt before running it. note_status only fires after the
+    # scan returns, so a run killed by the service timeout left no trace at all:
+    # the history read "179 runs, 0 failed" while the audit had been wedged for
+    # three days. A start line with no matching finish line is now the evidence.
+    printf '{"kind": "%s", "started_at": %s, "finished_at": null, "rc": null}\n' \
+        "$1" "$2" >> "$HISTORY"
+    tail -n "$HISTORY_LINES" "$HISTORY" > "$HISTORY.tmp" 2>/dev/null &&
+        mv "$HISTORY.tmp" "$HISTORY"
+}
+
 note_status() {
     printf '{"kind": "%s", "started_at": %s, "finished_at": %s, "rc": %s}\n' \
         "$1" "$2" "$(date +%s)" "$3" > "$STATUS"
@@ -65,6 +77,7 @@ run_scan() {
     [ "$AUTO_APPLY" = "1" ] && apply="--apply"
     cd "$TOOLS" || exit 1
     started=$(date +%s)
+    note_start "$reason" "$started"
     {
         echo "=== bridge audit ($reason) started $(date -Is) ==="
         # shellcheck disable=SC2086
@@ -92,7 +105,14 @@ if [ -f "$REQUEST" ]; then
     exit 0
 fi
 
-if [ "$(age_of "$REPORT")" -ge "$FULL_INTERVAL" ]; then
+if [ "$(age_of "$FULL_STAMP")" -ge "$FULL_INTERVAL" ]; then
+    # Stamp the attempt before making it. The report is written only when a
+    # sweep finishes, so scheduling off its age meant a sweep that never
+    # finishes rescheduled itself on every tick: one full sweep every 30
+    # minutes for three days, and not a single quick check in between, because
+    # the quick branch sits below this one. The attempt stamp bounds the retry
+    # to once per FULL_INTERVAL whether the sweep completes or gets killed.
+    touch "$FULL_STAMP"
     run_scan "$REPORT" "" "scheduled full sweep"
     touch "$QUICK_STAMP"
     exit 0

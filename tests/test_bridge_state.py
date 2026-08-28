@@ -537,6 +537,28 @@ def test_a_silent_audit_hands_back_its_recent_hides():
     assert sorted(bs.hides_to_release(state, now=now)) == [1]
 
 
+def test_a_long_outage_still_hands_back_what_never_got_reconfirmed():
+    """The lease runs from the last verdict, not from now.
+
+    Measured from now, the doubtful set shrank as the outage grew: a hide made
+    an hour before the audit wedged counted as "long-standing" twelve hours
+    later, and past that point this mechanism handed back nothing at all. The
+    audit was once down for three days and every one of its 71 hides aged out
+    of reach of the very function meant to question them.
+    """
+    now = time.time()
+    wedged = int(now) - 80 * 3600           # last verdict, three days ago
+    state = {
+        "links": {},
+        "scanned_at": wedged,
+        "auto_disabled": {
+            "1": {"at": wedged - 3600},         # hidden an hour before it died
+            "2": {"at": wedged - 40 * 3600},    # stood for days, stands now
+        },
+    }
+    assert sorted(bs.hides_to_release(state, now=now)) == [1]
+
+
 def test_a_silent_audit_keeps_the_hides_it_proved_many_times_over():
     """Silence casts doubt on a thin verdict, not on a long-proven one.
 

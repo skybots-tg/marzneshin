@@ -341,15 +341,85 @@ def plan_phase3(plan, apply_now, skip=(), keep=()):
     return ok
 
 
+def sync_db_sni(ip, cfg, apply_now):
+    """Свести копии фронта в панели с тем, что узел теперь принимает.
+
+    Один и тот же факт лежит в трёх местах, а решает только одно: серверные
+    имена в realitySettings на узле. ``inbounds.config.sni`` — то, что унаследует
+    хост с пустым sni; ``hosts.sni`` — то, что мы велим посылать клиенту. Ни
+    того, ни другого раскатка не касалась, и на фазе 3 двадцать хостов остались
+    с именем, которое только что выбросили из списка. Порт при этом отвечает,
+    поэтому пробы звали узлы здоровыми, пока весь тир FAST лежал пять суток.
+
+    Хостам имя не подставляется, а стирается: пустой ``hosts.sni`` наследует
+    ``inbounds.config.sni``, и следующая ротация будет править одно место, а не
+    догонять литералы по каталогу.
+    """
+    names = {}
+    for ib in reality_inbounds(cfg):
+        got = (ib.get("streamSettings", {}).get("realitySettings", {})
+               .get("serverNames"))
+        if ib.get("tag") and got:
+            names[ib["tag"]] = list(got)
+    if not names:
+        return True
+
+    tags = ",".join(mc.sqlstr(t) for t in names)
+    rows = mc.db_query(
+        "SELECT i.id, i.tag, i.config FROM inbounds i JOIN nodes n "
+        f"ON n.id = i.node_id WHERE n.address = {mc.sqlstr(ip)} "
+        f"AND i.tag IN ({tags});")
+
+    stmts, notes = [], []
+    for iid, tag, cfg_json in rows:
+        try:
+            icfg = json.loads(cfg_json)
+        except ValueError:
+            print(f"  ВНИМАНИЕ: inbounds.config инбаунда {iid} не читается — пропуск")
+            continue
+        want = names[tag]
+        if list(icfg.get("sni") or []) != want:
+            icfg["sni"] = want
+            stmts.append("UPDATE inbounds SET config = "
+                         f"{mc.sqlstr(json.dumps(icfg, ensure_ascii=False))} "
+                         f"WHERE id = {iid};")
+            notes.append(f"  инбаунд {iid} {tag}: sni -> {','.join(want)}")
+
+        for hid, hsni in mc.db_query(
+                f"SELECT id, sni FROM hosts WHERE inbound_id = {iid} "
+                "AND sni IS NOT NULL AND sni <> '';"):
+            sent = [x.strip() for x in hsni.split(",") if x.strip()]
+            if any(x in want for x in sent):
+                continue
+            stmts.append(f"UPDATE hosts SET sni = NULL WHERE id = {hid};")
+            notes.append(f"  хост {hid}: sni {hsni} больше не принимается — стираю")
+
+    if not stmts:
+        return True
+    for n in notes:
+        print(n)
+    if not apply_now:
+        print("  (сухой прогон — панель не тронута)")
+        return True
+    r = mc.db("\n".join(stmts) + "\n")
+    if r.returncode != 0:
+        print("  ОШИБКА панели:", r.stderr[:300])
+        return False
+    print(f"  панель: {len(stmts)} правк(и) применены")
+    return True
+
+
 def finish(ip, cfg, apply_now):
     if not apply_now:
         print(f"  (сухой прогон — {ip} не тронут; добавьте --apply)")
-        return True
+        return sync_db_sni(ip, cfg, apply_now)
     ok, out = mc.deploy(ip, cfg)
     print(f"  раскатка {ip}: {'OK' if ok else 'ОШИБКА'}")
     if not ok:
         print("   ", out[-500:])
-    return ok
+        return ok
+    # Узел принял конфиг — теперь панель обязана говорить то же самое.
+    return sync_db_sni(ip, cfg, apply_now)
 
 
 def main():

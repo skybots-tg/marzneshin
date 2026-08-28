@@ -14,8 +14,11 @@ After=docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/marz-bridge-audit
-# A full 4-vantage sweep of ~120 hosts takes a few minutes; leave headroom.
-TimeoutStartSec=1800
+# A full 4-vantage sweep measured 1695s over 229 hosts, and it grows with the
+# number of broken legs: a failing probe pays for every geo endpoint in turn.
+# The old 1800s ceiling was close enough that the sweep started being killed
+# mid-run, which wedged the scheduler for three days. Leave real headroom.
+TimeoutStartSec=3600
 EOF
 
 cat >/etc/systemd/system/marz-bridge-audit.timer <<'EOF'
