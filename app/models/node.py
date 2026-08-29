@@ -87,6 +87,23 @@ class NodeModify(Node):
     )
 
 
+class NodeRuProbe(BaseModel):
+    """What the bridge audit's Russian vantages see of this node.
+
+    ``nodes.status`` is the panel's own view from Norway and says nothing about
+    whether a subscriber in Russia can reach the node; these counts are the only
+    place that question is answered. Absent when no audit has run.
+    """
+
+    entry_ok: int = 0
+    entry_total: int = 0
+    exit_ok: int = 0
+    exit_total: int = 0
+    age_sec: int = 0
+    unreachable: bool = False
+    reason: str | None = None
+
+
 class NodeResponse(Node):
     xray_version: str | None = None
     status: NodeStatus
@@ -96,6 +113,7 @@ class NodeResponse(Node):
     backends: list[Backend]
     adblock_enabled: bool = False
     address_in_hosts: bool = True
+    ru_probe: NodeRuProbe | None = None
 
 
 class NodeUsageResponse(BaseModel):

@@ -49,12 +49,27 @@ export type NodeBackendType = {
     running: boolean;
 };
 
+/**
+ * What the bridge audit's Russian vantages see of a node. The panel's own
+ * `status` is its view from Norway and cannot answer this question.
+ */
+export type NodeRuProbe = {
+    entry_ok: number;
+    entry_total: number;
+    exit_ok: number;
+    exit_total: number;
+    age_sec: number;
+    unreachable: boolean;
+    reason: "entry" | "exit" | "both" | null;
+};
+
 export type NodeType = z.infer<typeof NodeSchema> & {
     id: number;
     backends: NodeBackendType[];
     message?: string | null;
     adblock_enabled?: boolean;
     address_in_hosts?: boolean;
+    ru_probe?: NodeRuProbe | null;
 };
 
 export const DnsProviders = {

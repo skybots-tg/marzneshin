@@ -1,4 +1,5 @@
 export * from "./columns"
 export * from "./detail-table"
 export * from "./nodes-status-badge"
+export * from "./ru-unreachable-badge"
 export * from "./table"

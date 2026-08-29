@@ -54,6 +54,116 @@ WATCHDOG_SILENT_SEC = 2 * 3600
 FULL_SWEEP_SILENT_SEC = 36 * 3600
 
 
+# A route is only counted against a node when at least this many entries reach
+# for the same exit. One failing leg says nothing about the far end -- the pair
+# is what broke, and the same rule (``EXIT_WIDE_MIN_LINKS``) governs the
+# scanner's own decisions.
+EXIT_MIN_LINKS = 2
+
+_ru_probe_cache: tuple[tuple, dict[int, dict]] | None = None
+
+
+def _stamp(path: str):
+    """Identity of a file's current contents, cheap enough to check per request."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def node_ru_probe() -> dict[int, dict]:
+    """Per node, how many RU routes through it currently work.
+
+    "Works" here means what it means to a subscriber in Russia, which is not
+    what ``nodes.status`` means: the panel sits in Norway, so a node it talks to
+    every second can be unreachable from every Russian network at once — that is
+    the blind spot that let a whole tier point at a blocked address for days.
+    Only the audit knows, because only the audit probes from RU vantage nodes.
+
+    Two sides, counted separately and never mixed. A bridge that fails is one
+    entry and one exit failing *together*, so charging the failure to both ends
+    would condemn every healthy RU entry that happens to serve a broken exit —
+    node 25 carries gigabytes a day and would read 2/21. A node is only called
+    dead when *everything* through that side of it fails, which is a claim the
+    probe can actually support.
+
+    Verdicts come from the streak memory rather than the daily report: the quick
+    watchdog refreshes every link every few minutes, so this is minutes old
+    where the report is hours. The report supplies only the topology — which
+    link enters and leaves which node, and whether its tier is aimed at RU
+    subscribers at all (FAST is not; it is judged from abroad, and its rows
+    carry no RU verdict to read).
+    """
+    global _ru_probe_cache
+
+    key = (_stamp(REPORT_PATH), _stamp(STATE_PATH))
+    if _ru_probe_cache and _ru_probe_cache[0] == key:
+        return _ru_probe_cache[1]
+
+    result: dict[int, dict] = {}
+    try:
+        with open(REPORT_PATH, encoding="utf-8") as f:
+            report = json.load(f)
+        with open(STATE_PATH, encoding="utf-8") as f:
+            state = json.load(f)
+    except (FileNotFoundError, ValueError, OSError):
+        _ru_probe_cache = (key, result)
+        return result
+
+    # link key -> (entry node, exit node), for links whose audience is RU.
+    routes: dict[str, tuple[Optional[int], Optional[int]]] = {}
+    for host in report.get("hosts") or []:
+        if host.get("audience") != "RU":
+            continue
+        link = host.get("link")
+        if link:
+            routes.setdefault(link, (host.get("node_id"), host.get("exit_node_id")))
+
+    links = state.get("links") or {}
+    age = max(0, int(time.time()) - int(state.get("updated_at") or 0))
+
+    def bucket(node_id) -> dict:
+        return result.setdefault(int(node_id), {
+            "entry_ok": 0, "entry_total": 0,
+            "exit_ok": 0, "exit_total": 0, "age_sec": age,
+        })
+
+    for link, (entry_id, exit_id) in routes.items():
+        streaks = links.get(link)
+        if not streaks:
+            continue
+        # decide() zeroes one streak whenever it sets the other, so a link that
+        # has ever been judged has exactly one of them above zero. Reading them
+        # instead of ``verdict`` survives a round that skipped this link.
+        ok = 1 if streaks.get("pass_streak") else 0
+        if not ok and not streaks.get("fail_streak"):
+            continue
+        if entry_id is not None:
+            side = bucket(entry_id)
+            side["entry_ok"] += ok
+            side["entry_total"] += 1
+        if exit_id is not None:
+            side = bucket(exit_id)
+            side["exit_ok"] += ok
+            side["exit_total"] += 1
+
+    for side in result.values():
+        # Every entry on this node refused from RU, or every leg into it did.
+        # Partial failure is deliberately not a verdict: one working route
+        # proves this end is fine and blames the other one.
+        dead_entry = side["entry_total"] > 0 and side["entry_ok"] == 0
+        dead_exit = (side["exit_total"] >= EXIT_MIN_LINKS
+                     and side["exit_ok"] == 0)
+        side["unreachable"] = dead_entry or dead_exit
+        side["reason"] = ("both" if dead_entry and dead_exit else
+                          "entry" if dead_entry else
+                          "exit" if dead_exit else None)
+
+    _ru_probe_cache = (key, result)
+    return result
+
+
 def _live_disabled(db: Session, host_ids: list[int]) -> dict[int, bool]:
     if not host_ids:
         return {}

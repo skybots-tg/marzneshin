@@ -470,6 +470,14 @@
         "label": "Not in hosts",
         "desc": "This node's address does not appear in any of its hosts. Clients won't connect to this node — add a host pointing to this address."
       },
+      "ru_unreachable": {
+        "label": "Dead from Russia",
+        "entry": "None of the {{total}} routes through this node answer from the audit's Russian vantages.",
+        "exit": "None of the {{total}} legs into this node get through from the audit's Russian vantages.",
+        "both": "Neither the {{entries}} routes through this node nor the {{exits}} legs into it work from the audit's Russian vantages.",
+        "age_min": "Checked {{total}} min ago.",
+        "age_hour": "Checked {{total}}h ago."
+      },
       "id_hint": "Node ID: {{id}}",
       "system": {
         "title": "Resources",

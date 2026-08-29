@@ -1,5 +1,5 @@
 import { ColumnDef } from "@tanstack/react-table"
-import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation, useNodesUpdateMutation, SystemStatsCell } from "@marzneshin/modules/nodes"
+import { NodesStatusBadge, NodeType, NodesStatus, useNodesResyncMutation, useNodesUpdateMutation, SystemStatsCell, RuUnreachableBadge } from "@marzneshin/modules/nodes"
 import {
     DataTableActionsCell,
     DataTableColumnHeader
@@ -143,8 +143,9 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
                 <NodesStatusBadge status={NodesStatus[status]} />
             );
             return (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                     {statusBadge}
+                    <RuUnreachableBadge node={row.original} />
                     {adblock_enabled && (
                         <Badge variant="positive" className="h-6 gap-1">
                             <Shield className="size-3" />

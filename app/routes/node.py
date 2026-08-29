@@ -41,6 +41,7 @@ from app.models.node import (
 )
 from app.models.system import TrafficUsageSeries
 from app.marznode import system_stats_cache
+from app.services import bridge_health_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nodes", tags=["Node"])
@@ -66,8 +67,10 @@ def get_nodes(
         flags = crud.get_nodes_address_in_hosts(
             db, [n.id for n in page.items], SERVER_IP
         )
+        probes = bridge_health_service.node_ru_probe()
         for item in page.items:
             item.address_in_hosts = flags.get(item.id, True)
+            item.ru_probe = probes.get(item.id)
     return page
 
 
@@ -110,6 +113,7 @@ def get_node(node_id: int, db: DBDep, admin: SudoAdminDep):
 
     flags = crud.get_nodes_address_in_hosts(db, [db_node.id], SERVER_IP)
     db_node.address_in_hosts = flags.get(db_node.id, True)
+    db_node.ru_probe = bridge_health_service.node_ru_probe().get(db_node.id)
     return db_node
 
 
