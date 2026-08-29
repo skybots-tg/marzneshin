@@ -7,10 +7,9 @@ a configurable threshold, fires a Telegram alert (with per-node cooldown).
 
 import logging
 import time
-from datetime import datetime
 
+from app.marznode.database import node_name as registered_node_name
 from app.marznode.registry import node_registry
-from app.notification.node_alerts import notify_node_unhealthy
 
 logger = logging.getLogger(__name__)
 
@@ -53,17 +52,19 @@ async def check_node_traffic_silence() -> None:
 
         node = node_registry.get(node_id)
         address = getattr(node, "_address", "unknown") if node else "unknown"
+        name = registered_node_name(node_id)
 
         silence_min = int(silence_seconds / 60)
         logger.warning(
-            "Node %d (%s): no traffic for %d minutes",
-            node_id, address, silence_min,
+            "Node %d (%s %s): no traffic for %d minutes",
+            node_id, name or "?", address, silence_min,
         )
 
         await notify_node_traffic_silence(
             node_id=node_id,
             address=address,
             silence_minutes=silence_min,
+            node_name=name,
         )
 
     stale = set(_last_traffic_ts.keys()) - set(registered_ids)
@@ -76,9 +77,11 @@ async def notify_node_traffic_silence(
     node_id: int,
     address: str,
     silence_minutes: int,
+    node_name: str | None = None,
 ) -> None:
     """Send Telegram alert about traffic silence on a node."""
     from app.config.env import TELEGRAM_ADMIN_ID
+    from app.notification.node_alerts import build_node_lines
     from app.notification.telegram import send_message
 
     admin_tags = ""
@@ -92,8 +95,7 @@ async def notify_node_traffic_silence(
     text = (
         f"⚠️ <b>#TrafficSilence — нет трафика</b>\n"
         f"➖➖➖➖➖➖➖➖➖\n"
-        f"<b>Node ID:</b> <code>{node_id}</code>\n"
-        f"<b>Address:</b> <code>{address}</code>\n"
+        f"{build_node_lines(node_id, address, node_name)}\n"
         f"<b>Молчит:</b> {silence_minutes} мин\n"
         f"➖➖➖➖➖➖➖➖➖\n"
         f"Возможные причины:\n"

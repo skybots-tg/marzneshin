@@ -8,6 +8,16 @@ from app.models.node import NodeStatus
 logger = logging.getLogger(__name__)
 
 _address_cache: dict[int, str] = {}
+# Node names, kept beside the addresses for the same reason: an alert fires
+# from paths that hold no session, and "🇳🇱 AdminVPS NL-2" says more to whoever
+# reads it at 3am than an IP does. Filled by ``node_service.add_node``.
+_name_cache: dict[int, str] = {}
+
+
+def node_name(node_id: int) -> str:
+    """Display name of a registered node, or ``""`` before it is registered."""
+    return _name_cache.get(node_id, "")
+
 
 _MAX_NODE_DB_OPS = 10
 _node_db_sem = threading.BoundedSemaphore(_MAX_NODE_DB_OPS)
@@ -113,4 +123,6 @@ class MarzNodeDB:
         from app.notification.node_alerts import notify_node_unhealthy
 
         address = _address_cache.get(self.id, "unknown")
-        await notify_node_unhealthy(self.id, address, message)
+        await notify_node_unhealthy(
+            self.id, address, message, node_name=node_name(self.id)
+        )

@@ -9,10 +9,11 @@ logger = logging.getLogger(__name__)
 
 
 async def add_node(db_node, certificate) -> None:
-    from app.marznode.database import _address_cache
+    from app.marznode.database import _address_cache, _name_cache
 
     await remove_node(db_node.id)
     _address_cache[db_node.id] = db_node.address
+    _name_cache[db_node.id] = db_node.name or ""
 
     if db_node.connection_backend == NodeConnectionBackend.grpcio:
         node = MarzNodeGRPCIO(

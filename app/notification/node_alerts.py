@@ -3,10 +3,27 @@ import time
 
 from app.config.env import NODE_UNHEALTHY_ALERT_COOLDOWN, TELEGRAM_ADMIN_ID
 from app.notification.telegram import send_message
+from app.utils.node_country import country_label
 
 logger = logging.getLogger(__name__)
 
 _unhealthy_cooldowns: dict[int, float] = {}
+
+
+def build_node_lines(node_id: int, address: str, node_name: str | None) -> str:
+    """The "which node is this" block every node alert opens with.
+
+    An id and an IP name the node without saying anything about it. The country
+    is what decides whether an alert is worth getting out of bed for, and it is
+    already written in the node's own name — see ``app.utils.node_country``.
+    """
+    lines = [
+        f"<b>Node ID:</b> <code>{node_id}</code>",
+        f"<b>Нода:</b> {node_name}" if node_name else None,
+        f"<b>Страна:</b> {country_label(node_name)}",
+        f"<b>Address:</b> <code>{address}</code>",
+    ]
+    return "\n".join(line for line in lines if line)
 
 
 def _build_admin_tags() -> str:
@@ -23,6 +40,7 @@ async def notify_node_unhealthy(
     node_id: int,
     address: str,
     error_message: str | None = None,
+    node_name: str | None = None,
 ) -> None:
     """Send an urgent Telegram alert when a node becomes unhealthy.
 
@@ -48,8 +66,7 @@ async def notify_node_unhealthy(
     text = (
         f"🚨 <b>СРОЧНО — #NodeUnhealthy</b>\n"
         f"➖➖➖➖➖➖➖➖➖\n"
-        f"<b>Node ID:</b> <code>{node_id}</code>\n"
-        f"<b>Address:</b> <code>{address}</code>"
+        f"{build_node_lines(node_id, address, node_name)}"
         f"{error_detail}\n"
         f"➖➖➖➖➖➖➖➖➖"
         f"{_build_admin_tags()}"
