@@ -65,6 +65,12 @@ LAYOUT = {
 }
 HOME_SLOT = "RU"
 TRAFFIC_FLOOR_GB = 1.0   # below this a 24h figure is noise, not use
+# A slot is "working" below 100% on purpose. A sweep makes sixteen probes at a
+# slot across four vantages, and one of them timing out is weather, not a
+# verdict: US-3 measured 94% on the sweep and 100% on a re-probe eight minutes
+# later. Demanding a clean sheet moved it four places down the list for one
+# lost packet.
+PASS_STRONG = 0.9
 
 
 def node_traffic_gb(hours: int) -> dict[int, float]:
@@ -124,7 +130,7 @@ def score_slot(hosts: list[dict], gb24: dict, gb7d: dict) -> tuple:
     carried = max((gb24.get(n, 0.0) for n in known), default=None)
     week = max((gb7d.get(n, 0.0) for n in known), default=None)
 
-    if ratio >= 0.999:
+    if ratio >= PASS_STRONG:
         # No figure is not the same as a figure of zero. Some exits are not
         # registered as nodes (FL, RO-1), so the panel never counts their
         # bytes; demoting them for that would rank them below slots we know
