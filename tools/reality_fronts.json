@@ -23,6 +23,7 @@
   "212.16.78.31":   {"front": "www.bol.com",        "geo": "NL Амстердам"},
   "107.189.18.78":  {"front": "www.bol.com",        "geo": "NL Заандам (ярлык FI-2)"},
   "45.61.135.86":   {"front": "www.wisc.edu",       "geo": "US Лас-Вегас"},
+  "216.132.133.3":  {"front": "www.usc.edu",        "geo": "US Лос-Анджелес"},
   "38.244.208.127": {"front": "www.aalto.fi",       "geo": "FI Хельсинки (домен за US CDN)"},
   "2.57.242.209":   {"front": "www.k-ruoka.fi",     "geo": "FI Хельсинки (домен за GB CDN)"},
   "155.103.70.90":  {"front": "www.migros.com.tr",  "geo": "TR Стамбул (домен за CA CDN)"}
