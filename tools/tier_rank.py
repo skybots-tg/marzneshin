@@ -150,9 +150,17 @@ def score_slot(hosts: list[dict], gb24: dict, gb7d: dict) -> tuple:
 
 
 def rank_slots(scores: dict[str, tuple]) -> dict[str, int]:
-    """slot -> rank (0 = best), by tier letter then probe latency."""
-    order = sorted(scores, key=lambda s: (scores[s][0], scores[s][1], s))
-    return {slot: i for i, slot in enumerate(order)}
+    """slot -> rank (0 = best): tier letter, probe latency, then week traffic.
+
+    The last key only settles ties, but it settles them the right way round:
+    FAST TR and US-3 both probe in 0.50s and both sit in B, and without it the
+    alphabet put the slot that has never carried a byte above the one that
+    just started to.
+    """
+    def key(s):
+        letter, median, _ratio, _gb, week = scores[s][:5]
+        return (letter, median, -(week or 0.0), s)
+    return {slot: i for i, slot in enumerate(sorted(scores, key=key))}
 
 
 def spread(rank: int, n: int, lo: int, hi: int) -> int:
