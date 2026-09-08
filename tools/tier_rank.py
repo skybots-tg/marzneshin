@@ -120,15 +120,16 @@ def score_slot(hosts: list[dict], gb24: dict, gb7d: dict) -> tuple:
            if h.get("verdict") == "pass" and isinstance(h.get("elapsed"), (int, float))]
     median = statistics.median(lat) if lat else 99.0
 
-    figures24 = [gb24.get(nid, 0.0) for nid in
-                 {exit_of(h) for h in hosts} if nid is not None]
-    figures7d = [gb7d.get(nid, 0.0) for nid in
-                 {exit_of(h) for h in hosts} if nid is not None]
-    carried = max(figures24, default=0.0)
-    week = max(figures7d, default=0.0)
+    known = {nid for nid in (exit_of(h) for h in hosts) if nid is not None}
+    carried = max((gb24.get(n, 0.0) for n in known), default=None)
+    week = max((gb7d.get(n, 0.0) for n in known), default=None)
 
     if ratio >= 0.999:
-        letter = "A" if carried >= TRAFFIC_FLOOR_GB else "B"
+        # No figure is not the same as a figure of zero. Some exits are not
+        # registered as nodes (FL, RO-1), so the panel never counts their
+        # bytes; demoting them for that would rank them below slots we know
+        # are dead. Absent evidence leaves the probe's verdict standing.
+        letter = "A" if carried is None or carried >= TRAFFIC_FLOOR_GB else "B"
     elif ratio > 0:
         letter = "C"
     else:
@@ -199,9 +200,10 @@ def plan_tier(report, tier, gb24, gb7d, verbose=True):
                                                      layout["lo"], layout["hi"])
             probe = "-" if median >= 99 else f"{median:.2f}s"
             mark = "*" if hidden_only else " "
-            traffic = "  n/a  " if gb is None else f"{gb:>7.1f}"
+            traffic = "    n/a" if gb is None else f"{gb:>7.1f}"
+            weekly = "    n/a" if wk is None else f"{wk:>7.1f}"
             print(f"{slot:<8}{letter:<6}{probe:<8}{ratio*100:>5.0f}%{mark}  "
-                  f"{traffic}  {wk:>7.1f}  {off:>5}")
+                  f"{traffic}  {weekly}  {off:>5}")
         if any(v[5] for v in scores.values()):
             print("  * — весь слот скрыт, судим по скрытым хостам")
 
