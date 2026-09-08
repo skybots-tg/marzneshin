@@ -1,0 +1,140 @@
+"""What a node's traffic normally looks like at this hour of this week.
+
+Alerts about traffic have to answer "is this unusual", and every fixed
+threshold answers a different question instead. A node that carries five
+gigabytes an hour by day and eighty megabytes at four in the morning is
+perfectly healthy at both ends of that range: judged by an absolute floor it
+is either always fine or alarming every night. That is where the false alarms
+came from, and an alarm that cries at 04:00 every night is one nobody reads at
+noon when it matters.
+
+So the comparison here is always a node against *itself, at the same hours of
+the day*, over the past week. Two readings come out of that:
+
+* ``expected_now`` — what this hour usually carries. A silence alarm consults
+  it before firing: silence at an hour that is normally silent is not news.
+* ``ratio`` — the last couple of hours against the same hours of previous
+  days. This is the one that catches an exit that broke rather than went
+  quiet: France kept its port open, its keys, its users and its health check
+  and simply stopped moving bytes, going from 200 GB a day to zero, and no
+  absolute threshold anywhere in the fleet noticed for three days.
+
+A node without a meaningful week behind it is left out of both, rather than
+given a made-up number: a new node, or one whose hosts are all hidden, cannot
+carry traffic by construction, and inventing a baseline for it manufactures
+exactly the alarm this module exists to prevent.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+from sqlalchemy import text
+
+from app.db import GetDB
+
+logger = logging.getLogger(__name__)
+
+# Below this an hour's "normal" is noise — a handful of keepalives — and
+# dividing by it invents drama out of a few kilobytes.
+BASELINE_FLOOR_BYTES_PER_HOUR = 8 << 20  # 8 MiB/h
+
+
+@dataclass(frozen=True)
+class Reading:
+    node_id: int
+    recent_per_hour: float
+    baseline_per_hour: float
+
+    @property
+    def ratio(self) -> float:
+        return self.recent_per_hour / self.baseline_per_hour
+
+    @property
+    def meaningful(self) -> bool:
+        return self.baseline_per_hour >= BASELINE_FLOOR_BYTES_PER_HOUR
+
+
+def _rows(sql: str, params: dict) -> list:
+    try:
+        with GetDB() as db:
+            return list(db.execute(text(sql), params))
+    except Exception:
+        logger.exception("node traffic profile query failed")
+        return []
+
+
+def expected_now(baseline_days: int = 7) -> dict[int, float]:
+    """node_id -> bytes it usually moves during the current clock hour.
+
+    Yesterday's 03:00 and the one before it, not yesterday's average: the
+    point is to know whether *this* hour is normally busy.
+    """
+    sql = """
+        SELECT node_id, COALESCE(SUM(uplink + downlink), 0) / :days
+        FROM node_usages
+        WHERE created_at <= NOW() - INTERVAL 1 DAY
+          AND created_at > NOW() - INTERVAL :window DAY
+          AND HOUR(created_at) = HOUR(NOW())
+        GROUP BY node_id
+    """
+    days = max(1, int(baseline_days))
+    out: dict[int, float] = {}
+    for node_id, avg in _rows(sql, {"days": days, "window": days + 1}):
+        if node_id is None:
+            continue
+        out[int(node_id)] = float(avg or 0.0)
+    return out
+
+
+def traffic_vs_baseline(recent_hours: int = 2,
+                        baseline_days: int = 7) -> dict[int, Reading]:
+    """node_id -> recent hours against the same hours of the past week."""
+    recent_hours = max(1, int(recent_hours))
+    baseline_days = max(1, int(baseline_days))
+    hours = ", ".join(f"HOUR(NOW() - INTERVAL {h} HOUR)"
+                      for h in range(recent_hours + 1))
+    sql = f"""
+        SELECT node_id,
+               COALESCE(SUM(CASE WHEN created_at > NOW() - INTERVAL :recent HOUR
+                                 THEN uplink + downlink END), 0),
+               COALESCE(SUM(CASE WHEN created_at <= NOW() - INTERVAL 1 DAY
+                                  AND HOUR(created_at) IN ({hours})
+                                 THEN uplink + downlink END), 0)
+        FROM node_usages
+        WHERE created_at > NOW() - INTERVAL :window DAY
+        GROUP BY node_id
+    """
+    # The reference window is those same clock hours on each of the past days.
+    buckets = baseline_days * (recent_hours + 1)
+    out: dict[int, Reading] = {}
+    for node_id, recent, past in _rows(
+            sql, {"recent": recent_hours, "window": baseline_days + 1}):
+        if node_id is None:
+            continue
+        out[int(node_id)] = Reading(
+            node_id=int(node_id),
+            recent_per_hour=float(recent or 0) / recent_hours,
+            baseline_per_hour=float(past or 0) / buckets,
+        )
+    return out
+
+
+def nodes_with_visible_hosts() -> set[int]:
+    """Nodes a subscriber can actually reach, by either end of a bridge.
+
+    A node whose every host is hidden moves nothing *by construction*, and
+    alerting on its silence is the loop the audit already learned the hard
+    way: hidden, therefore quiet, therefore never restored. Both ends count —
+    an exit carries the traffic of hosts that live on the entries pointing at
+    it, and has no hosts of its own.
+    """
+    sql = """
+        SELECT DISTINCT n.id
+        FROM nodes n
+        JOIN inbounds i ON i.node_id = n.id OR i.exit_node_id = n.id
+        JOIN hosts h ON h.inbound_id = i.id
+        WHERE h.is_disabled = 0
+    """
+    return {int(r[0]) for r in _rows(sql, {}) if r[0] is not None}
