@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """Keep host weights on the pattern the subscription list is built from.
 
-Weights decide the order a client shows the servers in, and the fleet follows
-one rule:
+SUPERSEDED by tier_rank.py, and running it with --apply will undo that tool's
+work. What follows is still true about the *shape* of a weight — the block per
+brand, the offset inside it — but not about which slot gets which offset. Here
+the offset table is a geography learned from whichever brand looks best kept;
+there it is recomputed from probes and traffic, so a dead exit sinks. The two
+disagree by design, and the ranking is the one the fleet runs on.
+
+Kept for the block check: it is still the only thing that notices a host whose
+weight fell outside its brand's block entirely. Pass --legacy to renumber by
+the geographic table anyway.
 
     weight = 100 + (brand_index - 1) * 10 + slot_offset
 
@@ -78,7 +86,17 @@ def main() -> int:
     p.add_argument("--tier", default="universal",
                    choices=["universal", "elite", "fast"])
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--legacy", action="store_true",
+                   help="renumber by the geographic offset table, undoing "
+                        "tier_rank.py")
     args = p.parse_args()
+
+    if args.apply and not args.legacy:
+        print("tier_rank.py owns the offsets now — this would put the "
+              "geographic order back and sink the ranking.\n"
+              "Run tier_rank.py --apply instead, or pass --legacy if you "
+              "really mean the old table.")
+        return 3
 
     targets = bl.numbered(bl.load_targets(tiers=(args.tier,)))
     if not targets:
