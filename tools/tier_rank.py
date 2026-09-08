@@ -85,24 +85,47 @@ def exit_of(host: dict) -> int | None:
     """Which node's traffic speaks for this host — the far end, not the entry.
 
     A bridge host is a pair, and the entry is shared with a dozen other slots:
-    its traffic says nothing about whether this particular exit is alive. A
-    direct host has no far end, so it answers for itself.
+    its traffic says nothing about whether this particular exit is alive, and
+    reading it anyway is how every slot behind a busy entry looked like it
+    carried 266 GB. A bridge whose far end is not a registered node has no
+    figure at all, and saying so beats inventing one. A direct host has no far
+    end and answers for itself.
     """
-    return host.get("exit_node_id") or host.get("node_id")
+    if host.get("is_bridge"):
+        return host.get("exit_node_id")
+    return host.get("node_id")
+
+
+def _ratio(hosts: list[dict]) -> tuple[float, int]:
+    tried = sum(len(h.get("vantages_tried") or []) for h in hosts)
+    good = sum(len(h.get("vantages_ok") or []) for h in hosts)
+    return ((good / tried) if tried else 0.0), tried
 
 
 def score_slot(hosts: list[dict], gb24: dict, gb7d: dict) -> tuple:
-    """(tier letter, median probe seconds) for one slot inside one brand."""
-    tried = sum(len(h.get("vantages_tried") or []) for h in hosts)
-    good = sum(len(h.get("vantages_ok") or []) for h in hosts)
-    ratio = (good / tried) if tried else 0.0
+    """(tier letter, median probe seconds, ...) for one slot.
 
-    lat = [h["elapsed"] for h in hosts
+    Judged on the hosts a subscriber can actually see. A slot is not worse for
+    carrying a hidden host that fails — that is the automation doing its job —
+    and counting those dragged real slots down: FAST US read 50% because the
+    MLKEM beta sits next to the live entry and has never worked. When every
+    host of a slot is hidden there is nothing else to go on, so the hidden ones
+    answer, and the slot is marked so the table does not read as measured fact.
+    """
+    shown = [h for h in hosts if not h.get("is_disabled")]
+    ratio, tried = _ratio(shown or hosts)
+    judged_on_hidden = not shown
+
+    lat = [h["elapsed"] for h in (shown or hosts)
            if h.get("verdict") == "pass" and isinstance(h.get("elapsed"), (int, float))]
     median = statistics.median(lat) if lat else 99.0
 
-    carried = max((gb24.get(exit_of(h), 0.0) for h in hosts), default=0.0)
-    week = max((gb7d.get(exit_of(h), 0.0) for h in hosts), default=0.0)
+    figures24 = [gb24.get(nid, 0.0) for nid in
+                 {exit_of(h) for h in hosts} if nid is not None]
+    figures7d = [gb7d.get(nid, 0.0) for nid in
+                 {exit_of(h) for h in hosts} if nid is not None]
+    carried = max(figures24, default=0.0)
+    week = max(figures7d, default=0.0)
 
     if ratio >= 0.999:
         letter = "A" if carried >= TRAFFIC_FLOOR_GB else "B"
@@ -110,7 +133,7 @@ def score_slot(hosts: list[dict], gb24: dict, gb7d: dict) -> tuple:
         letter = "C"
     else:
         letter = "D"
-    return letter, median, ratio, carried, week
+    return letter, median, ratio, carried, week, judged_on_hidden, tried
 
 
 def rank_slots(scores: dict[str, tuple]) -> dict[str, int]:
@@ -167,16 +190,20 @@ def plan_tier(report, tier, gb24, gb7d, verbose=True):
 
     if verbose:
         print(f"\n=== {tier}: slot standing ===")
-        print(f"{'slot':<8}{'tier':<6}{'probe':<8}{'ok':<8}{'24h GB':<9}"
+        print(f"{'slot':<8}{'tier':<6}{'probe':<8}{'ok':<9}{'24h GB':<9}"
               f"{'7d GB':<9}{'offset'}")
         for slot in sorted(scores, key=lambda s: (s != HOME_SLOT,
                                                   ranks.get(s, -1))):
-            letter, median, ratio, gb, wk = scores[slot]
+            letter, median, ratio, gb, wk, hidden_only, tried = scores[slot]
             off = 0 if slot == HOME_SLOT else spread(ranks[slot], n,
                                                      layout["lo"], layout["hi"])
             probe = "-" if median >= 99 else f"{median:.2f}s"
-            print(f"{slot:<8}{letter:<6}{probe:<8}{ratio*100:>5.0f}%  "
-                  f"{gb:>7.1f}  {wk:>7.1f}  {off:>5}")
+            mark = "*" if hidden_only else " "
+            traffic = "  n/a  " if gb is None else f"{gb:>7.1f}"
+            print(f"{slot:<8}{letter:<6}{probe:<8}{ratio*100:>5.0f}%{mark}  "
+                  f"{traffic}  {wk:>7.1f}  {off:>5}")
+        if any(v[5] for v in scores.values()):
+            print("  * — весь слот скрыт, судим по скрытым хостам")
 
     changes = []
     for index, hosts in sorted(by_brand.items()):
