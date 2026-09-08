@@ -18,6 +18,7 @@ from app.tasks import (
 from app.tasks.bridge_watchdog_monitor import check_bridge_watchdog
 from app.tasks.node_traffic_collapse import check_node_traffic_collapse
 from app.tasks.node_traffic_monitor import check_node_traffic_silence
+from app.tasks.reality_front_monitor import check_reality_fronts
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ _cleanup_ai_backups = single_instance(cleanup_ai_backups)
 _check_node_traffic = single_instance(check_node_traffic_silence)
 _check_bridge_watchdog = single_instance(check_bridge_watchdog)
 _check_traffic_collapse = single_instance(check_node_traffic_collapse)
+_check_reality_fronts = single_instance(check_reality_fronts)
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -144,6 +146,15 @@ def create_scheduler() -> AsyncIOScheduler:
         _check_traffic_collapse,
         "interval",
         seconds=1800,
+        coalesce=True,
+        max_instances=1,
+    )
+    # Only reads a file the host-side timer writes once a day; the hour here
+    # decides how soon a broken front is reported, not how often it is probed.
+    scheduler.add_job(
+        _check_reality_fronts,
+        "interval",
+        seconds=3600,
         coalesce=True,
         max_instances=1,
     )

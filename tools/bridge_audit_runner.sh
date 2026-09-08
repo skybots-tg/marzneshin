@@ -32,6 +32,12 @@ FULL_INTERVAL=${FULL_INTERVAL:-86400}
 # subscription helps nobody. bridge_state.py is what keeps a single bad probe
 # from acting.
 AUTO_APPLY=${AUTO_APPLY:-1}
+# Reorder the catalogue after a full sweep. The ranking is only as good as the
+# report it reads, and only a full sweep produces one covering every host — a
+# quick check probes one host per link, which says nothing about the slots it
+# skipped. Set AUTO_RANK=0 to leave the weights where they are.
+AUTO_RANK=${AUTO_RANK:-1}
+RANK_LOG="$DATA/tier_rank.log"
 # RU vantages for the RU-entry tiers, the panel for FAST. Judging FAST from
 # Moscow is how servers that were dead for everyone abroad stayed visible.
 VANTAGES=${VANTAGES:-panel,25,30,40}
@@ -91,6 +97,23 @@ run_scan() {
     note_status "$reason" "$started" "${rc:-1}"
 }
 
+rank_after_sweep() {
+    # Weights decide the order a client shows the servers in, and a slot that
+    # died last week should not keep the top of the list because it used to be
+    # second alphabetically. tier_rank re-derives the order from this very
+    # report plus the traffic each exit actually carried; it refuses a stale
+    # report on its own, so a sweep that failed cannot freeze an outage into
+    # the catalogue.
+    [ "$AUTO_RANK" = "1" ] || return 0
+    {
+        echo "=== tier rank after full sweep $(date -Is) ==="
+        ( cd "$TOOLS" && python3 -u tier_rank.py --apply )
+        echo "=== finished $(date -Is) rc=$? ==="
+    } >>"$RANK_LOG" 2>&1
+    tail -n 2000 "$RANK_LOG" > "$RANK_LOG.tmp" 2>/dev/null &&
+        mv "$RANK_LOG.tmp" "$RANK_LOG"
+}
+
 age_of() {
     [ -f "$1" ] || { echo 999999999; return; }
     echo $(( $(date +%s) - $(stat -c %Y "$1" 2>/dev/null || echo 0) ))
@@ -102,6 +125,10 @@ if [ -f "$REQUEST" ]; then
     grep -q '"apply": *true' "$REQUEST" || AUTO_APPLY=0
     rm -f "$REQUEST"
     run_scan "$REPORT" "" "requested from panel"
+    # Someone unticking "apply" asked to look without changing anything, and
+    # reordering the catalogue behind that is exactly the surprise they said no
+    # to.
+    [ "$AUTO_APPLY" = "1" ] && rank_after_sweep
     exit 0
 fi
 
@@ -115,6 +142,7 @@ if [ "$(age_of "$FULL_STAMP")" -ge "$FULL_INTERVAL" ]; then
     touch "$FULL_STAMP"
     run_scan "$REPORT" "" "scheduled full sweep"
     touch "$QUICK_STAMP"
+    rank_after_sweep
     exit 0
 fi
 
