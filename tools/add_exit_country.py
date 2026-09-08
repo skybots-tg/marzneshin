@@ -26,7 +26,7 @@ import sys
 import bridge_lib as bl
 import marz_common as mc
 
-def entry_fleet():
+def entry_fleet(skip_nodes=()):
     """(node_id, ip, KIND, number) for every entry that should get the country.
 
     Derived from the database, not from a list kept by hand. The list this
@@ -40,6 +40,10 @@ def entry_fleet():
     """
     fleet, skipped = [], []
     for e in bl.entry_nodes():
+        if e.node_id in skip_nodes:
+            skipped.append("%s %d (node %d, asked to skip)"
+                           % (e.kind, e.index, e.node_id))
+            continue
         if e.node_status != "healthy":
             skipped.append("%s %d (node %d, %s)" % (e.kind, e.index, e.node_id,
                                                     e.node_status))
@@ -224,6 +228,12 @@ def main():
     ap.add_argument("--only-exit", action="store_true")
     ap.add_argument("--only-entries", action="store_true")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--skip-node", type=int, action="append", default=[],
+                    help="entry node id to leave out (repeatable). Needed for "
+                         "a node that still carries a tier's branding but is "
+                         "no longer its live entry: node 43 kept UNIVERSAL 2 "
+                         "after the tier moved to 41, and deploying to both "
+                         "would put the same remark on two addresses.")
     args = ap.parse_args()
     C = COUNTRIES[args.country]
     print(f"=== add exit country {args.country} "
@@ -246,7 +256,7 @@ def main():
         c = json.loads(rows[0][0])
         exit_pub, exit_sid = c["pbk"], c["sid"]
 
-    for node_id, ip, kind, num in entry_fleet():
+    for node_id, ip, kind, num in entry_fleet(set(args.skip_node)):
         try:
             setup_entry(node_id, ip, kind, num, C, exit_pub, exit_sid, args.apply)
         except Exception as e:
