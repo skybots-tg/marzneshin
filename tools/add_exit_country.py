@@ -64,6 +64,11 @@ COUNTRIES = {
         "bridge_port": 21443,
         "exit_node_id": 45, "exit_ip": "216.132.133.3",
         "exit_tag": "USA-3", "exit_port": 443,
+        # Фронт выхода, а не глобальный apple.com: с нод 25, 31, 10, 19 и 32
+        # рукопожатие с именем apple.com к этому адресу не проходит вовсе, а с
+        # www.usc.edu проходит со всех. Первая раскатка US-3 встала ровно на
+        # этом — 5 живых плечей из 9, и починилась сменой одного имени.
+        "out_sni": "www.usc.edu",
         "fast_n": 3, "fast_weight": 200,
     },
     "RO": {
@@ -195,7 +200,8 @@ def setup_entry(node_id, ip, kind, num, C, exit_pub, exit_sid, apply):
     new["inbounds"].append(ib)
     if out_tag not in {o["tag"] for o in new["outbounds"]}:
         new["outbounds"].append(mc.bridge_outbound(
-            out_tag, C["exit_ip"], C["exit_port"], exit_pub, exit_sid))
+            out_tag, C["exit_ip"], C["exit_port"], exit_pub, exit_sid,
+            sni=C.get("out_sni", mc.EXIT_OUT_SNI)))
     new.setdefault("routing", {}).setdefault("rules", []).append(
         {"type": "field", "inboundTag": [tag], "outboundTag": out_tag})
 
