@@ -49,6 +49,15 @@ class Reading:
 
     @property
     def ratio(self) -> float:
+        """Recent hours as a share of normal. Check ``meaningful`` first.
+
+        With nothing to compare against this answers "infinitely above
+        normal", which is the safe direction: every caller here treats a high
+        ratio as healthy, so a node with no history can never be alarmed about
+        by accident.
+        """
+        if self.baseline_per_hour <= 0:
+            return float("inf")
         return self.recent_per_hour / self.baseline_per_hour
 
     @property
