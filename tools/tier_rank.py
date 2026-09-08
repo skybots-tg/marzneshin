@@ -271,6 +271,15 @@ def main() -> int:
     gb24 = node_traffic_gb(24)
     gb7d = node_traffic_gb(24 * 7)
 
+    # The report carries the weight each host had when the sweep ran, which is
+    # not what it has now — a second run would otherwise keep "moving" hosts
+    # to the numbers they already hold.
+    live = {int(i): int(w) for i, w in
+            mc.db_query("SELECT id, weight FROM hosts;")}
+    for h in report["hosts"]:
+        if h["host_id"] in live:
+            h["weight"] = live[h["host_id"]]
+
     tiers = args.tier or sorted(LAYOUT)
     changes = []
     for tier in tiers:
@@ -282,7 +291,8 @@ def main() -> int:
 
     print(f"\n{len(changes)} host(s) move:")
     for h, want in sorted(changes, key=lambda c: (c[0]["tier"],
-                                                  c[0]["tier_index"], c[1])):
+                                                  c[0]["tier_index"] or 0,
+                                                  c[1])):
         vis = "" if not h["is_disabled"] else "  (hidden)"
         print(f"  #{h['host_id']:<5} {h['remark'][:44]:<46} "
               f"{h['weight']} -> {want}{vis}")
