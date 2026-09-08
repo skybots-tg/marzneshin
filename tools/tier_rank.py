@@ -58,10 +58,16 @@ ROLLBACK_DIR = "/var/lib/marzneshin"
 # Where each tier's block starts and how wide the usable offset range is.
 # UNIVERSAL keeps offset 0 for the home slot; ELITE keeps it for the two
 # "РАБОТАЕТ ВСЕГДА" pins that are deliberately weightless.
+# ``needs_index`` says whether a brand number is part of the address. It is for
+# UNIVERSAL and ELITE, where the number picks the block; FAST is one block, so
+# a host whose remark carries no number (FAST RO-1) still has a place in it —
+# skipping those left #428 four offsets below the slot it shares.
 LAYOUT = {
-    "universal": {"base": lambda i: 100 + (i - 1) * 10, "lo": 1, "hi": 9},
-    "elite": {"base": lambda i: i * 10, "lo": 1, "hi": 9},
-    "fast": {"base": lambda i: 200, "lo": 0, "hi": 9},
+    "universal": {"base": lambda i: 100 + (i - 1) * 10, "lo": 1, "hi": 9,
+                  "needs_index": True},
+    "elite": {"base": lambda i: i * 10, "lo": 1, "hi": 9,
+              "needs_index": True},
+    "fast": {"base": lambda i: 200, "lo": 0, "hi": 9, "needs_index": False},
 }
 HOME_SLOT = "RU"
 TRAFFIC_FLOOR_GB = 1.0   # below this a 24h figure is noise, not use
@@ -165,13 +171,23 @@ def spread(rank: int, n: int, lo: int, hi: int) -> int:
 
 
 def collect(report: dict, tier: str) -> dict[int, list[dict]]:
+    """Group a tier's hosts by the brand block they belong to.
+
+    A host with no brand number is only skipped where the number is what
+    selects the block. The ELITE pins ("РАБОТАЕТ ВСЕГДА", weight 0) are exactly
+    that case and are meant to stay out of the ordering.
+    """
+    needs_index = LAYOUT[tier]["needs_index"]
     by_brand = defaultdict(list)
     for h in report["hosts"]:
         if h.get("tier") != tier:
             continue
-        if h.get("tier_index") is None:
-            continue
-        by_brand[h["tier_index"]].append(h)
+        index = h.get("tier_index")
+        if index is None:
+            if needs_index:
+                continue
+            index = 0
+        by_brand[index].append(h)
     return by_brand
 
 
