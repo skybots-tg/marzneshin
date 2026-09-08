@@ -51,6 +51,17 @@ def entry_fleet():
 
 # country registry
 COUNTRIES = {
+    # Второй американский выход (нода 45, Лос-Анджелес). Слот US-3, а не US-2:
+    # US-2 исторически закреплён за мёртвой нодой 24, и переиспользование имени
+    # дало бы дубли в каталоге, если её однажды поднимут.
+    "US3": {
+        "flag": "US", "label": "US-3",
+        "bridge_tag": "RU->US-3 Bridge", "out_tag": "us3-out",
+        "bridge_port": 21443,
+        "exit_node_id": 45, "exit_ip": "216.132.133.3",
+        "exit_tag": "USA-3", "exit_port": 443,
+        "fast_n": 3, "fast_weight": 200,
+    },
     "RO": {
         "flag": "RO", "label": "RO",
         "bridge_tag": "RU->RO Bridge", "out_tag": "ro-out",
