@@ -38,7 +38,15 @@ logger = logging.getLogger(__name__)
 
 # Below this an hour's "normal" is noise — a handful of keepalives — and
 # dividing by it invents drama out of a few kilobytes.
-BASELINE_FLOOR_BYTES_PER_HOUR = 8 << 20  # 8 MiB/h
+#
+# 8 MiB was too low, and the fleet says where the real line is: at any given
+# hour the working nodes carry 150 MB to 12 GB, and the next one down carries
+# 1.6 MB. Node 38 lives in that gap — 15-30 MB in its busiest hours — so it
+# crossed the old floor a few times a day and produced almost every alert
+# there was: twelve of the day's silence warnings were its. A node that moves
+# a thousandth of what its neighbours move is not worth waking anyone over,
+# and its silence says nothing that its traffic did not already say.
+BASELINE_FLOOR_BYTES_PER_HOUR = 64 << 20  # 64 MiB/h
 
 # node_usages holds one row per node per hour, and the row for the hour we are
 # in is still being written. Counting it compares a few minutes of traffic
