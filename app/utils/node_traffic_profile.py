@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 # dividing by it invents drama out of a few kilobytes.
 BASELINE_FLOOR_BYTES_PER_HOUR = 8 << 20  # 8 MiB/h
 
+# node_usages holds one row per node per hour, and the row for the hour we are
+# in is still being written. Counting it compares a few minutes of traffic
+# against whole hours of history and reports the entire fleet as collapsed —
+# at two minutes past the hour, every node reads at half of normal. Everything
+# here is measured over *completed* hours only.
+HOUR_START = ("(NOW() - INTERVAL MINUTE(NOW()) MINUTE "
+              "- INTERVAL SECOND(NOW()) SECOND)")
+
 
 @dataclass(frozen=True)
 class Reading:
@@ -80,10 +88,10 @@ def expected_now(baseline_days: int = 7) -> dict[int, float]:
     Yesterday's 03:00 and the one before it, not yesterday's average: the
     point is to know whether *this* hour is normally busy.
     """
-    sql = """
+    sql = f"""
         SELECT node_id, COALESCE(SUM(uplink + downlink), 0) / :days
         FROM node_usages
-        WHERE created_at <= NOW() - INTERVAL 1 DAY
+        WHERE created_at < {HOUR_START} - INTERVAL 1 DAY
           AND created_at > NOW() - INTERVAL :window DAY
           AND HOUR(created_at) = HOUR(NOW())
         GROUP BY node_id
@@ -102,13 +110,16 @@ def traffic_vs_baseline(recent_hours: int = 2,
     """node_id -> recent hours against the same hours of the past week."""
     recent_hours = max(1, int(recent_hours))
     baseline_days = max(1, int(baseline_days))
-    hours = ", ".join(f"HOUR(NOW() - INTERVAL {h} HOUR)"
-                      for h in range(recent_hours + 1))
+    hours = ", ".join(f"HOUR({HOUR_START} - INTERVAL {h} HOUR)"
+                      for h in range(1, recent_hours + 1))
     sql = f"""
         SELECT node_id,
-               COALESCE(SUM(CASE WHEN created_at > NOW() - INTERVAL :recent HOUR
+               COALESCE(SUM(CASE WHEN created_at >= {HOUR_START}
+                                       - INTERVAL :recent HOUR
+                                  AND created_at < {HOUR_START}
                                  THEN uplink + downlink END), 0),
-               COALESCE(SUM(CASE WHEN created_at <= NOW() - INTERVAL 1 DAY
+               COALESCE(SUM(CASE WHEN created_at < {HOUR_START}
+                                       - INTERVAL 1 DAY
                                   AND HOUR(created_at) IN ({hours})
                                  THEN uplink + downlink END), 0)
         FROM node_usages
@@ -116,7 +127,7 @@ def traffic_vs_baseline(recent_hours: int = 2,
         GROUP BY node_id
     """
     # The reference window is those same clock hours on each of the past days.
-    buckets = baseline_days * (recent_hours + 1)
+    buckets = baseline_days * recent_hours
     out: dict[int, Reading] = {}
     for node_id, recent, past in _rows(
             sql, {"recent": recent_hours, "window": baseline_days + 1}):
