@@ -115,9 +115,33 @@ def _fleet_ratio(readings: dict) -> float:
     return max(recent / baseline, FLEET_FLOOR)
 
 
-def _node_address(node_id: int) -> str:
+def _identity(node_id: int) -> tuple[str, str | None]:
+    """(address, name), from the live registry or failing that the database.
+
+    The registry is the fast path but it only holds nodes the panel currently
+    talks to. A node it has lost is precisely one worth naming properly, and
+    an alert that says "Address: unknown" sends the reader to look it up by
+    hand — including the probe command at the bottom, which needs the IP.
+    """
     node = node_registry.get(node_id)
-    return getattr(node, "_address", "unknown") if node else "unknown"
+    address = getattr(node, "_address", None) if node else None
+    name = registered_node_name(node_id)
+    if address and name:
+        return address, name
+    try:
+        from sqlalchemy import text
+
+        from app.db import GetDB
+        with GetDB() as db:
+            row = db.execute(
+                text("SELECT address, name FROM nodes WHERE id = :i"),
+                {"i": node_id},
+            ).first()
+        if row:
+            return address or row[0] or "unknown", name or row[1]
+    except Exception:
+        logger.exception("could not name node %d", node_id)
+    return address or "unknown", name
 
 
 async def _notify_collapse(node_id: int, reading, fleet: float) -> None:
@@ -133,11 +157,11 @@ async def _notify_collapse(node_id: int, reading, fleet: float) -> None:
         )
         admin_tags = f"\n{tags}"
 
-    address = _node_address(node_id)
+    address, name = _identity(node_id)
     text = (
         f"⚠️ <b>#TrafficCollapse — узел жив, но трафик ушёл</b>\n"
         f"➖➖➖➖➖➖➖➖➖\n"
-        f"{build_node_lines(node_id, address, registered_node_name(node_id))}\n"
+        f"{build_node_lines(node_id, address, name)}\n"
         f"<b>Сейчас:</b> {reading.recent_per_hour / (1 << 20):.1f} МБ/ч\n"
         f"<b>Обычно в эти часы:</b> "
         f"{reading.baseline_per_hour / (1 << 20):.1f} МБ/ч "
@@ -160,10 +184,11 @@ async def _notify_recovered(node_id: int, reading) -> None:
     from app.notification.node_alerts import build_node_lines
     from app.notification.telegram import send_message
 
+    address, name = _identity(node_id)
     text = (
         f"✅ <b>#TrafficCollapse — трафик вернулся</b>\n"
         f"➖➖➖➖➖➖➖➖➖\n"
-        f"{build_node_lines(node_id, _node_address(node_id), registered_node_name(node_id))}\n"
+        f"{build_node_lines(node_id, address, name)}\n"
         f"<b>Сейчас:</b> {reading.recent_per_hour / (1 << 20):.1f} МБ/ч "
         f"({reading.ratio * 100:.0f}% от обычного)"
     )
