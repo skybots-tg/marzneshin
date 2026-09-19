@@ -139,6 +139,50 @@ def record_all_node_stats(node_usages: dict[int, int], db):
         )
 
 
+# uid a node has already been scolded about.  Stats arrive every
+# ``record_user_usages_interval`` seconds, so without this the same orphan
+# would print a warning ~2880 times a day.
+_unknown_uids_logged: dict[int, set[int]] = defaultdict(set)
+
+
+def drop_unknown_users(
+    db, api_params: dict[int, list[dict]]
+) -> dict[int, list[dict]]:
+    """Drop stats rows whose ``uid`` has no row in ``users``.
+
+    A node reports everything xray counted for it, including traffic it
+    could not attribute to anybody — that arrives as uid 0.  Such a uid
+    fails the foreign key on ``users.id`` in both ``node_user_usages`` and
+    ``user_devices``: the INSERT raises, every other row of the same batch
+    is lost with it, and the session stays unusable for the rest of the
+    loop.  One lookup per tick is cheaper than that.
+    """
+    uids = {p["uid"] for params in api_params.values() for p in params}
+    if not uids:
+        return api_params
+
+    known = set(db.scalars(select(User.id).where(User.id.in_(uids))).all())
+    if len(known) == len(uids):
+        return api_params
+
+    filtered: dict[int, list[dict]] = {}
+    for node_id, params in api_params.items():
+        filtered[node_id] = [p for p in params if p["uid"] in known]
+        orphans = {p["uid"] for p in params if p["uid"] not in known}
+        if not orphans:
+            continue
+        first_time = orphans - _unknown_uids_logged[node_id]
+        _unknown_uids_logged[node_id] |= orphans
+        log = logger.warning if first_time else logger.debug
+        log(
+            "[Node %s] Dropped stats for %d uid(s) missing from users: %s",
+            node_id,
+            len(orphans),
+            ", ".join(str(uid) for uid in sorted(orphans)),
+        )
+    return filtered
+
+
 async def get_users_stats(
     node_id: int, node: MarzNodeBase
 ) -> tuple[int, list[dict]]:
@@ -184,6 +228,11 @@ async def record_user_usages():
         ]
     )
     api_params = {node_id: params for node_id, params in list(results)}
+
+    # Orphan uids poison every phase below (device rows, usage logs and
+    # the traffic UPDATE all key on users.id), so weed them out first.
+    with GetDB() as db:
+        api_params = drop_unknown_users(db, api_params)
 
     users_usage = defaultdict(int)
     bucket_start = datetime.utcnow()

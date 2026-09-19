@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import device_crud
@@ -104,8 +105,20 @@ def track_user_connection(
         if not device:
             from app.db.models import User as DBUser
             user = db.query(DBUser).filter(DBUser.id == user_id).first()
-            
-            if user and user.device_limit is not None:
+
+            if user is None:
+                # Node stats also carry traffic xray could not attribute to
+                # anybody — it arrives as uid 0.  Inserting a device for a
+                # user_id that is not in ``users`` violates the foreign key,
+                # and the failed flush leaves the session — shared with the
+                # rest of the batch — unusable.
+                logger.debug(
+                    f"Skipping device tracking for unknown user {user_id} "
+                    f"(node {node_id}, ip {remote_ip})"
+                )
+                return None, None
+
+            if user.device_limit is not None:
                 current_device_count = device_crud.get_devices_count(db, user_id, is_blocked=False)
                 
                 if current_device_count >= user.device_limit:
@@ -116,24 +129,36 @@ def track_user_connection(
                     )
                     return None, None
             
-            device = device_crud.create_device(
-                db=db,
-                user_id=user_id,
-                fingerprint=fingerprint,
-                fingerprint_version=fingerprint_version,
-                client_name=client_name,
-                client_type=client_type,
-                node_id=node_id,
-                auto_commit=False,
-            )
+            # SAVEPOINT: the caller shares one session across the whole
+            # batch.  If the INSERT still fails — the user was deleted
+            # between the check above and the flush — roll back this one
+            # device instead of the whole transaction.
+            try:
+                with db.begin_nested():
+                    device = device_crud.create_device(
+                        db=db,
+                        user_id=user_id,
+                        fingerprint=fingerprint,
+                        fingerprint_version=fingerprint_version,
+                        client_name=client_name,
+                        client_type=client_type,
+                        node_id=node_id,
+                        auto_commit=False,
+                    )
+            except IntegrityError as e:
+                logger.warning(
+                    f"Could not create device for user {user_id} "
+                    f"(node {node_id}): {e.orig or e}"
+                )
+                return None, None
+
             logger.info(
                 f"Created new device {device.id} for user {user_id} "
                 f"(client: {client_name or 'unknown'})"
             )
-            
-            if user:
-                from app.marznode import operations
-                operations.update_user(user, db=db)
+
+            from app.marznode import operations
+            operations.update_user(user, db=db)
         else:
             device = device_crud.update_device(
                 db=db,
