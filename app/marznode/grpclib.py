@@ -85,6 +85,28 @@ def _is_spurious_appdata_error(exc: BaseException) -> bool:
     )
 
 
+def _was_cancelled(exc: BaseException) -> bool:
+    """True iff a CancelledError is somewhere under ``exc``.
+
+    The spurious ``_write_appdata`` AttributeError above is raised by
+    ``__aexit__`` *while* another exception is unwinding, and it replaces it.
+    When that other exception is the CancelledError from
+    ``_streaming_task.cancel()`` — every reconnect does this — the
+    ``except asyncio.CancelledError`` branch never sees it, and an ordinary
+    reconnect gets logged as an unexpected error with a full traceback.
+    ``_root_cause`` deliberately skips CancelledError, so the chain is walked
+    here separately.
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, asyncio.CancelledError):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 # A node that just blipped deserves a prompt retry; one that has been gone for
 # days does not. Nodes 13, 24 and 33 were dead for weeks and wrote 34,503 log
 # lines between them in 48 hours -- one connect attempt, one status write and one
@@ -351,7 +373,15 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             raise
         except (OSError, ConnectionError, GRPCError, StreamTerminatedError) as e:
             logger.info("node %i detached: %s", self.id, e)
-        except Exception:
+        except Exception as e:
+            if _is_spurious_appdata_error(e) and _was_cancelled(e):
+                # Обычная отмена стрима при переподключении, надетая на
+                # косметическую ошибку grpclib. Задача должна кончиться
+                # отменой, а не «неожиданной ошибкой» с трейсбеком.
+                logger.debug(
+                    "node %i: стрим отменён при переподключении", self.id
+                )
+                raise asyncio.CancelledError from None
             # Catch-all so a transient internal error (e.g. AttributeError
             # from grpclib/h2 on a torn-down channel) does not silently
             # kill the streaming task and leave self.synced=True forever,

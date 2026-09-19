@@ -127,3 +127,39 @@ async def test_update_user_drops_when_there_is_no_stream_to_write_to():
     await node.update_user(_User(1), inbounds=["vless-tcp"])
 
     assert len(node._pending_updates) == 0
+
+
+def _appdata_error_over_cancellation() -> AttributeError:
+    """Ровно то, что grpclib поднимает при отмене стрима.
+
+    ``__aexit__`` зовёт ``reset_nowait`` на уже полумёртвом SSL-транспорте,
+    пока разматывается CancelledError, и своей ошибкой её подменяет.
+    """
+    try:
+        raise asyncio.CancelledError
+    except asyncio.CancelledError:
+        try:
+            raise AttributeError(
+                "'NoneType' object has no attribute '_write_appdata'"
+            )
+        except AttributeError as exc:
+            return exc
+
+
+def test_a_cancelled_stream_is_not_an_unexpected_error():
+    """Иначе каждое переподключение узла пишет в лог трейсбек с ERROR."""
+    from app.marznode.grpclib import _is_spurious_appdata_error, _was_cancelled
+
+    exc = _appdata_error_over_cancellation()
+
+    assert _is_spurious_appdata_error(exc)
+    assert _was_cancelled(exc)
+
+
+def test_a_real_failure_is_still_a_failure():
+    from app.marznode.grpclib import _was_cancelled
+
+    try:
+        raise ConnectionResetError("node hung up")
+    except ConnectionResetError as exc:
+        assert not _was_cancelled(exc)
