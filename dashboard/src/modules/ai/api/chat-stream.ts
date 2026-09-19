@@ -32,7 +32,7 @@ async function consumeSseStream(
     let currentEvent = ''
     let streamTerminated = false
 
-    while (true) {
+    for (;;) {
         let chunk: ReadableStreamReadResult<Uint8Array>
         try {
             chunk = await reader.read()

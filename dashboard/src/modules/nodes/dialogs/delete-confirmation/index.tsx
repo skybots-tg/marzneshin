@@ -10,7 +10,7 @@ import {
     Button,
     Progress,
 } from "@marzneshin/common/components";
-import { ExclamationTriangleIcon } from "@radix-ui/react-icons";
+import { AlertTriangle as ExclamationTriangleIcon } from "lucide-react";
 import { CheckCircle2, Circle, Loader2, XCircle } from "lucide-react";
 import type { FC } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -126,7 +126,7 @@ export const NodesDeleteConfirmationDialog: FC<NodesDeleteConfirmationDialogProp
             let buffer = "";
             let gotComplete = false;
 
-            while (true) {
+            for (;;) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 buffer += decoder.decode(value, { stream: true });

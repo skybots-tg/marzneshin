@@ -35,6 +35,52 @@ const NodeNameCell = ({ node }: { node: NodeType }) => (
     </span>
 );
 
+const MigrateButton = ({ node }: { node: NodeType }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <div onClick={(e) => e.stopPropagation()}>
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(true);
+                }}
+                title={i18n.t('page.nodes.migration.migrate')}
+            >
+                <ArrowLeftRight className="size-4 mr-2" />
+                {i18n.t('page.nodes.migration.migrate')}
+            </Button>
+            {open && (
+                <MigrationDialog open={open} onOpenChange={setOpen} node={node} />
+            )}
+        </div>
+    );
+};
+
+const UpdateXrayButton = ({ node }: { node: NodeType }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <div onClick={(e) => e.stopPropagation()}>
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(true);
+                }}
+                title={i18n.t('page.nodes.update_xray.update')}
+            >
+                <Download className="size-4 mr-2" />
+                {i18n.t('page.nodes.update_xray.update')}
+            </Button>
+            {open && (
+                <UpdateXrayDialog open={open} onOpenChange={setOpen} node={node} />
+            )}
+        </div>
+    );
+};
+
 const ResyncButton = ({ node }: { node: NodeType }) => {
     const { mutate: resync, isPending } = useNodesResyncMutation();
     
@@ -191,62 +237,12 @@ export const columns = (actions: ColumnActions<NodeType>): ColumnDef<NodeType>[]
     {
         id: "migrate",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.migration.migrate')} column={column} />,
-        cell: ({ row }) => {
-            const [open, setOpen] = useState(false);
-            return (
-                <div onClick={(e) => e.stopPropagation()}>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setOpen(true);
-                        }}
-                        title={i18n.t('page.nodes.migration.migrate')}
-                    >
-                        <ArrowLeftRight className="size-4 mr-2" />
-                        {i18n.t('page.nodes.migration.migrate')}
-                    </Button>
-                    {open && (
-                        <MigrationDialog
-                            open={open}
-                            onOpenChange={setOpen}
-                            node={row.original}
-                        />
-                    )}
-                </div>
-            );
-        },
+        cell: ({ row }) => <MigrateButton node={row.original} />,
     },
     {
         id: "update-xray",
         header: ({ column }) => <DataTableColumnHeader title={i18n.t('page.nodes.update_xray.update')} column={column} />,
-        cell: ({ row }) => {
-            const [open, setOpen] = useState(false);
-            return (
-                <div onClick={(e) => e.stopPropagation()}>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setOpen(true);
-                        }}
-                        title={i18n.t('page.nodes.update_xray.update')}
-                    >
-                        <Download className="size-4 mr-2" />
-                        {i18n.t('page.nodes.update_xray.update')}
-                    </Button>
-                    {open && (
-                        <UpdateXrayDialog
-                            open={open}
-                            onOpenChange={setOpen}
-                            node={row.original}
-                        />
-                    )}
-                </div>
-            );
-        },
+        cell: ({ row }) => <UpdateXrayButton node={row.original} />,
     },
     {
         id: "actions",

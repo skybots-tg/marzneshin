@@ -1,9 +1,4 @@
-import {
-    ChevronLeftIcon,
-    ChevronRightIcon,
-    DoubleArrowLeftIcon,
-    DoubleArrowRightIcon,
-} from "@radix-ui/react-icons";
+import { ChevronLeft as ChevronLeftIcon, ChevronRight as ChevronRightIcon, ChevronsLeft as DoubleArrowLeftIcon, ChevronsRight as DoubleArrowRightIcon } from "lucide-react";
 import {
     Button,
     Select,

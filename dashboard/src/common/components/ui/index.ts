@@ -26,6 +26,7 @@ export * from "./select";
 export * from "./sheet";
 export * from "./tabs";
 export * from "./progress";
+export * from "./circular-progress";
 export * from "./calendar";
 export * from "./scroll-area";
 export * from "./toggle-group";

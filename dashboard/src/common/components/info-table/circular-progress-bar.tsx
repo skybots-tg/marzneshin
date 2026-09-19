@@ -1,5 +1,5 @@
-import { CircularProgress } from "@nextui-org/progress";
 import {
+    CircularProgress,
     TableCell,
     TableRow,
 } from "@marzneshin/common/components";

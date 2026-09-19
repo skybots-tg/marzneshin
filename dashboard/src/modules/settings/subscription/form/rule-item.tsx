@@ -22,7 +22,7 @@ import {
     FieldArrayWithId,
     UseFieldArrayRemove
 } from "react-hook-form";
-import { DragHandleDots2Icon, TrashIcon } from "@radix-ui/react-icons"
+import { GripVertical as DragHandleDots2Icon, Trash2 as TrashIcon } from "lucide-react";
 
 interface RuleItemProps {
     index: number;

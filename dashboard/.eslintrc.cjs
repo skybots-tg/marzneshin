@@ -11,5 +11,14 @@ module.exports = {
         '@typescript-eslint/ban-ts-comment': ['off'],
         '@typescript-eslint/no-explicit-any': ['off'],
         'react-refresh/only-export-components': ['off'],
+        // Подчёркивание спереди — принятый в этом коде способ сказать
+        // «значение нужно по форме, а не по сути»: распакованный, но не
+        // нужный элемент кортежа, обязательный аргумент колбэка.
+        '@typescript-eslint/no-unused-vars': ['error', {
+            argsIgnorePattern: '^_',
+            varsIgnorePattern: '^_',
+            caughtErrorsIgnorePattern: '^_',
+            destructuredArrayIgnorePattern: '^_',
+        }],
     },
 };

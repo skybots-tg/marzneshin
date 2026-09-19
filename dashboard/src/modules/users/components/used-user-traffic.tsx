@@ -1,6 +1,6 @@
 import { FC } from 'react'
 import { UserType } from '@marzneshin/modules/users';
-import { CircularProgress } from '@nextui-org/progress';
+import { CircularProgress } from '@marzneshin/common/components';
 import { format } from '@chbphone55/pretty-bytes';
 import { useTranslation } from 'react-i18next';
 
@@ -23,10 +23,10 @@ export const UserUsedTraffic: FC<UserUsedTrafficProps> = (
                 showValueLabel
             />
             <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-50">
+                <p className="text-sm font-medium text-foreground">
                     {formattedUsedTraffic[0]} {formattedUsedTraffic[1]}
                 </p>
-                <p className="text-sm text-gray-500 dark:text-gray-500">
+                <p className="text-sm text-muted-foreground">
                     {user.data_limit ? `${formattedDatalimit[0]} ${formattedDatalimit[1]}` : t('page.users.unlimited')}
                 </p>
             </div>

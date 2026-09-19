@@ -1,10 +1,5 @@
 
-import {
-    ArrowDownIcon,
-    ArrowUpIcon,
-    CaretSortIcon,
-    EyeNoneIcon,
-} from "@radix-ui/react-icons"
+import { ArrowDown as ArrowDownIcon, ArrowUp as ArrowUpIcon, ChevronsUpDown as CaretSortIcon, EyeOff as EyeNoneIcon } from "lucide-react";
 import { Column } from "@tanstack/react-table"
 
 import {

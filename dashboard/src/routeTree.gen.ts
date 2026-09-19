@@ -47,13 +47,13 @@ import { Route as DashboardAdminsAdminIdDeleteImport } from './routes/_dashboard
 const DashboardIndexLazyImport = createFileRoute('/_dashboard/')()
 const DashboardUsersLazyImport = createFileRoute('/_dashboard/users')()
 const DashboardTopologyLazyImport = createFileRoute('/_dashboard/topology')()
-const DashboardBridgeHealthLazyImport = createFileRoute(
-  '/_dashboard/bridge-health',
-)()
 const DashboardSettingsLazyImport = createFileRoute('/_dashboard/settings')()
 const DashboardServicesLazyImport = createFileRoute('/_dashboard/services')()
 const DashboardNodesLazyImport = createFileRoute('/_dashboard/nodes')()
 const DashboardHostsLazyImport = createFileRoute('/_dashboard/hosts')()
+const DashboardBridgeHealthLazyImport = createFileRoute(
+  '/_dashboard/bridge-health',
+)()
 const DashboardAiLazyImport = createFileRoute('/_dashboard/ai')()
 const DashboardAdminsLazyImport = createFileRoute('/_dashboard/admins')()
 
@@ -93,14 +93,6 @@ const DashboardTopologyLazyRoute = DashboardTopologyLazyImport.update({
   import('./routes/_dashboard/topology.lazy').then((d) => d.Route),
 )
 
-const DashboardBridgeHealthLazyRoute = DashboardBridgeHealthLazyImport.update({
-  id: '/bridge-health',
-  path: '/bridge-health',
-  getParentRoute: () => DashboardRoute,
-} as any).lazy(() =>
-  import('./routes/_dashboard/bridge-health.lazy').then((d) => d.Route),
-)
-
 const DashboardSettingsLazyRoute = DashboardSettingsLazyImport.update({
   id: '/settings',
   path: '/settings',
@@ -131,6 +123,14 @@ const DashboardHostsLazyRoute = DashboardHostsLazyImport.update({
   getParentRoute: () => DashboardRoute,
 } as any).lazy(() =>
   import('./routes/_dashboard/hosts.lazy').then((d) => d.Route),
+)
+
+const DashboardBridgeHealthLazyRoute = DashboardBridgeHealthLazyImport.update({
+  id: '/bridge-health',
+  path: '/bridge-health',
+  getParentRoute: () => DashboardRoute,
+} as any).lazy(() =>
+  import('./routes/_dashboard/bridge-health.lazy').then((d) => d.Route),
 )
 
 const DashboardAiLazyRoute = DashboardAiLazyImport.update({
@@ -358,6 +358,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAiLazyImport
       parentRoute: typeof DashboardImport
     }
+    '/_dashboard/bridge-health': {
+      id: '/_dashboard/bridge-health'
+      path: '/bridge-health'
+      fullPath: '/bridge-health'
+      preLoaderRoute: typeof DashboardBridgeHealthLazyImport
+      parentRoute: typeof DashboardImport
+    }
     '/_dashboard/hosts': {
       id: '/_dashboard/hosts'
       path: '/hosts'
@@ -384,13 +391,6 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof DashboardSettingsLazyImport
-      parentRoute: typeof DashboardImport
-    }
-    '/_dashboard/bridge-health': {
-      id: '/_dashboard/bridge-health'
-      path: '/bridge-health'
-      fullPath: '/bridge-health'
-      preLoaderRoute: typeof DashboardBridgeHealthLazyImport
       parentRoute: typeof DashboardImport
     }
     '/_dashboard/topology': {
@@ -756,12 +756,12 @@ const DashboardUsersLazyRouteWithChildren =
 interface DashboardRouteChildren {
   DashboardAdminsLazyRoute: typeof DashboardAdminsLazyRouteWithChildren
   DashboardAiLazyRoute: typeof DashboardAiLazyRoute
+  DashboardBridgeHealthLazyRoute: typeof DashboardBridgeHealthLazyRoute
   DashboardHostsLazyRoute: typeof DashboardHostsLazyRouteWithChildren
   DashboardNodesLazyRoute: typeof DashboardNodesLazyRouteWithChildren
   DashboardServicesLazyRoute: typeof DashboardServicesLazyRouteWithChildren
   DashboardSettingsLazyRoute: typeof DashboardSettingsLazyRoute
   DashboardTopologyLazyRoute: typeof DashboardTopologyLazyRoute
-  DashboardBridgeHealthLazyRoute: typeof DashboardBridgeHealthLazyRoute
   DashboardUsersLazyRoute: typeof DashboardUsersLazyRouteWithChildren
   DashboardIndexLazyRoute: typeof DashboardIndexLazyRoute
 }
@@ -769,12 +769,12 @@ interface DashboardRouteChildren {
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAdminsLazyRoute: DashboardAdminsLazyRouteWithChildren,
   DashboardAiLazyRoute: DashboardAiLazyRoute,
+  DashboardBridgeHealthLazyRoute: DashboardBridgeHealthLazyRoute,
   DashboardHostsLazyRoute: DashboardHostsLazyRouteWithChildren,
   DashboardNodesLazyRoute: DashboardNodesLazyRouteWithChildren,
   DashboardServicesLazyRoute: DashboardServicesLazyRouteWithChildren,
   DashboardSettingsLazyRoute: DashboardSettingsLazyRoute,
   DashboardTopologyLazyRoute: DashboardTopologyLazyRoute,
-  DashboardBridgeHealthLazyRoute: DashboardBridgeHealthLazyRoute,
   DashboardUsersLazyRoute: DashboardUsersLazyRouteWithChildren,
   DashboardIndexLazyRoute: DashboardIndexLazyRoute,
 }
@@ -788,12 +788,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/admins': typeof DashboardAdminsLazyRouteWithChildren
   '/ai': typeof DashboardAiLazyRoute
+  '/bridge-health': typeof DashboardBridgeHealthLazyRoute
   '/hosts': typeof DashboardHostsLazyRouteWithChildren
   '/nodes': typeof DashboardNodesLazyRouteWithChildren
   '/services': typeof DashboardServicesLazyRouteWithChildren
   '/settings': typeof DashboardSettingsLazyRoute
   '/topology': typeof DashboardTopologyLazyRoute
-  '/bridge-health': typeof DashboardBridgeHealthLazyRoute
   '/users': typeof DashboardUsersLazyRouteWithChildren
   '/': typeof DashboardIndexLazyRoute
   '/admins/$adminId': typeof DashboardAdminsAdminIdRouteWithChildren
@@ -828,12 +828,12 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/admins': typeof DashboardAdminsLazyRouteWithChildren
   '/ai': typeof DashboardAiLazyRoute
+  '/bridge-health': typeof DashboardBridgeHealthLazyRoute
   '/hosts': typeof DashboardHostsLazyRouteWithChildren
   '/nodes': typeof DashboardNodesLazyRouteWithChildren
   '/services': typeof DashboardServicesLazyRouteWithChildren
   '/settings': typeof DashboardSettingsLazyRoute
   '/topology': typeof DashboardTopologyLazyRoute
-  '/bridge-health': typeof DashboardBridgeHealthLazyRoute
   '/users': typeof DashboardUsersLazyRouteWithChildren
   '/': typeof DashboardIndexLazyRoute
   '/admins/create': typeof DashboardAdminsCreateRoute
@@ -865,12 +865,12 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_dashboard/admins': typeof DashboardAdminsLazyRouteWithChildren
   '/_dashboard/ai': typeof DashboardAiLazyRoute
+  '/_dashboard/bridge-health': typeof DashboardBridgeHealthLazyRoute
   '/_dashboard/hosts': typeof DashboardHostsLazyRouteWithChildren
   '/_dashboard/nodes': typeof DashboardNodesLazyRouteWithChildren
   '/_dashboard/services': typeof DashboardServicesLazyRouteWithChildren
   '/_dashboard/settings': typeof DashboardSettingsLazyRoute
   '/_dashboard/topology': typeof DashboardTopologyLazyRoute
-  '/_dashboard/bridge-health': typeof DashboardBridgeHealthLazyRoute
   '/_dashboard/users': typeof DashboardUsersLazyRouteWithChildren
   '/_dashboard/': typeof DashboardIndexLazyRoute
   '/_dashboard/admins/$adminId': typeof DashboardAdminsAdminIdRouteWithChildren
@@ -907,12 +907,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/admins'
     | '/ai'
+    | '/bridge-health'
     | '/hosts'
     | '/nodes'
     | '/services'
     | '/settings'
     | '/topology'
-    | '/bridge-health'
     | '/users'
     | '/'
     | '/admins/$adminId'
@@ -946,12 +946,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/admins'
     | '/ai'
+    | '/bridge-health'
     | '/hosts'
     | '/nodes'
     | '/services'
     | '/settings'
     | '/topology'
-    | '/bridge-health'
     | '/users'
     | '/'
     | '/admins/create'
@@ -981,12 +981,12 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_dashboard/admins'
     | '/_dashboard/ai'
+    | '/_dashboard/bridge-health'
     | '/_dashboard/hosts'
     | '/_dashboard/nodes'
     | '/_dashboard/services'
     | '/_dashboard/settings'
     | '/_dashboard/topology'
-    | '/_dashboard/bridge-health'
     | '/_dashboard/users'
     | '/_dashboard/'
     | '/_dashboard/admins/$adminId'
@@ -1052,12 +1052,12 @@ export const routeTree = rootRoute
       "children": [
         "/_dashboard/admins",
         "/_dashboard/ai",
+        "/_dashboard/bridge-health",
         "/_dashboard/hosts",
         "/_dashboard/nodes",
         "/_dashboard/services",
         "/_dashboard/settings",
         "/_dashboard/topology",
-        "/_dashboard/bridge-health",
         "/_dashboard/users",
         "/_dashboard/"
       ]
@@ -1076,6 +1076,10 @@ export const routeTree = rootRoute
     },
     "/_dashboard/ai": {
       "filePath": "_dashboard/ai.lazy.tsx",
+      "parent": "/_dashboard"
+    },
+    "/_dashboard/bridge-health": {
+      "filePath": "_dashboard/bridge-health.lazy.tsx",
       "parent": "/_dashboard"
     },
     "/_dashboard/hosts": {
@@ -1108,10 +1112,6 @@ export const routeTree = rootRoute
     },
     "/_dashboard/topology": {
       "filePath": "_dashboard/topology.lazy.tsx",
-      "parent": "/_dashboard"
-    },
-    "/_dashboard/bridge-health": {
-      "filePath": "_dashboard/bridge-health.lazy.tsx",
       "parent": "/_dashboard"
     },
     "/_dashboard/users": {

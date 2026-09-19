@@ -1,6 +1,4 @@
-import {
-    OpenInNewWindowIcon,
-} from "@radix-ui/react-icons"
+import { ExternalLink as OpenInNewWindowIcon } from "lucide-react";
 import { Row } from "@tanstack/react-table"
 
 import {

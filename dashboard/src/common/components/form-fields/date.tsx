@@ -1,6 +1,6 @@
 import { type FC, useEffect, useState } from "react";
 import { format } from "date-fns";
-import { CalendarIcon } from "@radix-ui/react-icons";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@marzneshin/common/utils";
 import { useFormContext, type FieldValues } from "react-hook-form";
 import { useTranslation } from "react-i18next";

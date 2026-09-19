@@ -49,13 +49,18 @@ export const ConfigEditor: FC<ConfigEditorProps> = ({ entity, backend }) => {
 
     const blockConfig = useBlockConfig(isJson ? parseConfig(data) : "{}");
 
+    // Зависеть от самого blockConfig нельзя: объект пересоздаётся на каждый
+    // рендер, то есть на каждое нажатие клавиши, и эффект затирал бы правку
+    // пользователя свежеразобранным конфигом. syncFromConfig стабилен
+    // (useCallback без зависимостей) — от него и зависим.
+    const { syncFromConfig } = blockConfig;
     useEffect(() => {
         if (!isFetching && data.config) {
             const parsed = parseConfig(data);
             setRawConfig(parsed);
-            if (isJson) blockConfig.syncFromConfig(parsed);
+            if (isJson) syncFromConfig(parsed);
         }
-    }, [isFetching, data, isJson]);
+    }, [isFetching, data, isJson, syncFromConfig]);
 
     const handleModeChange = useCallback(
         (val: string) => {

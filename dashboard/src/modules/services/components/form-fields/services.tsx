@@ -13,7 +13,7 @@ import {
     Awaiting
 } from "@marzneshin/common/components";
 import { Link } from "@tanstack/react-router";
-import { ExclamationTriangleIcon } from '@radix-ui/react-icons';
+import { AlertTriangle as ExclamationTriangleIcon } from "lucide-react";
 import {
     useServicesQuery,
     type ServiceType,

@@ -8,7 +8,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@marzneshin/common/components";
-import { ExclamationTriangleIcon } from "@radix-ui/react-icons";
+import { AlertTriangle as ExclamationTriangleIcon } from "lucide-react";
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
 
