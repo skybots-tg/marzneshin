@@ -37,6 +37,7 @@ def fleet(monkeypatch):
     node_drift._streak.clear()
     node_drift._last_alert.clear()
     node_drift._unsupported.clear()
+    node_drift._seen.clear()
 
     expected = {"value": (1, "expected-digest")}
     monkeypatch.setattr(node_drift, "_expected", lambda node_id: expected["value"])
@@ -59,6 +60,7 @@ def fleet(monkeypatch):
         node_drift._streak.clear()
         node_drift._last_alert.clear()
         node_drift._unsupported.clear()
+        node_drift._seen.clear()
 
 
 @pytest.mark.asyncio
@@ -170,3 +172,17 @@ async def test_an_unreachable_node_is_somebody_elses_alert(fleet):
 
     assert node.resyncs == 0
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_a_node_announces_itself_once(fleet, caplog):
+    """Во время раскатки нового marznode это единственный сигнал прогресса."""
+    register, _, _ = fleet
+    register(_Node("expected-digest"))
+
+    with caplog.at_level("INFO"):
+        await node_drift.check_node_drift()
+        await node_drift.check_node_drift()
+
+    said = [r for r in caplog.records if "сверка набора юзеров включилась" in r.message]
+    assert len(said) == 1

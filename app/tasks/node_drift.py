@@ -39,6 +39,10 @@ _streak: dict[int, int] = {}
 _last_alert: dict[int, float] = {}
 # Ноды со старым marznode: сказать один раз и больше не трогать.
 _unsupported: set[int] = set()
+# Ноды, с которыми сверка уже разговаривала: чтобы про включение сказать один
+# раз, а не каждые пять минут. Во время раскатки нового marznode по парку это
+# единственный сигнал, что нода доехала.
+_seen: set[int] = set()
 
 
 def _expected(node_id: int) -> tuple[int, str]:
@@ -73,6 +77,10 @@ async def _check_one(node_id: int, node) -> None:
         logger.debug("node %d: digest unavailable (%s)", node_id, exc)
         _streak.pop(node_id, None)
         return
+
+    if node_id not in _seen:
+        _seen.add(node_id)
+        logger.info("node %d: сверка набора юзеров включилась", node_id)
 
     want_count, want_digest = await asyncio.to_thread(_expected, node_id)
 
