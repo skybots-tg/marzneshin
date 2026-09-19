@@ -47,8 +47,12 @@ const DialogContent = React.forwardRef<
                 {...props}
             >
                 <div className={cn(
-                    "relative grid w-full gap-5 rounded-2xl bg-card p-7 max-h-[calc(100vh-3rem)] overflow-y-auto",
-                    "shadow-apple-float border-[0.5px] border-black/[0.04] dark:border-white/[0.06]",
+                    // На телефоне 28 точек внутреннего поля съедали треть
+                    // ширины формы, а 100vh в Safari считается по экрану без
+                    // адресной строки — низ диалога уезжал под неё.
+                    "relative grid w-full gap-4 sm:gap-5 rounded-2xl bg-card p-5 sm:p-7",
+                    "max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto",
+                    "shadow-apple-float border-[0.5px] border-border",
                     "animate-apple-fade-in",
                     maxWClass
                 )}>

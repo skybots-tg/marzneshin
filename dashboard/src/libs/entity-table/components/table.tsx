@@ -16,6 +16,8 @@ import { useTranslation } from "react-i18next";
 import { useEntityTableContext } from "@marzneshin/libs/entity-table/contexts";
 import { type FC } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
+import { useScreenBreakpoint } from "@marzneshin/common/hooks";
+import { EntityCards } from "./entity-cards";
 
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
@@ -110,7 +112,20 @@ export function EntityDataTable<TData, TValue>({
     getRowClassName,
 }: Readonly<DataTableProps<TData, TValue>>) {
     const { isLoading, isError } = useEntityTableContext();
+    const isDesktop = useScreenBreakpoint("md");
     const columnCount = columns.length;
+
+    // Таблица на телефоне — это горизонтальная прокрутка и ничего больше:
+    // у узлов тринадцать колонок. Те же строки, разложенные карточками,
+    // читаются без прокрутки вовсе.
+    if (!isDesktop) {
+        return (
+            <EntityCards
+                onRowClick={onRowClick}
+                getRowClassName={getRowClassName}
+            />
+        );
+    }
 
     return (
         <Table className="w-full">

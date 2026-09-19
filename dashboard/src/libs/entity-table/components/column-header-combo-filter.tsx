@@ -1,6 +1,7 @@
 import * as React from "react"
 import { type Column } from "@tanstack/react-table";
 import { useEntityTableContext } from "../contexts";
+import { useColumnLabelMode } from "../contexts/column-label-mode";
 import { useScreenBreakpoint } from "@marzneshin/common/hooks";
 import { useTranslation } from "react-i18next";
 import {
@@ -32,11 +33,17 @@ export function DataTableColumnHeaderFilterOption<TData, TValue>(
     { title, column, options }: DataTableColumnHeaderFilterOptionProps<TData, TValue>
 ) {
     const [open, setOpen] = React.useState(false)
+    const labelMode = useColumnLabelMode();
     const isDesktop = useScreenBreakpoint("md");
     const [selectedOption, setSelectedOption] = React.useState<string | null>(
         null
     )
     const { filters, table: { setPageIndex } } = useEntityTableContext();
+
+    // Все хуки объявлены выше: ранний возврат не меняет их порядок.
+    if (labelMode) {
+        return <>{title}</>;
+    }
 
     function handleClearingFilter() {
         filters.setColumnsFilter({ ...filters.columnsFilter, [column.id]: undefined });

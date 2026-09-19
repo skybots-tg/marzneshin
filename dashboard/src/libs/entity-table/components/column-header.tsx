@@ -12,6 +12,7 @@ import {
 } from "@marzneshin/common/components"
 import { cn } from "@marzneshin/common/utils"
 import { useTranslation } from "react-i18next"
+import { useColumnLabelMode } from "../contexts/column-label-mode"
 
 interface DataTableColumnHeaderProps<TData, TValue>
     extends React.HTMLAttributes<HTMLDivElement> {
@@ -25,6 +26,11 @@ export function DataTableColumnHeader<TData, TValue>({
     className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
     const { t } = useTranslation();
+    const labelMode = useColumnLabelMode();
+
+    if (labelMode) {
+        return <>{title}</>;
+    }
 
     if (!column.getCanSort()) {
         return <div className={cn(className)}>{title}</div>

@@ -9,3 +9,4 @@ export * from "./table-filtering";
 export * from "./sidebar-entity-card";
 export * from "./sidebar-entity-popover";
 export * from "./sidebar-entity-selection";
+export * from "./entity-cards";
