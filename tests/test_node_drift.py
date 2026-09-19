@@ -144,6 +144,24 @@ async def test_an_old_node_is_skipped_once_and_never_asked_again(fleet):
 
 
 @pytest.mark.asyncio
+async def test_an_upgraded_node_is_asked_again_without_a_panel_restart(fleet):
+    """Иначе сверку после обновления ноды включает только рестарт панели."""
+    register, _, _ = fleet
+    node = register(_Node("", supports=False))
+
+    await node_drift.check_node_drift()
+    assert 77 in node_drift._unsupported
+
+    node._supports = True
+    node._digest = "expected-digest"
+    # Час прошёл.
+    node_drift._unsupported[77] -= node_drift.UNSUPPORTED_RETRY + 1
+    await node_drift.check_node_drift()
+
+    assert 77 not in node_drift._unsupported
+
+
+@pytest.mark.asyncio
 async def test_an_unsynced_node_is_not_judged(fleet):
     """Нода без живого стрима и так получит полную выгрузку при коннекте."""
     register, sent, _ = fleet

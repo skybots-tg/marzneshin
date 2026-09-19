@@ -32,13 +32,17 @@ logger = logging.getLogger(__name__)
 CONFIRMATIONS = 2
 # Одна нода не должна слать письмо каждые пять минут, если течёт постоянно.
 ALERT_COOLDOWN = 3600
+# Через сколько переспросить ноду, ответившую UNIMPLEMENTED. Без этого сверку
+# после обновления ноды пришлось бы включать рестартом панели — и кто-нибудь
+# однажды потратит на это вечер, не догадавшись, почему нода молчит.
+UNSUPPORTED_RETRY = 3600
 
 # node_id -> сколько тиков подряд отпечатки расходятся
 _streak: dict[int, int] = {}
 # node_id -> когда последний раз о нём писали
 _last_alert: dict[int, float] = {}
-# Ноды со старым marznode: сказать один раз и больше не трогать.
-_unsupported: set[int] = set()
+# Ноды со старым marznode -> когда их об этом спросили в последний раз.
+_unsupported: dict[int, float] = {}
 # Ноды, с которыми сверка уже разговаривала: чтобы про включение сказать один
 # раз, а не каждые пять минут. Во время раскатки нового marznode по парку это
 # единственный сигнал, что нода доехала.
@@ -51,8 +55,12 @@ def _expected(node_id: int) -> tuple[int, str]:
 
 
 async def check_node_drift() -> None:
+    now = time.time()
     for node_id, node in node_registry.items():
-        if node_id in _unsupported or not getattr(node, "synced", False):
+        asked = _unsupported.get(node_id)
+        if asked is not None and now - asked < UNSUPPORTED_RETRY:
+            continue
+        if not getattr(node, "synced", False):
             continue
         try:
             await _check_one(node_id, node)
@@ -66,8 +74,10 @@ async def _check_one(node_id: int, node) -> None:
     try:
         node_count, node_digest = await node.get_users_digest()
     except NotImplementedError:
-        _unsupported.add(node_id)
-        logger.info(
+        first_time = node_id not in _unsupported
+        _unsupported[node_id] = time.time()
+        log = logger.info if first_time else logger.debug
+        log(
             "node %d: старый marznode без GetUsersDigest, сверка пропускается",
             node_id,
         )
@@ -78,6 +88,7 @@ async def _check_one(node_id: int, node) -> None:
         _streak.pop(node_id, None)
         return
 
+    _unsupported.pop(node_id, None)
     if node_id not in _seen:
         _seen.add(node_id)
         logger.info("node %d: сверка набора юзеров включилась", node_id)
