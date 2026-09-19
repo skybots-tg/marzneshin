@@ -8,7 +8,12 @@ const AuthLayout = () => {
         <Outlet />
       </div>
       <div className='hidden justify-center items-center w-full h-full md:flex bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 dark:from-primary/8 dark:via-primary/15 dark:to-primary/5'>
-        <img src={network} className="w-2/5 h-2/5 opacity-80" />
+        <img
+          src={network}
+          alt=""
+          aria-hidden="true"
+          className="w-2/5 h-2/5 opacity-80 dark:opacity-25 dark:invert dark:hue-rotate-180"
+        />
       </div>
     </div>
   )

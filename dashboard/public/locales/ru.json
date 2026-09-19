@@ -1,4 +1,11 @@
 {
+  "retry": "Повторить",
+  "go-back": "Назад",
+  "login-description": "Войдите в свою учётную запись",
+  "submission-failed": "Не удалось отправить",
+  "search-placeholder": "Введите команду или запрос…",
+  "no-results-found": "Ничего не найдено.",
+  "not-found": "{{entity}} не найден",
   "name": "Имя",
   "info": "Информация",
   "status": "Статус",
@@ -824,6 +831,15 @@
     "desc": "Это действие нельзя отменить."
   },
   "table": {
+    "error": "Не удалось загрузить данные",
+    "page-info": "Страница {{current}} из {{total}}",
+    "go-to-first-page": "В начало",
+    "go-to-previous-page": "Предыдущая страница",
+    "go-to-next-page": "Следующая страница",
+    "go-to-last-page": "В конец",
+    "sort-asc": "По возрастанию",
+    "sort-desc": "По убыванию",
+    "hide-column": "Скрыть",
     "no-result-found": "Результатов не найдено.",
     "row-per-page": "Строк на страницу",
     "no-result": "Нет результата",

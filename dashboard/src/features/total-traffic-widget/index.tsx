@@ -32,8 +32,14 @@ export const TotalTrafficsWidget: FC = () => {
     const [timeRange, setTimeRange] = useState("1d")
     const { start, end } = useFromNowInterval(timeRange as ChartDateInterval);
     const { data, isPending } = useTotalTrafficQuery({ start, end })
-    const chartData = useTransformDateUsageData(data.usages);
-    const [totalAmount, totalMetric] = formatByte(data.total);
+    // initialData спасает только от отсутствия ответа. Ответ неверной формы
+    // она не ловит: во время деплоя панели nginx отдаёт свою HTML-страницу с
+    // кодом 502, ofetch возвращает эту строку, и `data.usages` оказывается
+    // undefined — .map по нему роняет всю главную, а не один виджет.
+    const usages = Array.isArray(data?.usages) ? data.usages : [];
+    const total = typeof data?.total === "number" ? data.total : 0;
+    const chartData = useTransformDateUsageData(usages);
+    const [totalAmount, totalMetric] = formatByte(total);
 
     return (
         <Awaiting

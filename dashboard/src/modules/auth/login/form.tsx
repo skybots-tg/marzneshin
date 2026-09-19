@@ -67,7 +67,7 @@ export const LoginForm = () => {
                     name="username"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel className="font-semibold text-primary">{t('username')}</FormLabel>
+                            <FormLabel className="text-muted-foreground">{t('username')}</FormLabel>
                             <FormControl>
                                 <Input type="text" {...field} />
                             </FormControl>
@@ -80,7 +80,7 @@ export const LoginForm = () => {
                     name="password"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel className="font-semibold text-primary">{t('password')}</FormLabel>
+                            <FormLabel className="text-muted-foreground">{t('password')}</FormLabel>
                             <FormControl>
                                 <Input type="password" {...field} />
                             </FormControl>

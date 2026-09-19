@@ -8,7 +8,7 @@ import { Suspense } from 'react'
 export const Route = createRootRoute({
     component: () => (
         <QueryClientProvider client={queryClient}>
-            <ThemeProvider defaultTheme="light" storageKey="ui-theme">
+            <ThemeProvider defaultTheme="dark" storageKey="ui-theme">
                 <TooltipProvider>
                     <Suspense fallback={<Loading />}>
                         <Outlet />

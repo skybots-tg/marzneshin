@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin';
 import tsconfigPaths from 'vite-tsconfig-paths';
@@ -16,6 +16,9 @@ function checkTagIsHead(): boolean {
 
 export default defineConfig(({ mode }) => {
     const dev = mode === "development";
+    const devApiProxy = dev
+        ? loadEnv(mode, process.cwd(), 'VITE_').VITE_DEV_API_PROXY
+        : undefined;
 
     let latestVersion = process.env.VITE_LATEST_APP_VERSION;
 
@@ -43,6 +46,21 @@ export default defineConfig(({ mode }) => {
             assetsDir: 'static',
             outDir: 'dist'
         },
+        // Дев-сервер без бэкенда бесполезен: половина страниц — это таблицы
+        // с данными. Прокси позволяет смотреть на живую панель, не поднимая
+        // её локально. Адрес берётся из VITE_DEV_API_PROXY, в репозитории
+        // никаких хостов не зашито; без переменной прокси просто нет.
+        server: devApiProxy
+            ? {
+                proxy: {
+                    "/api": {
+                        target: devApiProxy,
+                        changeOrigin: true,
+                        secure: true,
+                    },
+                },
+            }
+            : undefined,
         resolve: {
             alias: [
                 {
