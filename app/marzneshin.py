@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi_pagination import add_pagination
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.staticfiles import StaticFiles
 from uvicorn import Config, Server
 
@@ -25,6 +26,27 @@ from .tasks import nodes_startup
 from .webhooks import webhooks_router
 
 logger = logging.getLogger(__name__)
+
+
+class SPAStaticFiles(StaticFiles):
+    """Отдавать index.html на любой неизвестный путь внутри дашборда.
+
+    ``StaticFiles(html=True)`` понимает только каталоги: на ``/dashboard/``
+    он вернёт ``index.html``, а на ``/dashboard/nodes`` — 404, потому что
+    такого файла на диске нет. Маршруты дашборда клиентские и существуют
+    только после того, как ``index.html`` загрузился, поэтому открыть раздел
+    по ссылке или просто обновить страницу было нельзя: в ответ приходило
+    ``{"detail": "Not Found"}``. Ровно на это натыкается каждый, кто нажмёт
+    F5 не на главной.
+    """
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 scheduler = create_scheduler()
 
@@ -82,7 +104,7 @@ async def main():
     if not settings.debug:
         app.mount(
             settings.dashboard_path,
-            StaticFiles(directory="dashboard/dist", html=True),
+            SPAStaticFiles(directory="dashboard/dist", html=True),
             name="dashboard",
         )
         app.mount(
