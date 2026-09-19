@@ -107,7 +107,9 @@ def modify_service(
     - **inbounds** list of inbound ids. if not specified no change will be applied;
     in case of an empty list all inbounds would be removed.
     """
-    old_inbounds = {(i.node_id, i.protocol, i.tag) for i in service.inbounds}
+    # Nodes that lose or gain users because of this edit: everything the
+    # service pointed at before, plus everything it points at after.
+    affected_nodes = {i.node_id for i in service.inbounds}
     try:
         response = crud.update_service(db, service, modification)
     except sqlalchemy.exc.IntegrityError:
@@ -116,15 +118,23 @@ def modify_service(
             status_code=409, detail="problem updating the service"
         )
     else:
-        for user in response.users:
-            if user.activated:
-                marznode.operations.update_user(
-                    user, old_inbounds=old_inbounds, db=db
-                )
+        affected_nodes |= {i.node_id for i in response.inbounds}
+        # Reconcile per node rather than per user. The per-user fan-out this
+        # replaced pushed one stream message per user per node and looked up
+        # that user's device fingerprints with its own query, so editing a
+        # service with a few thousand users meant a few thousand queries
+        # inside the request and a burst of updates the node could not
+        # absorb -- which is how an added inbound reached only some of the
+        # service's users.
+        marznode.operations.resync_nodes(affected_nodes)
         return response
 
 
 @router.delete("/{id}")
 def remove_service(service: ServiceDep, db: DBDep, admin: SudoAdminDep):
+    # Read the node ids before the delete: afterwards the association rows
+    # are gone and there is nothing left to tell us whom to reconcile.
+    affected_nodes = {i.node_id for i in service.inbounds}
     crud.remove_service(db, service)
+    marznode.operations.resync_nodes(affected_nodes)
     return dict()

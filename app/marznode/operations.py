@@ -53,6 +53,36 @@ def update_user(
             )
 
 
+async def _resync_node(node_id: int, node) -> None:
+    try:
+        await node.resync_users()
+    except Exception as exc:  # noqa: BLE001 - diagnostics only
+        logger.warning(
+            "node %d: bulk resync failed (%s: %s); the node keeps its "
+            "current user set until the next reconnect",
+            node_id,
+            type(exc).__name__,
+            exc,
+        )
+
+
+def resync_nodes(node_ids) -> None:
+    """Reconcile the complete user list on each of ``node_ids``.
+
+    One ``RepopulateUsers`` call per node instead of one ``SyncUsers``
+    message per user per node. Used by the bulk paths -- editing or
+    deleting a service changes access for every user holding it -- where
+    the per-user fan-out costs a database round trip per user and, on the
+    node side, arrives as thousands of stream messages. ``RepopulateUsers``
+    is what the reconnect path already sends, and marznode diffs it against
+    its own storage, so users whose access did not change cost nothing.
+    """
+    for node_id in set(node_ids):
+        node = node_registry.get(node_id)
+        if node:
+            fire_and_forget(_resync_node(node_id, node))
+
+
 def _get_allowed_fingerprints(user_id: int, db=None) -> list[str]:
     """Get list of allowed device fingerprints for user."""
     from app.db import device_crud
@@ -97,4 +127,10 @@ async def add_node(db_node, certificate):
     await _add(db_node, certificate)
 
 
-__all__ = ["update_user", "remove_user_from_nodes", "add_node", "remove_node"]
+__all__ = [
+    "update_user",
+    "remove_user_from_nodes",
+    "resync_nodes",
+    "add_node",
+    "remove_node",
+]

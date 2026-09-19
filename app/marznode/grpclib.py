@@ -12,6 +12,7 @@ from grpclib.exceptions import StreamTerminatedError
 
 from .base import MarzNodeBase
 from .database import MarzNodeDB
+from .update_buffer import PendingUserUpdates
 from .marznode_grpc import MarzServiceStub
 from .marznode_pb2 import (
     UserData,
@@ -124,7 +125,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         self._monitor_task = asyncio.create_task(self._monitor_channel())
         self._streaming_task = None
 
-        self._updates_queue = asyncio.Queue(1)
+        self._pending_updates = PendingUserUpdates(node_id)
         self.synced = False
         self.usage_coefficient = usage_coefficient
         # Ring buffer of recent sync/runtime errors. Drives the AI tool
@@ -306,7 +307,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             async with self._stub.SyncUsers.open() as stream:
                 logger.debug("opened the stream")
                 while True:
-                    user_update = await self._updates_queue.get()
+                    user_update = await self._pending_updates.pop()
                     logger.debug("got something from queue")
                     user = user_update["user"]
 
@@ -339,7 +340,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             # Catch-all so a transient internal error (e.g. AttributeError
             # from grpclib/h2 on a torn-down channel) does not silently
             # kill the streaming task and leave self.synced=True forever,
-            # which would deadlock the bounded _updates_queue.
+            # which would strand every later update in the pending buffer.
             logger.exception(
                 "node %i: unexpected error in _stream_user_updates", self.id
             )
@@ -350,6 +351,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             self._force_close_channel()
         finally:
             self.synced = False
+            self._pending_updates.clear()
 
     async def update_user(
         self,
@@ -363,11 +365,10 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         if allowed_fingerprints is None:
             allowed_fingerprints = []
 
-        # If the streaming task is dead (e.g. channel was torn down), the
-        # bounded queue would silently fill up and every subsequent
-        # update_user() would deadlock. Drop the update with a clear log
-        # instead of blocking forever — the next reconcile cycle on the
-        # node side and/or _monitor_channel reconnect will fix state.
+        # With no live stream there is nothing to hand the update to, and
+        # buffering it would only grow a backlog describing a node state
+        # that the reconnect path rebuilds from scratch anyway. Drop it with
+        # a clear log; ``_sync`` replays the full user list on reconnect.
         streaming_alive = (
             self._streaming_task is not None and not self._streaming_task.done()
         )
@@ -388,15 +389,7 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             )
             return
 
-        try:
-            self._updates_queue.put_nowait(payload)
-        except asyncio.QueueFull:
-            logger.warning(
-                "Node %i: _updates_queue full, dropping user update for "
-                "id=%s — node likely behind, will be resynced on reconnect",
-                self.id,
-                getattr(user, "id", "?"),
-            )
+        self._pending_updates.push(payload)
 
     async def _repopulate_users(self, users_data: list[dict]) -> None:
         updates = []

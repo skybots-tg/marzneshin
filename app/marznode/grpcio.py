@@ -9,6 +9,7 @@ from grpc.aio import insecure_channel
 
 from .base import MarzNodeBase
 from .database import MarzNodeDB
+from .update_buffer import PendingUserUpdates
 from .marznode_pb2 import (
     UserData,
     UsersData,
@@ -56,7 +57,7 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         self._monitor_task = asyncio.create_task(self._monitor_channel())
         self._streaming_task = None
 
-        self._updates_queue = asyncio.Queue(5)
+        self._pending_updates = PendingUserUpdates(node_id)
         self.synced = False
         self.usage_coefficient = usage_coefficient
         atexit.register(self._close_channel)
@@ -127,7 +128,7 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         try:
             stream = self._stub.SyncUsers()
             while True:
-                user_update = await self._updates_queue.get()
+                user_update = await self._pending_updates.pop()
                 logger.debug("got something from queue")
                 user = user_update["user"]
                 try:
@@ -161,12 +162,13 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
             # Catch-all so transient internal errors (e.g. AttributeError
             # from grpc internals on a torn-down channel) do not silently
             # kill the streaming task and leave self.synced=True forever,
-            # which would deadlock the bounded _updates_queue.
+            # which would strand every later update in the pending buffer.
             logger.exception(
                 "node %i: unexpected error in _stream_user_updates", self.id
             )
         finally:
             self.synced = False
+            self._pending_updates.clear()
             try:
                 await self._set_unhealthy()
             except Exception:
@@ -187,8 +189,9 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
         if allowed_fingerprints is None:
             allowed_fingerprints = []
 
-        # See grpclib.py update_user() for the rationale: avoid blocking
-        # forever on a dead streaming task that nobody is draining.
+        # See grpclib.py update_user() for the rationale: with no live
+        # stream there is nothing to hand the update to, and the reconnect
+        # path rebuilds the node's user list from scratch anyway.
         streaming_alive = (
             self._streaming_task is not None and not self._streaming_task.done()
         )
@@ -209,15 +212,7 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
             )
             return
 
-        try:
-            self._updates_queue.put_nowait(payload)
-        except asyncio.QueueFull:
-            logger.warning(
-                "Node %i: _updates_queue full, dropping user update for "
-                "id=%s — node likely behind, will be resynced on reconnect",
-                self.id,
-                getattr(user, "id", "?"),
-            )
+        self._pending_updates.push(payload)
 
     async def _repopulate_users(self, users_data: list[dict]) -> None:
         updates = []
