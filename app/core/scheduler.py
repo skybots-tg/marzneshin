@@ -16,6 +16,7 @@ from app.tasks import (
     expire_days_reached,
 )
 from app.tasks.bridge_watchdog_monitor import check_bridge_watchdog
+from app.tasks.node_drift import check_node_drift
 from app.tasks.node_traffic_collapse import check_node_traffic_collapse
 from app.tasks.node_traffic_monitor import check_node_traffic_silence
 from app.tasks.reality_front_monitor import check_reality_fronts
@@ -69,6 +70,7 @@ _check_node_traffic = single_instance(check_node_traffic_silence)
 _check_bridge_watchdog = single_instance(check_bridge_watchdog)
 _check_traffic_collapse = single_instance(check_node_traffic_collapse)
 _check_reality_fronts = single_instance(check_reality_fronts)
+_check_node_drift = single_instance(check_node_drift)
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -155,6 +157,17 @@ def create_scheduler() -> AsyncIOScheduler:
         _check_reality_fronts,
         "interval",
         seconds=3600,
+        coalesce=True,
+        max_instances=1,
+    )
+    # Отпечаток стоит один хэш, так что частота здесь ограничена не ценой
+    # запроса, а тем, что расхождение подтверждается двумя тиками подряд:
+    # пять минут дают реакцию за десять. Обновление, пойманное на лету,
+    # столько не живёт.
+    scheduler.add_job(
+        _check_node_drift,
+        "interval",
+        seconds=300,
         coalesce=True,
         max_instances=1,
     )

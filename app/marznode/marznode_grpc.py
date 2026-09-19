@@ -58,6 +58,10 @@ class MarzServiceBase(abc.ABC):
     async def GetSystemStats(self, stream: 'grpclib.server.Stream[app.marznode.marznode_pb2.Empty, app.marznode.marznode_pb2.SystemStats]') -> None:
         pass
 
+    @abc.abstractmethod
+    async def GetUsersDigest(self, stream: 'grpclib.server.Stream[app.marznode.marznode_pb2.Empty, app.marznode.marznode_pb2.UsersDigest]') -> None:
+        pass
+
     def __mapping__(self) -> typing.Dict[str, grpclib.const.Handler]:
         return {
             '/marznode.MarzService/SyncUsers': grpclib.const.Handler(
@@ -125,6 +129,12 @@ class MarzServiceBase(abc.ABC):
                 grpclib.const.Cardinality.UNARY_UNARY,
                 app.marznode.marznode_pb2.Empty,
                 app.marznode.marznode_pb2.SystemStats,
+            ),
+            '/marznode.MarzService/GetUsersDigest': grpclib.const.Handler(
+                self.GetUsersDigest,
+                grpclib.const.Cardinality.UNARY_UNARY,
+                app.marznode.marznode_pb2.Empty,
+                app.marznode.marznode_pb2.UsersDigest,
             ),
         }
 
@@ -197,4 +207,10 @@ class MarzServiceStub:
             '/marznode.MarzService/GetSystemStats',
             app.marznode.marznode_pb2.Empty,
             app.marznode.marznode_pb2.SystemStats,
+        )
+        self.GetUsersDigest = grpclib.client.UnaryUnaryMethod(
+            channel,
+            '/marznode.MarzService/GetUsersDigest',
+            app.marznode.marznode_pb2.Empty,
+            app.marznode.marznode_pb2.UsersDigest,
         )

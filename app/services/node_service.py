@@ -8,7 +8,7 @@ from app.models.node import NodeConnectionBackend
 logger = logging.getLogger(__name__)
 
 
-async def add_node(db_node, certificate) -> None:
+async def add_node(db_node, certificate, start_delay: float = 0.0) -> None:
     from app.marznode.database import _address_cache, _name_cache
 
     await remove_node(db_node.id)
@@ -21,6 +21,7 @@ async def add_node(db_node, certificate) -> None:
             db_node.address,
             db_node.port,
             usage_coefficient=db_node.usage_coefficient,
+            start_delay=start_delay,
         )
     else:
         node = MarzNodeGRPCLIB(
@@ -30,6 +31,7 @@ async def add_node(db_node, certificate) -> None:
             certificate.key,
             certificate.certificate,
             usage_coefficient=db_node.usage_coefficient,
+            start_delay=start_delay,
         )
 
     node_registry.register(db_node.id, node)

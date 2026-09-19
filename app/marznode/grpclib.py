@@ -29,6 +29,7 @@ from .marznode_pb2 import (
     UserDevicesHistory,
     AllUsersDevices,
     SystemStats,
+    UsersDigest,
 )
 from ..models.node import NodeStatus
 
@@ -106,8 +107,15 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         ssl_key: str,
         ssl_cert: str,
         usage_coefficient: int = 1,
+        start_delay: float = 0.0,
     ):
         self.id = node_id
+        # Задержка первого коннекта. Весь парк поднимается одной секундой, и
+        # каждая нода при первой сверке тянет из БД свой полный список юзеров
+        # — двадцать пять таких запросов разом упираются в семафор ровно
+        # тогда, когда панель после рестарта разгребает наплыв подписок.
+        # Ручное пересоздание ноды задержки не получает: там ждать нечего.
+        self._start_delay = start_delay
         self._address = address
         self._port = port
 
@@ -211,6 +219,8 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
         return min(RECONNECT_BASE_SEC * 2 ** min(n - 1, 8), RECONNECT_MAX_SEC)
 
     async def _monitor_channel(self):
+        if self._start_delay:
+            await asyncio.sleep(self._start_delay)
         while state := self._channel._state:
             logger.debug("node %i channel state: %s", self.id, state.value)
             try:
@@ -319,7 +329,12 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     device_limit = user_update.get("device_limit")
                     if device_limit is not None:
                         user_proto.device_limit = device_limit
-                        user_proto.enforce_device_limit = True
+                        try:
+                            user_proto.enforce_device_limit = True
+                        except (ValueError, AttributeError):
+                            # Поле появилось в proto позже некоторых образов; без
+                            # защиты присваивание рвёт весь стрим обновлений.
+                            pass
                     fingerprints = user_update.get("allowed_fingerprints")
                     if fingerprints:
                         user_proto.allowed_fingerprints.extend(fingerprints)
@@ -402,7 +417,12 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
             device_limit = u.get("device_limit")
             if device_limit is not None:
                 user_proto.device_limit = device_limit
-                user_proto.enforce_device_limit = True
+                try:
+                    user_proto.enforce_device_limit = True
+                except (ValueError, AttributeError):
+                    # Поле появилось в proto позже некоторых образов; без
+                    # защиты присваивание рвёт весь стрим обновлений.
+                    pass
             fingerprints = u.get("allowed_fingerprints")
             if fingerprints:
                 user_proto.allowed_fingerprints.extend(fingerprints)
@@ -538,6 +558,23 @@ class MarzNodeGRPCLIB(MarzNodeBase, MarzNodeDB):
                     "Node does not support FetchAllDevices — update the node software"
                 ) from e
             raise
+
+    async def get_users_digest(self) -> tuple[int, str]:
+        """(сколько юзеров, отпечаток) по хранилищу ноды.
+
+        Один хэш вместо выгрузки всего списка, поэтому сверять можно часто.
+        Ноды, не знающие этого RPC, поднимают NotImplementedError — вызывающий
+        решает, молчать про них или обновлять.
+        """
+        try:
+            response: UsersDigest = await self._stub.GetUsersDigest(Empty())
+        except GRPCError as e:
+            if "content-type" in str(e).lower() or e.status.value == 12:
+                raise NotImplementedError(
+                    "Node does not support GetUsersDigest — update the node software"
+                ) from e
+            raise
+        return response.count, response.digest
 
     async def resync_users(self) -> None:
         """Force resync all users with the node"""

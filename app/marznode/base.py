@@ -43,6 +43,10 @@ class MarzNodeBase(ABC):
         """Force resync all users with the node"""
         pass
 
+    async def get_users_digest(self) -> tuple[int, str]:
+        """(сколько юзеров, отпечаток) — как их видит сама нода."""
+        raise NotImplementedError
+
     async def get_system_stats(self):
         """Fetch a snapshot of system metrics (CPU/RAM/disk) from the node."""
         pass

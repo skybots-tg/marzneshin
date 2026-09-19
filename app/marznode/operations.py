@@ -121,10 +121,10 @@ async def remove_node(node_id: int):
     await node_registry.unregister(node_id)
 
 
-async def add_node(db_node, certificate):
+async def add_node(db_node, certificate, start_delay: float = 0.0):
     from app.services.node_service import add_node as _add
 
-    await _add(db_node, certificate)
+    await _add(db_node, certificate, start_delay=start_delay)
 
 
 __all__ = [

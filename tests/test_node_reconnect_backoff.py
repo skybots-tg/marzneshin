@@ -65,3 +65,30 @@ def test_a_permanent_outage_keeps_one_warning_in_twenty(caplog):
     # the first three attempts, then every twentieth
     assert len(warnings) == 3 + 2
     assert node._connect_fail_streak == RECONNECT_QUIET_EVERY * 2
+
+
+def test_the_fleet_does_not_wake_up_all_at_once():
+    """Первая сверка каждой ноды — тяжёлый запрос в БД под семафором на 10.
+
+    Двадцать пять таких запросов в одну секунду выстраиваются в очередь ровно
+    тогда, когда панель после рестарта разгребает наплыв подписок.
+    """
+    from app.tasks.nodes import (
+        STARTUP_STAGGER_MAX_SEC,
+        STARTUP_STAGGER_SEC,
+        startup_delay,
+    )
+
+    assert startup_delay(0) == 0
+    assert startup_delay(1) == STARTUP_STAGGER_SEC
+    # ...но сотая нода не ждёт минуту.
+    assert startup_delay(100) == STARTUP_STAGGER_MAX_SEC
+
+
+def test_a_node_re_added_by_hand_connects_immediately():
+    """Разброс — только для подъёма парка; ручное пересоздание ждать нечего."""
+    import inspect
+
+    from app.services.node_service import add_node
+
+    assert inspect.signature(add_node).parameters["start_delay"].default == 0.0
