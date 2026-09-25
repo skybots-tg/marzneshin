@@ -226,6 +226,13 @@ def merge(targets, per_vantage: dict, origins: dict[str, str] | None = None) -> 
         t.result["witnesses"] = len(views)
         t.result["vantages_ok"] = sorted(good)
         t.result["vantages_tried"] = sorted(views)
+        # The audience gives the verdict, but the others looked too. A server
+        # that nobody at all got through to -- neither the panel abroad nor the
+        # RU nodes -- is a stronger claim than "its own audience failed", and
+        # ``bridge_state`` needs both numbers to tell the two apart.
+        t.result["witnesses_all"] = len(by_vantage)
+        t.result["reached_anywhere"] = any(
+            v["verdict"] == "pass" for v in by_vantage.values())
         t.result["by_vantage"] = {
             k: {"verdict": v["verdict"],
                 "country": v.get("country") or v.get("error")}

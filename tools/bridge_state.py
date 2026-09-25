@@ -92,10 +92,16 @@ EXIT_COLLAPSE_RATIO = 0.1
 # says nothing about the far end; two legs from different entries do.
 EXIT_WIDE_MIN_LINKS = 2
 
+# Vantages that must all have failed a direct host before its node's lost gRPC
+# counts as corroboration: the panel plus at least one RU node. The FAST
+# verdict itself only listens to the panel, and the panel alone losing both
+# the node and the probe is one routing fault, not two witnesses.
+NODE_DOWN_MIN_WITNESSES = 2
+
 # Reasons whose evidence does not come from the probe alone. These are exempt
 # from the rate limit: holding back a hide that traffic counters already confirm
 # only leaves a dead server in subscriptions for longer.
-CORROBORATED_REASONS = ("node_silent", "exit_down")
+CORROBORATED_REASONS = ("node_silent", "exit_down", "node_down")
 
 # Consecutive failures after which a hide is no longer up for review. The two
 # mechanisms below both exist to protect a working server from a thin verdict:
@@ -146,6 +152,10 @@ class LinkView:
     live_host_ids: list[int] = field(default_factory=list)
     dead_host_ids: list[int] = field(default_factory=list)
     witnesses: int = 0
+    # Every vantage that spoke, audience or not, and whether any of them got
+    # through. See ``bridge_probe.merge``.
+    witnesses_all: int = 0
+    reached_anywhere: bool = False
 
     @property
     def verdict(self) -> str:
@@ -195,8 +205,15 @@ def roll_up(targets) -> dict[str, LinkView]:
         elif verdict == "fail":
             link.dead_host_ids.append(t.host_id)
         if verdict != "skip":
+            result = t.result or {}
             link.witnesses = max(link.witnesses,
-                                 int((t.result or {}).get("witnesses") or 0))
+                                 int(result.get("witnesses") or 0))
+            link.witnesses_all = max(
+                link.witnesses_all,
+                int(result.get("witnesses_all") or result.get("witnesses")
+                    or 0))
+            if verdict in LIVE_VERDICTS or result.get("reached_anywhere"):
+                link.reached_anywhere = True
     return links
 
 
@@ -536,12 +553,26 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             alone = link.witnesses <= 1
             threshold = (FAIL_STREAK_SINGLE_WITNESS if alone
                          else FAIL_STREAK_TO_HIDE)
+            # A direct host lives on its own node. The panel has lost that
+            # node's control channel, and no vantage at all -- neither the
+            # panel abroad nor any RU node -- got a byte through the host: the
+            # server is gone, not filtered. Without this a dead FAST server
+            # that is the only host of its entry stays visible behind the
+            # last-visible floor for as long as it stays dead (#496, US-3).
+            node_down = (
+                not link.is_bridge
+                and node_status.get(link.entry_node_id,
+                                    link.entry_node_status) != "healthy"
+                and not link.reached_anywhere
+                and link.witnesses_all >= NODE_DOWN_MIN_WITNESSES)
             should_hide = not contested and confirmed and (
-                (silent and not alone) or fail_streak >= threshold)
+                (silent and not alone) or fail_streak >= threshold
+                or (node_down and fail_streak >= FAIL_STREAK_TO_HIDE))
             reason = ("node_unreachable_but_busy" if node_contested else
                       "exit_unreachable_but_busy" if exit_contested else
                       "unconfirmed" if not confirmed else
                       "node_silent" if silent and not alone else
+                      "node_down" if should_hide and node_down else
                       "exit_down" if should_hide and far_end == "broken" else
                       "link_down" if should_hide else
                       "link_down_pending_alone" if alone else

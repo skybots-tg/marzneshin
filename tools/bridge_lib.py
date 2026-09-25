@@ -118,6 +118,8 @@ class Target:
     path: Optional[str]
 
     result: dict = field(default_factory=dict)
+    # Set by ``mark_split_exits`` when a twin of this host rides another exit.
+    split_exit: bool = False
 
     @property
     def entry_key(self) -> str:
@@ -147,6 +149,8 @@ class Target:
         dying says nothing about the other.
         """
         exit_ref = self.slot if self.is_bridge else f"i{self.inbound_id}"
+        if self.split_exit and self.is_bridge and self.exit_node_id is not None:
+            exit_ref = f"{exit_ref}@n{self.exit_node_id}"
         return _taxonomy.link_key(self.node_id, exit_ref, self.variant)
 
     @property
@@ -349,7 +353,31 @@ def load_targets(tiers=("universal",), node_ids=None) -> list[Target]:
             flow=_nv(h["flow"]) or cfg.get("flow"),
             path=_nv(h["path"]) or cfg.get("path"),
         ))
+    mark_split_exits(out)
     return out
+
+
+def mark_split_exits(targets) -> None:
+    """Give twins that ride different exits a link each.
+
+    A link is keyed by the exit *slot*, which comes from the remark. That holds
+    as long as one name means one exit, and breaks exactly when a host is
+    replaced by a twin on another exit: #133 (ELITE US via node 17) and #506
+    (the same remark via node 45, US-3) shared ``19>ELITE US/tcp``. Sharing a
+    link means sharing a fate, so the hidden #133 passing kept the link "up"
+    and the visible #506 on a dead exit could not be hidden; and the link's
+    exit was whichever twin came first, so a dead US-3 read as a healthy 17.
+
+    Only such groups get the exit in their key -- every other link keeps its
+    identity and its streaks.
+    """
+    exits: dict[tuple, set] = {}
+    for t in targets:
+        if t.is_bridge and t.exit_node_id is not None:
+            exits.setdefault((t.node_id, t.slot, t.variant),
+                             set()).add(t.exit_node_id)
+    for t in targets:
+        t.split_exit = len(exits.get((t.node_id, t.slot, t.variant), ())) > 1
 
 
 def ensure_xray() -> bool:

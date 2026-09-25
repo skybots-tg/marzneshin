@@ -13,19 +13,27 @@ import json
 import os
 import sys
 import time
+import types
 
 import pytest
 
-_STATE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "tools", "bridge_state.py",
-)
+_TOOLS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
+_STATE_PATH = os.path.join(_TOOLS, "bridge_state.py")
 _spec = importlib.util.spec_from_file_location("bridge_state", _STATE_PATH)
 bs = importlib.util.module_from_spec(_spec)
 # Registered before execution because @dataclass resolves annotations through
 # sys.modules; without this the module's own classes cannot be built.
 sys.modules["bridge_state"] = bs
 _spec.loader.exec_module(bs)
+
+# bridge_lib only reaches marz_common from the functions that talk to the
+# database, and the real module refuses to import without the DB password in
+# _secrets.py -- which no test has, on purpose.
+sys.modules.setdefault("marz_common", types.ModuleType("marz_common"))
+if _TOOLS not in sys.path:
+    sys.path.insert(0, _TOOLS)
+import bridge_lib as bl  # noqa: E402
 
 BUSY = bs.SILENT_NODE_BYTES * 100
 LINK = "25>FR/tcp"
@@ -36,7 +44,8 @@ class FakeTarget:
 
     def __init__(self, host_id, verdict, *, link=LINK, node_id=25,
                  is_disabled=False, remark=None, exit_node_id=14,
-                 witnesses=3, slot="FR", entry_key="universal-2"):
+                 witnesses=3, slot="FR", entry_key="universal-2",
+                 is_bridge=True, result=None):
         self.host_id = host_id
         self.link_key = link
         self.node_id = node_id
@@ -46,10 +55,11 @@ class FakeTarget:
         self.slot = slot
         self.variant = "tcp"
         self.entry_key = entry_key
-        self.is_bridge = True
+        self.is_bridge = is_bridge
         self.is_disabled = is_disabled
         self.remark = remark or f"host-{host_id}"
-        self.result = {"verdict": verdict, "witnesses": witnesses}
+        self.result = {"verdict": verdict, "witnesses": witnesses,
+                       **(result or {})}
 
 
 def run(targets, state=None, traffic=None, statuses=None, **kwargs):
@@ -555,6 +565,157 @@ def test_the_per_run_cap_still_holds_a_long_proven_leg():
         _, state, decisions = run(targets, state, **kwargs, **world)
     assert len(decisions["disable"]) == 1
     assert {d["deferred"] for d in decisions["deferred"]} == {"rate_limit_run"}
+
+
+# --------------------------------------------------------------------------
+# dead servers the last-visible floors used to keep in every subscription
+# --------------------------------------------------------------------------
+
+FAST_LINK = "45>i417/tcp"
+
+
+def lone_fast_host(**result):
+    """The only host of a FAST entry, living on its exit node itself.
+
+    ``witnesses`` stays at one: the FAST verdict only listens to the panel.
+    """
+    return [FakeTarget(1, "fail", link=FAST_LINK, node_id=45,
+                       exit_node_id=None, slot="US-3", entry_key="fast-3",
+                       is_bridge=False, witnesses=1, result=result)]
+
+
+def with_floors(targets):
+    return dict(visible_counts=counts_for(targets, per_entry=1, per_slot=1),
+                limits={"keep_per_entry": 1, "keep_per_slot": 1})
+
+
+NODE_LOST = dict(traffic={45: 0}, statuses={45: "unhealthy"})
+
+
+def test_a_node_nobody_reaches_takes_its_direct_host_past_the_floor():
+    """US-3, 24.09: the panel lost node 45 and every vantage failed #496."""
+    targets = lone_fast_host(witnesses_all=4, reached_anywhere=False)
+    _, _, decisions = confirm_twice(targets, **NODE_LOST,
+                                    **with_floors(targets))
+    assert decisions["disable"] == [1]
+    assert decisions["deferred"] == []
+    assert decisions["links"][FAST_LINK]["reason"] == "node_down"
+
+
+def test_a_dead_node_still_needs_two_runs():
+    targets = lone_fast_host(witnesses_all=4, reached_anywhere=False)
+    _, _, decisions = run(targets, **NODE_LOST, **with_floors(targets))
+    assert decisions["disable"] == []
+
+
+def test_a_direct_host_that_rus_still_reach_waits_for_a_human():
+    """RU gets through, so the server is up and only the panel lost it."""
+    targets = lone_fast_host(witnesses_all=4, reached_anywhere=True)
+    state = None
+    for _ in range(bs.FAIL_STREAK_SINGLE_WITNESS):
+        _, state, decisions = run(targets, state, **NODE_LOST,
+                                  **with_floors(targets))
+    assert decisions["disable"] == []
+    assert {d["deferred"] for d in decisions["deferred"]} == {
+        "last_visible_entry"}
+
+
+def test_the_panel_alone_cannot_declare_a_node_down():
+    """No RU vantage spoke: losing the node and the probe is one fault."""
+    targets = lone_fast_host(witnesses_all=1, reached_anywhere=False)
+    _, _, decisions = confirm_twice(targets, **NODE_LOST,
+                                    **with_floors(targets))
+    assert decisions["disable"] == []
+    assert decisions["links"][FAST_LINK]["reason"] == "link_down_pending_alone"
+
+
+def test_a_node_the_panel_still_sees_is_not_node_down():
+    targets = lone_fast_host(witnesses_all=4, reached_anywhere=False)
+    _, _, decisions = confirm_twice(targets, traffic={45: BUSY},
+                                    statuses={45: "healthy"},
+                                    **with_floors(targets))
+    assert decisions["disable"] == []
+    assert decisions["links"][FAST_LINK]["reason"] != "node_down"
+
+
+def test_a_bridge_behind_an_unreachable_entry_is_left_to_the_floors():
+    """The panel's reach into RU entries is patchy by nature.
+
+    Yandex.Cloud-0 is reached through a relay; losing that relay makes the
+    node unhealthy while its subscribers carry on. A bridge's fate is also
+    shared with its exit, so the entry's lost gRPC is not about this host.
+    """
+    targets = [FakeTarget(1, "fail",
+                          result={"witnesses_all": 4,
+                                  "reached_anywhere": False})]
+    _, _, decisions = confirm_twice(
+        targets, traffic={25: 0, 14: BUSY},
+        statuses={25: "unhealthy", 14: "healthy"}, **with_floors(targets))
+    assert decisions["disable"] == []
+    assert decisions["links"][LINK]["reason"] == "link_down"
+
+
+# --------------------------------------------------------------------------
+# twins on different exits: one remark, two fates
+# --------------------------------------------------------------------------
+
+
+def twin(host_id, exit_node_id, verdict, *, is_disabled, node_id=19,
+         remark="ELITE US"):
+    t = bl.Target(
+        host_id=host_id, remark=remark, is_disabled=is_disabled, weight=0,
+        tier="elite", tier_index=None, slot="ELITE US", iso="US",
+        inbound_id=host_id, tag="RU->US Bridge", node_id=node_id,
+        node_name=f"node-{node_id}", node_status="healthy",
+        exit_node_id=exit_node_id, address="1.2.3.4", port=443,
+        network="tcp", sni="", pbk="k", sid="", fp="chrome", flow=None,
+        path=None)
+    t.result = {"verdict": verdict, "witnesses": 3}
+    return t
+
+
+def test_twins_on_different_exits_get_links_of_their_own():
+    targets = [twin(133, 17, "pass", is_disabled=True),
+               twin(506, 45, "fail", is_disabled=False)]
+    bl.mark_split_exits(targets)
+    assert [t.link_key for t in targets] == [
+        "19>ELITE US@n17/tcp", "19>ELITE US@n45/tcp"]
+
+
+def test_hosts_on_one_exit_keep_their_link_key():
+    """Every link without such a twin keeps its identity and its streaks."""
+    targets = [twin(1, 17, "pass", is_disabled=False),
+               twin(2, 17, "pass", is_disabled=False),
+               twin(3, 45, "pass", is_disabled=False, node_id=32)]
+    bl.mark_split_exits(targets)
+    assert [t.link_key for t in targets] == [
+        "19>ELITE US/tcp", "19>ELITE US/tcp", "32>ELITE US/tcp"]
+
+
+def test_a_hidden_twin_passing_no_longer_shields_a_dead_one():
+    """US-3, 24.09: #506 stayed visible on a dead exit for nine hours.
+
+    Its hidden twin #133 rode a working exit and passed, which kept the shared
+    link "up"; and the link's exit was read off #133, so the dead US-3 behind
+    #506 never counted as a dead exit. Split, #506 is one more leg into an exit
+    whose every leg failed and whose traffic collapsed -- a corroborated hide
+    the last-visible floor does not hold.
+    """
+    targets = [twin(133, 17, "pass", is_disabled=True),
+               twin(506, 45, "fail", is_disabled=False)]
+    # Another entry's leg into the same dead exit, as the US-3 bridges were.
+    targets.append(twin(499, 45, "fail", is_disabled=False, node_id=15))
+    targets[-1].slot = "US-3"
+    bl.mark_split_exits(targets)
+    world = dict(traffic={19: BUSY, 15: BUSY, 17: BUSY, 45: 0},
+                 statuses={19: "healthy", 15: "healthy", 17: "healthy",
+                           45: "unhealthy"},
+                 traffic_ratio={45: 0.0, 17: 1.0})
+    _, _, decisions = confirm_twice(targets, **world, **with_floors(targets))
+    assert 506 in decisions["disable"]
+    assert 133 not in decisions["disable"]
+    reasons = decisions["links"]["19>ELITE US@n45/tcp"]["reason"]
+    assert reasons == "exit_down"
 
 
 # --------------------------------------------------------------------------
