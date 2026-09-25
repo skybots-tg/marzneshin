@@ -63,9 +63,11 @@ def test_one_working_leg_clears_both_ends(probe):
         {"15>NL-2/tcp": True, "30>NL-2/tcp": False},
     )
     assert result[39]["unreachable"] is False
-    # ...and the entry whose only probed leg failed is not condemned for it
-    # either: the far end is the other suspect, and it is the one that is down.
-    assert result[30]["unreachable"] is False
+    assert result[15]["unreachable"] is False
+    # The working route clears only its own ends. Entry 30's one route is down
+    # and its far end is proven alive, so the far end cannot take the blame.
+    assert result[30]["unreachable"] is True
+    assert result[30]["reason"] == "entry"
 
 
 def test_a_single_failing_leg_says_nothing_about_the_exit(probe):

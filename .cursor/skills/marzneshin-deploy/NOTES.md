@@ -54,7 +54,10 @@ bridge_audit честно скрыл все мосты `RU->US-3` (#497–#505, 
 `docker run --rm -v <копия>:/src -w /src --entrypoint sh skybots/marzneshin:fork
 -c "pip install -q pytest pytest-asyncio; python -m pytest -q tests"`.
 `tests/test_node_ru_probe.py::test_one_working_leg_clears_both_ends` падал и до
-этой правки.
+этой правки — с 30.08, со дня появления. Ошибался тест, а не `node_ru_probe`:
+он оправдывал вход, чьё единственное плечо лежит, хотя выход того же плеча
+доказанно жив, — ровно наоборот соседнему `test_a_single_failing_leg…`.
+Исправлен 25.09, весь набор без `test_migrations.py` зелёный.
 
 ## 2026-09-19 — инбаунд доезжал до одного юзера из пачки, а правки grpclib не доезжали вовсе
 
