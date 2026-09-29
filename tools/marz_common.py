@@ -323,16 +323,23 @@ def bridge_outbound(out_tag, exit_ip, exit_port, exit_pub, exit_sid,
     }
 
 
-def exit_listener_inbound(tag, port, priv, sid):
-    """Build an exit-side reality listener (serves FAST + bridge traffic)."""
+def exit_listener_inbound(tag, port, priv, sid, front=None):
+    """Build an exit-side reality listener (serves FAST + bridge traffic).
+
+    ``front`` gives the listener its own disguise from birth: ``dest`` and the
+    only accepted name are that domain. Without it the listener comes up as
+    apple.com and has to be moved by reality_front_apply.py's three phases --
+    which is how node 45 was done, one config push per phase."""
+    dest = f"{front}:443" if front else EXIT_DEST
+    names = [front] if front else list(EXIT_SERVERNAMES)
     return {
         "tag": tag, "port": port, "protocol": "vless",
         "settings": {"clients": [], "decryption": "none",
-                     "fallbacks": [{"dest": EXIT_DEST, "xver": 1}]},
+                     "fallbacks": [{"dest": dest, "xver": 1}]},
         "streamSettings": {"network": "tcp", "security": "reality",
                            "realitySettings": {
-                               "show": False, "dest": EXIT_DEST, "xver": 0,
-                               "serverNames": list(EXIT_SERVERNAMES),
+                               "show": False, "dest": dest, "xver": 0,
+                               "serverNames": names,
                                "privateKey": priv, "shortIds": [sid]}},
         "sniffing": {"enabled": True, "destOverride": ["http", "tls"],
                      "routeOnly": True},
@@ -380,11 +387,16 @@ def insert_host_sql(node_id, tag, remark, address, weight, sni="api-maps.yandex.
     when the entries follow, this default becomes a silent leak back to one
     name, and the caller must start passing the node's actual front instead.
     Four callers rely on it today: add_exit_country.py and
-    setup_universal_node.py."""
+    setup_universal_node.py.
+
+    ``sni=None`` writes NULL: the host inherits the inbound's name, so the next
+    front rotation edits one place instead of chasing literals (see the
+    2026-08-28 note)."""
+    sni_sql = "NULL" if sni is None else sqlstr(sni)
     return (
         "INSERT INTO hosts (remark, address, port, sni, security, fingerprint, "
         "inbound_id, is_disabled, weight, universal, mlkem_enabled) "
-        f"SELECT {sqlstr(remark)}, {sqlstr(address)}, {port}, {sqlstr(sni)}, "
+        f"SELECT {sqlstr(remark)}, {sqlstr(address)}, {port}, {sni_sql}, "
         f"'inbound_default', {sqlstr(fingerprint)}, i.id, 0, {weight}, 0, 0 "
         f"FROM inbounds i WHERE i.node_id={node_id} AND i.tag={sqlstr(tag)} "
         f"AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM hosts) h "

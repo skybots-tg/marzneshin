@@ -55,6 +55,21 @@ def entry_fleet(skip_nodes=()):
 
 # country registry
 COUNTRIES = {
+    # Третий нидерландский выход (нода 46, IHC, AS216139). Адрес по всем базам
+    # Амстердам, но сама машина стоит в ~44 мс от RETN Amsterdam (шлюз
+    # hostihc.sk), поэтому до европейских сайтов она дальше NL-1/NL-2.
+    # Фронт свой с рождения, а не bol.com, как у NL-1 и NL-2: одна запись в
+    # блок-листе не должна забирать все три голландских выхода. transip.nl
+    # отпал на замере — из РФ до него не доходит TCP.
+    "NL3": {
+        "flag": "NL", "label": "NL-3",
+        "bridge_tag": "RU->NL-3 Bridge", "out_tag": "nl3-out",
+        "bridge_port": 23443,
+        "exit_node_id": 46, "exit_ip": "217.144.102.242",
+        "exit_tag": "Netherlands-3", "exit_port": 443,
+        "front": "www.leiden.edu",
+        "fast_n": 3, "fast_weight": 209,
+    },
     # Второй американский выход (нода 45, Лос-Анджелес). Слот US-3, а не US-2:
     # US-2 исторически закреплён за мёртвой нодой 24, и переиспользование имени
     # дало бы дубли в каталоге, если её однажды поднимут.
@@ -136,9 +151,11 @@ def setup_exit(C, apply):
 
     (priv, pub), = mc.gen_keys(ip, 1)
     sid = mc.rand_sid()
+    front = C.get("front")
     new = copy.deepcopy(cfg)
     new["inbounds"].append(
-        mc.exit_listener_inbound(C["exit_tag"], C["exit_port"], priv, sid))
+        mc.exit_listener_inbound(C["exit_tag"], C["exit_port"], priv, sid,
+                                 front=front))
     out_tags = {o["tag"] for o in new.get("outbounds", [])}
     if "direct" not in out_tags:
         new.setdefault("outbounds", []).append(
@@ -155,13 +172,16 @@ def setup_exit(C, apply):
         print("[exit] DEPLOY FAILED"); sys.exit(2)
 
     cfgj = mc.db_inbound_config(C["exit_tag"], C["exit_port"], "tcp", pub, sid,
-                                sni=mc.EXIT_SERVERNAMES)
+                                sni=[front] if front else mc.EXIT_SERVERNAMES)
     sql = [mc.insert_inbound_sql(C["exit_node_id"], C["exit_tag"], cfgj),
            mc.link_service_sql(C["exit_node_id"], C["exit_tag"])]
     remark = mc.fast_remark(C["fast_n"], C["flag"], C["label"])
+    # With its own front the FAST host leaves sni empty and inherits the
+    # inbound's; fingerprint is what every FAST host in the fleet carries.
     sql.append(mc.insert_host_sql(
         C["exit_node_id"], C["exit_tag"], remark, ip, C["fast_weight"],
-        sni=mc.FAST_SNI, fingerprint="none"))
+        sni=None if front else mc.FAST_SNI,
+        fingerprint="firefox" if front else "none"))
     r = mc.db("SET NAMES utf8mb4;\n" + "\n".join(sql) + "\n")
     print("[exit] DB:", "OK" if r.returncode == 0 else "FAILED")
     if r.returncode != 0:
@@ -201,7 +221,7 @@ def setup_entry(node_id, ip, kind, num, C, exit_pub, exit_sid, apply):
     if out_tag not in {o["tag"] for o in new["outbounds"]}:
         new["outbounds"].append(mc.bridge_outbound(
             out_tag, C["exit_ip"], C["exit_port"], exit_pub, exit_sid,
-            sni=C.get("out_sni", mc.EXIT_OUT_SNI)))
+            sni=C.get("out_sni") or C.get("front") or mc.EXIT_OUT_SNI))
     new.setdefault("routing", {}).setdefault("rules", []).append(
         {"type": "field", "inboundTag": [tag], "outboundTag": out_tag})
 
