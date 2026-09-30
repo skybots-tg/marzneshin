@@ -32,20 +32,20 @@ def curl_answers(*outputs):
 
 
 def test_a_working_tunnel_carries_every_connection():
-    run, calls = curl_answers("204 0", "204 0", "200 262144")
+    run, calls = curl_answers("204 0", "204 0", "206 262144")
     assert br.sustained(12000, run=run) == len(br.SUSTAIN)
     assert len(calls) == len(br.SUSTAIN)
 
 
 def test_a_throttled_leg_stops_at_the_first_dropped_connection():
     """AdminVPS on 2026-09-30: the lookup answered, the next connection died."""
-    run, calls = curl_answers("000 0", "204 0", "200 262144")
+    run, calls = curl_answers("000 0", "204 0", "206 262144")
     assert br.sustained(12000, run=run) == 0
     assert len(calls) == 1          # no point paying for the rest
 
 
 def test_a_download_cut_short_does_not_count():
-    run, _ = curl_answers("204 0", "204 0", "200 65536")
+    run, _ = curl_answers("204 0", "204 0", "206 65536")
     assert br.sustained(12000, run=run) == len(br.SUSTAIN) - 1
 
 
@@ -56,3 +56,16 @@ def test_curl_timing_out_is_a_dropped_connection():
 
 def test_the_job_budget_covers_the_extra_connections():
     assert br.SUSTAIN_WORST >= len(br.SUSTAIN) * br.SUSTAIN_TIMEOUT
+
+
+def test_the_download_asks_for_a_slice_not_the_whole_file():
+    seen = []
+
+    def run(cmd, **_kw):
+        seen.append(cmd)
+        return types.SimpleNamespace(stdout="206 262144", returncode=0)
+
+    br.sustained(12000, run=run)
+    download = [c for c in seen if "-r" in c]
+    assert len(download) == 1
+    assert download[0][download[0].index("-r") + 1] == "0-262143"

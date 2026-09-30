@@ -44,10 +44,17 @@ GEO = [
 # and the automation kept putting them back into subscriptions. So once the
 # lookup answers, the same tunnel has to carry these too, a real download among
 # them; one failure is enough, since a working leg drops none of them.
+#
+# Google only, on purpose. RU Direct hosts exit from RU datacentres, and those
+# lose foreign networks piecemeal: on 2026-09-30 DataCheap RU-1 reached Google
+# but neither Cloudflare nor OVH, so a Cloudflare download here would have hidden
+# RU Direct hosts that serve Russian sites perfectly well. Every node in the
+# fleet, the restricted ones included, fetched all three of these.
 SUSTAIN = [
     ("https://www.google.com/generate_204", 0),
-    ("https://cp.cloudflare.com/generate_204", 0),
-    ("https://speed.cloudflare.com/__down?bytes=262144", 262144),
+    ("https://connectivitycheck.gstatic.com/generate_204", 0),
+    ("https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+     262144),
 ]
 SUSTAIN_TIMEOUT = 8
 SUSTAIN_WORST = len(SUSTAIN) * (SUSTAIN_TIMEOUT + 1)
@@ -57,11 +64,13 @@ def sustained(socks_port, run=subprocess.run):
     """How many of SUSTAIN went through, stopping at the first that did not."""
     done = 0
     for url, size in SUSTAIN:
+        cmd = ["curl", "-s", "-o", "/dev/null", "--socks5-hostname",
+               "127.0.0.1:%d" % socks_port, "--max-time", str(SUSTAIN_TIMEOUT),
+               "-w", "%{http_code} %{size_download}"]
+        if size:
+            cmd += ["-r", "0-%d" % (size - 1)]   # a slice, not the whole file
         try:
-            r = run(["curl", "-s", "-o", "/dev/null", "--socks5-hostname",
-                     "127.0.0.1:%d" % socks_port, "--max-time",
-                     str(SUSTAIN_TIMEOUT), "-w", "%{http_code} %{size_download}",
-                     url], capture_output=True, text=True,
+            r = run(cmd + [url], capture_output=True, text=True,
                     timeout=SUSTAIN_TIMEOUT + 5)
             code, got = (r.stdout.split() + ["000", "0"])[:2]
         except Exception:
