@@ -27,6 +27,7 @@ the panel's Bridge Health page reads.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import sys
@@ -39,6 +40,8 @@ import bridge_state as bs
 import marz_common as mc
 
 REPORT_PATH = "/var/lib/marzneshin/bridge_audit.json"
+# The runner (marz-bridge-audit) holds this for the whole scan, save included.
+LOCK_PATH = os.path.join(bs.DATA_DIR, "bridge_audit.lock")
 
 VERDICT_MARK = {"pass": "OK", "wrong_geo": "GEO", "fail": "--", "skip": "??"}
 
@@ -896,6 +899,74 @@ def cmd_revive(args) -> int:
     return 0
 
 
+def cmd_adopt(args) -> int:
+    """Hand hosts that were hidden by hand for a broken leg to the automation.
+
+    Only the automation's own hides ever come back, which is right for a
+    deliberate hide (a duplicate branding, a beta that never worked) and wrong
+    for one made because a leg failed: when the path reopens, nothing notices.
+    After ``adopt`` such a host is restored by the same two clean runs as any
+    automatic hide. Visible hosts and hosts the automation already owns are
+    refused, so the command cannot hide anything or reset a streak.
+    """
+    want = {int(x) for x in args.hosts.replace(" ", "").split(",") if x}
+    if not want:
+        print("no host ids given")
+        return 1
+    state = bs.load()
+    ledger_seed(state)
+    targets = {t.host_id: t for t in bl.load_targets(
+        tiers=("universal", "elite", "fast"))}
+    links_of, refused = {}, []
+    for host_id in sorted(want):
+        t = targets.get(host_id)
+        if t is None:
+            refused.append((host_id, "no such host (or not bound to an inbound)"))
+        elif not t.is_disabled:
+            refused.append((host_id, "visible — nothing to adopt"))
+        elif str(host_id) in state["auto_disabled"]:
+            refused.append((host_id, "already the automation's"))
+        else:
+            links_of[host_id] = t.link_key
+    for host_id, link in sorted(links_of.items()):
+        print(f"  adopt #{host_id:<4} {link:<16} "
+              f"{targets[host_id].remark[:52]}")
+    for host_id, why in refused:
+        print(f"  skip  #{host_id:<4} {why}")
+    if not args.apply:
+        print(f"\nDRY RUN. Re-run with --apply to adopt {len(links_of)} "
+              f"host(s).")
+        return 0
+    if not links_of:
+        return 0
+    # Under the scan's lock: the runner saves the state after every apply, and
+    # a save racing this one would drop the records written here.
+    with open(LOCK_PATH, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("a scan is running; waiting for it to finish...", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        state = bs.load()
+        ledger_seed(state)
+        taken = bs.adopt(state, links_of)
+        bs.save(state)
+    rows = ", ".join(f"({int(h)}, {mc.sqlstr(links_of[h][:64])}, "
+                     f"{mc.sqlstr(bs.ADOPTED_REASON)}, NOW(), NULL)"
+                     for h in taken)
+    if rows:
+        r = mc.db(LEDGER_DDL + "INSERT INTO bridge_auto_hidden "
+                  "(host_id, link, reason, hidden_at, released_at) VALUES "
+                  + rows + " ON DUPLICATE KEY UPDATE link=VALUES(link), "
+                  "reason=VALUES(reason), hidden_at=VALUES(hidden_at), "
+                  "released_at=NULL;\n")
+        if r.returncode != 0:
+            print("note: could not update bridge_auto_hidden:", r.stderr[:200])
+    print(f"adopted {len(taken)} host(s); they come back after "
+          f"{bs.PASS_STREAK_TO_RESTORE} clean runs of their link")
+    return 0
+
+
 def cmd_matrix(args) -> int:
     report = load_report(args.report)
     print_summary(report)
@@ -992,6 +1063,13 @@ def main() -> int:
                     help="hours a hide stands on its own; older ones are kept")
     rv.add_argument("--dry-run", action="store_true")
     rv.set_defaults(func=cmd_revive)
+
+    ad = sub.add_parser("adopt", help="let the automation restore hosts that "
+                                      "were hidden by hand for a broken leg")
+    ad.add_argument("--hosts", required=True,
+                    help="comma-separated host ids")
+    ad.add_argument("--apply", action="store_true")
+    ad.set_defaults(func=cmd_adopt)
 
     sub.add_parser("matrix", help="print the last report").set_defaults(
         func=cmd_matrix)

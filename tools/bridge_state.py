@@ -103,6 +103,15 @@ NODE_DOWN_MIN_WITNESSES = 2
 # only leaves a dead server in subscriptions for longer.
 CORROBORATED_REASONS = ("node_silent", "exit_down", "node_down")
 
+# A hide an operator made by hand and then handed over with
+# ``bridge_audit.py adopt``. Before that, a host hidden by hand for a broken leg
+# stayed hidden for good however well it later probed: on 2026-09-30, 70 of the
+# 156 hidden hosts were hand hides nobody re-examined. The operator saw the
+# leg fail, which is evidence the audit's silence does not touch, so the dead
+# man's switch leaves these alone; what brings one back is the same two clean
+# runs as any other hide.
+ADOPTED_REASON = "adopted"
+
 # Consecutive failures after which a hide is no longer up for review. The two
 # mechanisms below both exist to protect a working server from a thin verdict:
 # the daily allowance keeps a systemic misjudgement from costing the catalogue,
@@ -310,13 +319,34 @@ def hides_to_release(state: dict, now: float | None = None,
     for host_id, record in state.get("auto_disabled", {}).items():
         if reference - int(record.get("at") or 0) > lease:
             continue
-        if record.get("reason") in CORROBORATED_REASONS:
+        if record.get("reason") in CORROBORATED_REASONS + (ADOPTED_REASON,):
             continue
         link = links.get(record.get("link")) or {}
         if int(link.get("fail_streak") or 0) >= HIDE_CONFIDENT_STREAK:
             continue
         out[int(host_id)] = record
     return out
+
+
+def adopt(state: dict, links_of: dict[int, str],
+          now: float | None = None) -> list[int]:
+    """Put hosts hidden by hand under the automation's care.
+
+    ``links_of`` maps a hidden host to the link it rides. From here on it is an
+    ordinary automatic hide: restored after ``PASS_STREAK_TO_RESTORE`` clean
+    runs, kept while a visible twin carries its name. Hosts the automation
+    already owns keep their record -- and with it their own reason and age.
+    """
+    now = int(now or time.time())
+    auto = state.setdefault("auto_disabled", {})
+    taken = []
+    for host_id, link in sorted(links_of.items()):
+        if str(host_id) in auto:
+            continue
+        auto[str(host_id)] = {"link": link, "reason": ADOPTED_REASON,
+                              "at": now}
+        taken.append(host_id)
+    return taken
 
 
 def release(state: dict, host_ids, by: str, now: float | None = None) -> None:

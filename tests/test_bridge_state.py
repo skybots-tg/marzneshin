@@ -838,3 +838,66 @@ def test_an_upgraded_state_file_keeps_its_only_timestamp(tmp_path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"links": {}, "updated_at": scanned}, f)
     assert bs.load(path)["scanned_at"] == scanned
+
+
+# --------------------------------------------------------------------------
+# hand hides handed over to the automation
+# --------------------------------------------------------------------------
+
+
+def test_an_adopted_hand_hide_comes_back_with_its_link():
+    """What `adopt` is for: a leg hidden by hand is no longer hidden for good."""
+    hidden_by_hand = [FakeTarget(9, "pass", is_disabled=True)]
+    state = bs.load("/nonexistent/state.json")
+    assert bs.adopt(state, {9: LINK}) == [9]
+    _, state, decisions = run(hidden_by_hand, state)
+    assert decisions["enable"] == []            # one clean run is not enough
+    _, state, decisions = run(hidden_by_hand, state)
+    assert decisions["enable"] == [9]
+    assert "9" not in state["auto_disabled"]
+
+
+def test_an_adopted_host_behind_a_failing_link_stays_hidden():
+    state = bs.load("/nonexistent/state.json")
+    bs.adopt(state, {9: LINK})
+    for _ in range(3):
+        _, state, decisions = run([FakeTarget(9, "fail", is_disabled=True)],
+                                  state)
+        assert decisions["enable"] == []
+    assert "9" in state["auto_disabled"]
+
+
+def test_adopting_leaves_the_automations_own_hides_alone():
+    state = {"auto_disabled": {"9": {"link": LINK, "reason": "exit_down",
+                                     "at": 123}}}
+    assert bs.adopt(state, {9: LINK, 10: "25>PL/tcp"}) == [10]
+    assert state["auto_disabled"]["9"] == {"link": LINK,
+                                           "reason": "exit_down", "at": 123}
+    assert state["auto_disabled"]["10"]["reason"] == bs.ADOPTED_REASON
+
+
+def test_a_silent_audit_does_not_hand_back_what_an_operator_hid():
+    """The operator saw the leg fail; the audit going quiet does not undo that."""
+    now = time.time()
+    state = {
+        "links": {},
+        "scanned_at": int(now) - 5 * 3600,
+        "auto_disabled": {
+            "1": {"at": int(now) - 3600, "link": "25>FR/tcp",
+                  "reason": bs.ADOPTED_REASON},
+            "2": {"at": int(now) - 3600, "link": "25>PL/tcp",
+                  "reason": "link_down"},
+        },
+    }
+    assert sorted(bs.hides_to_release(state, now=now)) == [2]
+
+
+def test_an_adopted_host_with_a_visible_twin_stays_hidden():
+    twin = [FakeTarget(9, "pass", is_disabled=True, remark="U2 NL"),
+            FakeTarget(10, "pass", link="41>NL/tcp", node_id=41, remark="U2 NL")]
+    state = bs.load("/nonexistent/state.json")
+    bs.adopt(state, {9: LINK})
+    for _ in range(2):
+        _, state, decisions = run(twin, state,
+                                  visible_by_remark={"U2 NL": [10]})
+    assert decisions["enable"] == []
