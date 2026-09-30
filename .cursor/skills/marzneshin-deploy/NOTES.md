@@ -1,5 +1,56 @@
 # Operational notes
 
+## 2026-09-30 — marznode: reconcile видит настоящий состав инбаундов, «drift detected» снова значит drift
+
+**Было.** `reconcile_xray_users` (страховка от гонки ноды 31: юзер в storage, но в
+xray не попал после отказа API) брал «кто есть в xray» из `get_users_stats`. Счётчики
+есть только у тех, кто возил трафик с последнего сброса, поэтому простаивающие
+выглядели пропавшими: на **всех 23 нодах** каждые 2 минуты `drift detected — storage
+has 431, xray runtime has 85 unique uids, 346 missing`, затем сотни `add_user` в
+`EmailExistsError` и `pushed 0` (на 41 — ~8 с вызовов за проход). Настоящего
+расхождения не было: `xray api inbounduser` показывал 430+ юзеров на каждом инбаунде.
+
+**Стало** (marznode `0d3d2e6`). Состав читается по каждому инбаунду через
+`HandlerService.GetInboundUsers` (есть в парке везде: 25.2.21 на Yandex-0, 26.1–26.3 у
+остальных) и сравнивается с storage парами «юзер → инбаунд»; пушится только
+недостающая пара и только в свой инбаунд. Разрыв пушится, если держится 5 с: сервис
+убирает юзера из xray раньше, чем из storage, и пуш в этот зазор вернул бы
+отозванного юзера в xray навсегда. Ядро без метода получает прежний проход по
+статистике (в лог один WARNING `falling back to stats`). Сообщения RPC описаны в
+`api/inbound_users_pb2.py` отдельным пакетом — дерево proto не перегенерировалось.
+
+**Как теперь выглядит лог.** После старта один раз INFO
+`checking storage against GetInboundUsers of 19/19 inbound(s); storage has 430 users,
+xray 430`, дальше тишина. `drift detected — N user→inbound pair(s) …: {'<tag>': N};
+uids: …` теперь **настоящая** находка, за ней `pushed N …, 0 already present`.
+Разница «xray на 1 больше storage» на выходе 44 — статический клиент `0.bridge` в
+конфиге, reconcile лишних не трогает.
+
+**Проверено на 41:** `xray api rmu -tag "RU Direct" 18564.host_health_probe` — через
+проход (1м50с) `drift detected — 1 pair … {'RU Direct': 1}; uids: 18564` и
+`pushed 1`; аккаунт (UUID, flow) совпал с тем, что на других инбаундах. На всех 23
+нодах после раскатки: все инбаунды читаются, storage = xray, `drift` 0, трейсбэков нет.
+
+**Раскатка** — рестарт marznode (новый код грузится только так; ~15 с обрыв у
+клиентов ноды), канарейки 41, 15, 10, потом пачками по 5, скриптом:
+- коммиты привезены **git bundle** (`git bundle create x.bundle 9c62a22..master` →
+  `git fetch /tmp/x.bundle +master:refs/remotes/origin/master`): Yandex-0 (10) до
+  GitHub не достаёт, `git fetch` висит 2+ минуты;
+- `compose.yml` изменён локально на **каждой** ноде, а `de9653f` (`init: true`) его
+  трогает — `git pull` не пройдёт. Свой compose отложен в
+  `/opt/marznode.compose.saved-<ts>`, `git checkout -- compose.yml`,
+  `git merge --ff-only`, compose возвращён: контейнеры и их конфиг прежние, `init: true`
+  на нодах без него так и не включён;
+- до рестарта — preflight в отдельном процессе контейнера: импорт нового кода и
+  `get_inbound_users` по живому xray (образы разные: `dawsh/marznode` на 10,
+  protobuf 7.34 на 41); после — ждать `RepopulateUsers DONE` и сверить число юзеров.
+- SSH на ноды с машины оператора — напрямую ключом `~/.ssh/vpn_node_default`
+  (у панели без `-i /root/.ssh/vpn_node_default` — `Permission denied`).
+
+**Попутно всплыло на 44:** после рестарта раз в 30 с ERROR `Error saving device history
+for user 0` — `MemoryStorage.list_users(0)` отдаёт весь список (`if user_id:`), а uid 0 —
+тот самый `0.bridge`. На reconcile и юзеров не влияет, вынесено отдельной задачей.
+
 ## 2026-09-30 — AdminVPS (UNIVERSAL 1 и 5): пять Reality-соединений, потом тишина; мосты — через WireGuard
 
 **Симптом.** UNIVERSAL 1 (нода 25) возил 60–90 ГБ/сутки до 20.09 и ~0,2 ГБ с 22.09;
@@ -866,6 +917,8 @@ has 1 unique uids, 463 missing in xray` плюс `pushed 0 ... 0 still failing`.
 пользователя на месте**. `pushed=0` — потому что каждый `add_user` бросает
 `EmailExistsError`, который проглатывается без инкремента. То есть функция шумит
 и «лечит» несуществующую поломку. Не строить на этой строке выводов.
+*(Исправлено 30.09, marznode `0d3d2e6`: сверка идёт по `GetInboundUsers`, и строка
+`drift detected` снова значит настоящее расхождение — см. запись от 30.09.)*
 
 **Токен: `restart` не перечитывает `.env`.** Правка файла и
 `docker compose restart` дали ноль эффекта — внутри контейнера остался прежний,
