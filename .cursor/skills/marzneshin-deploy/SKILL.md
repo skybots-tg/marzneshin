@@ -133,6 +133,19 @@ inbound_default, none, tls
 - **VK-1** — VK Cloud node
 - Bridge inbounds: `RU->XX Bridge` — traffic enters through RU node, exits through XX country
 
+### Traffic counting (`nodes.usage_coefficient`)
+
+Only **ELITE whitelist entries** count traffic: Yandex Cloud, VK Cloud and similar
+providers whose addresses sit in the RU mobile whitelists → `usage_coefficient = 1`.
+**Every other node is 0**: UNIVERSAL entries, FAST/exit nodes (the ♾️ in their
+remarks means exactly that). The coefficient is more than accounting — on a node
+with `> 0` the panel does not push users whose limit is spent
+(`crud/host.py::get_node_users`), so a wrong 1 silently locks them out of an
+unlimited server. Set it explicitly when creating a node (the API default is 0;
+the panel AI's `create_node` defaulted to 1 until 2026-09-30 — that is how node 45
+ended up counted). Check: `SELECT id, name, usage_coefficient FROM nodes WHERE
+usage_coefficient > 0;` must list only ELITE entries.
+
 ## Masking (Reality) Configuration
 
 Hosts in the `hosts` table have these Reality-related fields:

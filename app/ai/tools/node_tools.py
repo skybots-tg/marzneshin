@@ -294,7 +294,11 @@ async def resync_node_users(db: Session, node_id: int) -> dict:
 
 @register_tool(
     name="modify_node",
-    description="Modify node parameters such as name, address, port, status, or usage_coefficient",
+    description=(
+        "Modify node parameters such as name, address, port, status, or "
+        "usage_coefficient (1 only on ELITE whitelist entries -- Yandex, VK and "
+        "similar; 0 on every other node)"
+    ),
     requires_confirmation=True,
 )
 async def modify_node(
@@ -400,7 +404,11 @@ async def enable_node(db: Session, node_id: int) -> dict:
         "The marznode service must already be installed and reachable at address:port. "
         "Use port 53042 unless the operator explicitly specifies another. "
         "The node becomes usable only after the gRPC handshake succeeds; monitor with "
-        "get_node_info or check_all_nodes_health. Use a short unique `name`."
+        "get_node_info or check_all_nodes_health. Use a short unique `name`. "
+        "usage_coefficient: traffic is counted (and users over their limit are "
+        "kept off the node) only on ELITE whitelist entries -- Yandex Cloud, VK "
+        "Cloud and similar -- set 1 there. Every other node (UNIVERSAL entries, "
+        "FAST/exit nodes) is unlimited: leave the default 0."
     ),
     requires_confirmation=True,
 )
@@ -409,7 +417,9 @@ async def create_node(
     name: str,
     address: str,
     port: int = 53042,
-    usage_coefficient: float = 1.0,
+    # 0, not 1: node 45 (FAST US-3) came up counted from this default and for
+    # three weeks kept users with a spent limit off an unlimited server.
+    usage_coefficient: float = 0.0,
     connection_backend: str = "grpclib",
 ) -> dict:
     import sqlalchemy
