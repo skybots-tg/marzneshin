@@ -37,6 +37,41 @@ GEO = [
 ]
 
 
+# What "the tunnel works" has to mean. A single geo lookup answering, out of up
+# to six tries, used to be the whole bar -- and a leg whose DPI kills four
+# connections in five clears it nearly every time. On 2026-09-30 every AdminVPS
+# bridge passed the audit while not one 5 MB download through them even started,
+# and the automation kept putting them back into subscriptions. So once the
+# lookup answers, the same tunnel has to carry these too, a real download among
+# them; one failure is enough, since a working leg drops none of them.
+SUSTAIN = [
+    ("https://www.google.com/generate_204", 0),
+    ("https://cp.cloudflare.com/generate_204", 0),
+    ("https://speed.cloudflare.com/__down?bytes=262144", 262144),
+]
+SUSTAIN_TIMEOUT = 8
+SUSTAIN_WORST = len(SUSTAIN) * (SUSTAIN_TIMEOUT + 1)
+
+
+def sustained(socks_port, run=subprocess.run):
+    """How many of SUSTAIN went through, stopping at the first that did not."""
+    done = 0
+    for url, size in SUSTAIN:
+        try:
+            r = run(["curl", "-s", "-o", "/dev/null", "--socks5-hostname",
+                     "127.0.0.1:%d" % socks_port, "--max-time",
+                     str(SUSTAIN_TIMEOUT), "-w", "%{http_code} %{size_download}",
+                     url], capture_output=True, text=True,
+                    timeout=SUSTAIN_TIMEOUT + 5)
+            code, got = (r.stdout.split() + ["000", "0"])[:2]
+        except Exception:
+            break
+        if not code.startswith(("2", "3")) or int(float(got)) < size:
+            break
+        done += 1
+    return done
+
+
 def ensure_xray():
     if os.path.exists(XRAY) and os.access(XRAY, os.X_OK):
         return True
@@ -110,6 +145,7 @@ def run_job(job, socks_port, timeout, geo_offset=0, deadline=None,
             country, ip = parse_geo(r.stdout.strip(), shape)
             if country:
                 break
+        carried = sustained(socks_port) if country else 0
     finally:
         p.send_signal(signal.SIGTERM)
         try:
@@ -128,6 +164,12 @@ def run_job(job, socks_port, timeout, geo_offset=0, deadline=None,
     if not country:
         return {"verdict": "fail", "error": "no_egress", "detail": tail,
                 "elapsed": elapsed}
+    if carried < len(SUSTAIN):
+        # Reached the far end once, then lost the next connections: the leg is
+        # throttled, and a subscriber on it gets a page that half-loads.
+        return {"verdict": "fail", "error": "throttled", "country": country,
+                "egress_ip": ip, "sustained": "%d/%d" % (carried, len(SUSTAIN)),
+                "detail": tail, "elapsed": elapsed}
     return {"verdict": "pass", "country": country, "egress_ip": ip,
             "elapsed": elapsed}
 
@@ -156,7 +198,7 @@ def main():
     # The longest a single job can take: xray warm-up, every geo lookup it is
     # allowed, and the teardown. Starting a job with less than this left is how
     # the run overshoots the deadline it was given.
-    worst_job = 2 + (geo_tries or len(GEO)) * (timeout + 5) + 5
+    worst_job = 2 + (geo_tries or len(GEO)) * (timeout + 5) + SUSTAIN_WORST + 5
     results = {}
 
     def one(pair):

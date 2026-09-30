@@ -19,6 +19,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 import bridge_lib as bl
+from bridge_runner import SUSTAIN_WORST  # the runner is stdlib-only, safe to import
 import marz_common as mc
 
 RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -65,7 +66,7 @@ def vantage_deadline(n_jobs: int, workers: int, timeout: int,
     """Seconds one vantage may spend before it must hand back what it has."""
     waves = -(-n_jobs // max(1, workers))
     lookups = min(geo_tries or GEO_ENDPOINTS, GEO_ENDPOINTS)
-    per_job = JOB_OVERHEAD + lookups * (timeout + 5)
+    per_job = JOB_OVERHEAD + lookups * (timeout + 5) + SUSTAIN_WORST
     return max(120, min(2400, waves * per_job * max(1, attempts)))
 
 
@@ -234,8 +235,11 @@ def merge(targets, per_vantage: dict, origins: dict[str, str] | None = None) -> 
         t.result["reached_anywhere"] = any(
             v["verdict"] == "pass" for v in by_vantage.values())
         t.result["by_vantage"] = {
+            # A throttled leg did reach its country once; the page should say
+            # why it failed, not where it almost got to.
             k: {"verdict": v["verdict"],
-                "country": v.get("country") or v.get("error")}
+                "country": ((v.get("error") if v["verdict"] == "fail" else None)
+                            or v.get("country") or v.get("error"))}
             for k, v in by_vantage.items()
         }
         if not good:
