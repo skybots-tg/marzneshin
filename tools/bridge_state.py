@@ -359,6 +359,23 @@ def release(state: dict, host_ids, by: str, now: float | None = None) -> None:
                                    released_by=by)
 
 
+HOLD_PREFIX = "hold: "
+
+
+def hold(state: dict, host_ids, reason: str, now: float | None = None) -> list[int]:
+    """The opposite of ``adopt``: an operator keeps these hosts hidden.
+
+    For a leg the probe cannot judge -- AdminVPS lets four or five Reality
+    connections through before it goes quiet, so a probe that opens four passes
+    a bridge no client can use. Such a host must not sit in the automation's
+    ledger, or two clean probes would put it back in every subscription.
+    Returns the ids the automation owned until now.
+    """
+    owned = [int(h) for h in host_ids if str(h) in state.get("auto_disabled", {})]
+    release(state, host_ids, by=HOLD_PREFIX + reason, now=now)
+    return owned
+
+
 def _verdicts_by_node(links: dict[str, LinkView]) -> dict[int, list[str]]:
     """entry node -> the verdict of each of its links that was probed at all."""
     out: dict[int, list[str]] = {}

@@ -876,6 +876,18 @@ def test_adopting_leaves_the_automations_own_hides_alone():
     assert state["auto_disabled"]["10"]["reason"] == bs.ADOPTED_REASON
 
 
+def test_a_held_host_stays_hidden_however_well_its_link_probes():
+    """`hold`: the probe passes a leg that fails under load; the operator wins."""
+    state = bs.load("/nonexistent/state.json")
+    bs.adopt(state, {9: LINK})
+    assert bs.hold(state, [9, 10], "AdminVPS five-then-silence") == [9]
+    assert "9" not in state["auto_disabled"]
+    assert state["released"]["9"]["released_by"] == "hold: AdminVPS five-then-silence"
+    for _ in range(3):
+        _, state, decisions = run([FakeTarget(9, "pass", is_disabled=True)], state)
+        assert decisions["enable"] == []
+
+
 def test_a_silent_audit_does_not_hand_back_what_an_operator_hid():
     """The operator saw the leg fail; the audit going quiet does not undo that."""
     now = time.time()

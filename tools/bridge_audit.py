@@ -967,6 +967,54 @@ def cmd_adopt(args) -> int:
     return 0
 
 
+def cmd_hold(args) -> int:
+    """Hide hosts by hand and take them away from the automation.
+
+    The counterpart of ``adopt``, for a leg the probe cannot judge: a bridge
+    that answers the probe's handful of connections and fails a real client.
+    Left to the automation it would be restored after two clean runs, so the
+    host is hidden and released from the ledger with the reason on record.
+    """
+    want = sorted({int(x) for x in args.hosts.replace(" ", "").split(",") if x})
+    if not want or not args.reason.strip():
+        print("need --hosts and --reason")
+        return 1
+    targets = {t.host_id: t for t in bl.load_targets(
+        tiers=("universal", "elite", "fast"))}
+    missing = [h for h in want if h not in targets]
+    if missing:
+        print("no such host(s):", ", ".join(map(str, missing)))
+        return 1
+    state = bs.load()
+    for h in want:
+        t = targets[h]
+        owner = ("automation" if str(h) in state["auto_disabled"]
+                 else "hidden by hand" if t.is_disabled else "visible")
+        print(f"  hold #{h:<4} {t.link_key:<16} {owner:<14} {t.remark[:48]}")
+    if not args.apply:
+        print(f"\nDRY RUN. Re-run with --apply to hold {len(want)} host(s).")
+        return 0
+    with open(LOCK_PATH, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("a scan is running; waiting for it to finish...", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        state = bs.load()
+        bs.hold(state, want, args.reason.strip())
+        bs.save(state)
+        ids = ",".join(map(str, want))
+        r = mc.db(f"UPDATE hosts SET is_disabled=1 WHERE id IN ({ids});\n"
+                  f"UPDATE bridge_auto_hidden SET released_at=NOW() "
+                  f"WHERE host_id IN ({ids}) AND released_at IS NULL;\n")
+    if r.returncode != 0:
+        print("DB update failed:", r.stderr[:300])
+        return 1
+    print(f"held {len(want)} host(s): hidden, and the automation will not "
+          f"bring them back")
+    return 0
+
+
 def cmd_matrix(args) -> int:
     report = load_report(args.report)
     print_summary(report)
@@ -1070,6 +1118,13 @@ def main() -> int:
                     help="comma-separated host ids")
     ad.add_argument("--apply", action="store_true")
     ad.set_defaults(func=cmd_adopt)
+
+    hd = sub.add_parser("hold", help="hide hosts by hand and keep the "
+                                     "automation from restoring them")
+    hd.add_argument("--hosts", required=True, help="comma-separated host ids")
+    hd.add_argument("--reason", required=True, help="why, for the trail")
+    hd.add_argument("--apply", action="store_true")
+    hd.set_defaults(func=cmd_hold)
 
     sub.add_parser("matrix", help="print the last report").set_defaults(
         func=cmd_matrix)
