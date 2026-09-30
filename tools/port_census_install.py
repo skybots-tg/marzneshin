@@ -40,7 +40,10 @@ Nice=10
 WantedBy=multi-user.target
 """
 
+# `su`: /var/log on Ubuntu is root:syslog 0775, and without it logrotate
+# refuses the file as "insecure parent directory" and the log grows unbounded.
 LOGROTATE = """/var/log/port_census.jsonl {
+    su root syslog
     daily
     rotate 3
     missingok
@@ -65,7 +68,9 @@ systemctl daemon-reload
 systemctl enable port-census >/dev/null 2>&1
 systemctl restart port-census
 sleep 3
-echo "STATE $(systemctl is-active port-census) $(python3 -V 2>&1)"
+getent group syslog >/dev/null 2>&1 || sed -i 's/su root syslog/su root root/' /etc/logrotate.d/port-census
+lr=$(logrotate -d /etc/logrotate.d/port-census 2>&1 | grep -c "error:")
+echo "STATE $(systemctl is-active port-census) $(python3 -V 2>&1) logrotate_errors=$lr"
 '''
 
 UNINSTALL = r'''
