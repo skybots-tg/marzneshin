@@ -318,7 +318,7 @@ def bridge_outbound(out_tag, exit_ip, exit_port, exit_pub, exit_sid,
         "streamSettings": {"network": "tcp", "security": "reality",
                            "realitySettings": {
                                "serverName": sni, "publicKey": exit_pub,
-                               "shortId": exit_sid, "fingerprint": "chrome",
+                               "shortId": exit_sid, "fingerprint": "firefox",
                                "show": False}},
     }
 
@@ -353,7 +353,7 @@ def db_inbound_config(tag, port, network, pbk, sid, flow="xtls-rprx-vision",
         "tag": tag, "protocol": "vless", "port": port, "network": network,
         "tls": "reality", "sni": list(sni), "host": [], "path": None,
         "header_type": None, "flow": (flow if network == "tcp" else None),
-        "is_fallback": False, "fp": "chrome", "pbk": pbk, "sid": sid,
+        "is_fallback": False, "fp": "firefox", "pbk": pbk, "sid": sid,
     }
 
 
@@ -372,8 +372,15 @@ def link_service_sql(node_id, tag, service_id=SVC1):
 
 
 def insert_host_sql(node_id, tag, remark, address, weight, sni="api-maps.yandex.ru",
-                    fingerprint="chrome", port="NULL"):
+                    fingerprint="firefox", port="NULL"):
     """Create a host bound to (node_id, tag) inbound, idempotent per-inbound.
+
+    ``fingerprint`` is the TLS hello the *client* sends. Firefox, as on every
+    other host in the fleet: the Chrome hello (with its post-quantum key share)
+    does not fit one TCP segment, and on AdminVPS (UNIVERSAL 1/5) a series of
+    them is cut after four or five -- the second segment never arrives, REALITY
+    waits, the client sees a dead server. The 37 hosts made with the old
+    "chrome" default (NL-3, EE, all of UNIVERSAL 8) were moved on 2026-10-01.
 
     Idempotency is by inbound (one host per inbound on this node) rather than by
     remark, because the same remark can legitimately exist on another node

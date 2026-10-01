@@ -156,7 +156,7 @@ def main():
                  "network":net,"tls":"reality","sni":list(GOOD_SNI),"host":[],
                  "path": None,"header_type":None,
                  "flow": ("xtls-rprx-vision" if net=="tcp" else None),
-                 "is_fallback":False,"fp":"chrome","pbk":pub,"sid":sid}
+                 "is_fallback":False,"fp":"firefox","pbk":pub,"sid":sid}
         db_inbounds.append((tag, json.dumps(dbcfg, ensure_ascii=False)))
         flag, label = HOSTMAP[tag]
         remark = f"{flag} {SAT} UNIVERSAL {uni} {INF} {label}"
@@ -181,7 +181,7 @@ def main():
         sql.append(
             "INSERT INTO hosts (remark,address,port,sni,security,fingerprint,"
             "inbound_id,is_disabled,weight,universal,mlkem_enabled) "
-            f"SELECT '{rm}','{ip}',NULL,'api-maps.yandex.ru','inbound_default','chrome',"
+            f"SELECT '{rm}','{ip}',NULL,'api-maps.yandex.ru','inbound_default','firefox',"
             f"i.id,0,{w},0,0 FROM inbounds i WHERE i.node_id={node_id} AND i.tag='{tag}';")
     sql_text = "\n".join(sql) + "\n"
 
