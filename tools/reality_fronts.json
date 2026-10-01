@@ -25,7 +25,7 @@
   "45.61.135.86":   {"front": "www.wisc.edu",       "geo": "US Лас-Вегас"},
   "216.132.133.3":  {"front": "www.usc.edu",        "geo": "US Лос-Анджелес"},
   "217.144.102.242": {"front": "www.leiden.edu",    "geo": "NL (адрес Амстердам, машина в ~44 мс от AMS)"},
-  "217.146.76.253": {"front": "www.elisa.ee",       "geo": "EE Таллин"},
+  "217.146.76.253": {"front": "www.postimees.ee",   "geo": "EE Таллин (elisa.ee забанила IP ноды 01.10)"},
   "38.244.208.127": {"front": "www.aalto.fi",       "geo": "FI Хельсинки (домен за US CDN)"},
   "2.57.242.209":   {"front": "www.k-ruoka.fi",     "geo": "FI Хельсинки (домен за GB CDN)"},
   "155.103.70.90":  {"front": "www.migros.com.tr",  "geo": "TR Стамбул (домен за CA CDN)"}

@@ -62,13 +62,18 @@ COUNTRIES = {
     # РФ открывается с 40, 30, 19 и 47. ut.ee, taltech.ee, eesti.ee прошли
     # тоже, но отвечают из CDN в GB. Прошлый «EE» (38.180.45.150) был чужим
     # выходом без доступа и давно удалён — слот свободен.
+    # 01.10.2026 Elisa целиком забанила IP ноды (ping, 80, 443): REALITY
+    # открывает соединение с dest на КАЖДОЕ входящее, и поток рукопожатий
+    # приняли за атаку. Фронт — www.postimees.ee: свой Varnish в Таллине,
+    # крупный сайт, и отвечает TLS 1.3 на любое имя, так что старое
+    # www.elisa.ee оставлено в serverNames без поломки старых подписок.
     "EE": {
         "flag": "EE", "label": "EE",
         "bridge_tag": "RU->EE Bridge", "out_tag": "ee-out",
         "bridge_port": 22443,
         "exit_node_id": 48, "exit_ip": "217.146.76.253",
         "exit_tag": "Estonia-1", "exit_port": 443,
-        "front": "www.elisa.ee",
+        "front": "www.postimees.ee",
         "fast_n": 1, "fast_weight": 210,
     },
     # Третий нидерландский выход (нода 46, IHC, AS216139). Адрес по всем базам
