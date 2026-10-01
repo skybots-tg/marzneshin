@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import and_, select, insert, update, bindparam
@@ -210,24 +212,34 @@ async def get_users_stats(
         return node_id, []
 
 
-async def record_user_usages():
-    """Main task for recording user usages.
+@dataclass
+class UsageOutcome:
+    """What the database pass of one tick leaves for the event loop.
 
-    Split into short DB sessions per phase to avoid holding connections
-    for the entire duration of the task (which caused 15+ second holds).
+    Pydantic models and plain values only: the session that produced them
+    is closed by the time the loop reads this.
     """
-    import time as _time
-    from app.core.perf_logger import log_task_duration
 
-    task_t0 = _time.monotonic()
-
-    results = await asyncio.gather(
-        *[
-            get_users_stats(node_id, node)
-            for node_id, node in marznode.nodes.items()
-        ]
+    node_updates: list[tuple[int, dict]] = field(default_factory=list)
+    notifications: list[tuple[UserNotification.Action, UserResponse]] = (
+        field(default_factory=list)
     )
-    api_params = {node_id: params for node_id, params in list(results)}
+    details: str = ""
+
+
+def store_usages(
+    api_params: dict[int, list[dict]], coefficients: dict[int, float]
+) -> UsageOutcome:
+    """Write one tick of node stats to the database.
+
+    Blocking: runs in a worker thread, never on the event loop. Split into
+    short DB sessions per phase to avoid holding connections for the
+    entire duration of the task (which caused 15+ second holds).
+
+    ``coefficients`` maps node id to its ``usage_coefficient``; a node
+    missing from it counts at 1.
+    """
+    outcome = UsageOutcome()
 
     # Orphan uids poison every phase below (device rows, usage logs and
     # the traffic UPDATE all key on users.id), so weed them out first.
@@ -240,13 +252,9 @@ async def record_user_usages():
 
     # Phase 1: Device tracking — one short session PER NODE so the
     # connection returns to the pool between nodes.
-    phase1_t0 = _time.monotonic()
+    phase1_t0 = time.monotonic()
     for node_id, params in api_params.items():
-        coefficient = (
-            node.usage_coefficient
-            if (node := marznode.nodes.get(node_id))
-            else 1
-        )
+        coefficient = coefficients.get(node_id, 1)
         node_usage = 0
         node_tracked = 0
 
@@ -275,6 +283,8 @@ async def record_user_usages():
                         logger.warning(f"[Node {node_id}] Failed to track device for user {param['uid']}: {e}")
 
             node_usages[node_id] = node_usage
+            # One dict store, like every touch of that dict by the silence
+            # monitor on the loop; the GIL keeps each of them whole.
             record_node_activity(node_id, had_traffic=bool(node_usage))
             db.commit()
 
@@ -290,38 +300,30 @@ async def record_user_usages():
                     f"[Node {node_id}] Device tracking: {node_tracked}/{len(params)} ({tracking_rate:.1f}%)"
                 )
 
-    phase1_dur = _time.monotonic() - phase1_t0
+    phase1_dur = time.monotonic() - phase1_t0
 
     # Phase 2: Node stats + user usage logs — separate short session.
-    phase2_t0 = _time.monotonic()
+    phase2_t0 = time.monotonic()
     with GetDB() as db:
         record_all_node_stats(node_usages, db)
         db.commit()
 
         for node_id, params in api_params.items():
             record_user_usage_logs(
-                params,
-                node_id,
-                (
-                    node.usage_coefficient
-                    if (node := marznode.nodes.get(node_id))
-                    else 1
-                ),
-                db=db,
+                params, node_id, coefficients.get(node_id, 1), db=db
             )
         db.commit()
-    phase2_dur = _time.monotonic() - phase2_t0
+    phase2_dur = time.monotonic() - phase2_t0
 
     users_usage = list(
         {"id": uid, "value": value} for uid, value in users_usage.items()
     )
     if not users_usage:
-        total = _time.monotonic() - task_t0
-        log_task_duration(
-            "record_user_usages", total,
-            details=f"phase1={phase1_dur:.1f}s phase2={phase2_dur:.1f}s nodes={len(api_params)} (no usage)",
+        outcome.details = (
+            f"phase1={phase1_dur:.1f}s phase2={phase2_dur:.1f}s "
+            f"nodes={len(api_params)} (no usage)"
         )
-        return
+        return outcome
 
     # Phase 3: Update user traffic totals — separate short session.
     #
@@ -334,9 +336,12 @@ async def record_user_usages():
     #   2. apply the bulk UPDATE for everyone;
     #   3. materialise ORM objects ONLY for the few users that just hit the
     #      limit (needed to push to marznode + notify).
-    phase3_t0 = _time.monotonic()
+    phase3_t0 = time.monotonic()
     with GetDB() as db:
-        await data_usage_percent_reached(db, users_usage)
+        for user in data_usage_percent_reached(db, users_usage):
+            outcome.notifications.append(
+                (UserNotification.Action.reached_usage_percent, user)
+            )
 
         usage_by_id = {u["id"]: u["value"] for u in users_usage}
         user_ids = list(usage_by_id.keys())
@@ -371,20 +376,57 @@ async def record_user_usages():
         if newly_reached_ids:
             for user in db.query(User).filter(User.id.in_(newly_reached_ids)):
                 if user.data_limit_reached:
-                    marznode.operations.update_user(user, db=db)
-                    fire_and_forget(
-                        notify(
-                            action=UserNotification.Action.data_limit_exhausted,
-                            user=UserResponse.model_validate(user),
+                    outcome.node_updates.extend(
+                        marznode.operations.plan_user_update(user, db=db)
+                    )
+                    outcome.notifications.append(
+                        (
+                            UserNotification.Action.data_limit_exhausted,
+                            UserResponse.model_validate(user),
                         )
                     )
-    phase3_dur = _time.monotonic() - phase3_t0
+    phase3_dur = time.monotonic() - phase3_t0
 
-    total = _time.monotonic() - task_t0
+    outcome.details = (
+        f"phase1_devices={phase1_dur:.1f}s phase2_logs={phase2_dur:.1f}s "
+        f"phase3_traffic={phase3_dur:.1f}s nodes={len(api_params)} users={len(users_usage)}"
+    )
+    return outcome
+
+
+async def record_user_usages():
+    """Scheduler entry point for recording user usages.
+
+    Stats are collected from the nodes on the event loop; the database
+    pass (``store_usages``) runs in a worker thread. On prod it took
+    0.5–1.8 s every tick, and on the loop it froze the whole API for that
+    long. Node pushes and notifications it asks for go out from here,
+    back on the loop.
+    """
+    from app.core.perf_logger import log_task_duration
+
+    task_t0 = time.monotonic()
+
+    results = await asyncio.gather(
+        *[
+            get_users_stats(node_id, node)
+            for node_id, node in marznode.nodes.items()
+        ]
+    )
+    api_params = {node_id: params for node_id, params in list(results)}
+    coefficients = {
+        node_id: node.usage_coefficient
+        for node_id, node in marznode.node_registry.items()
+    }
+    stats_dur = time.monotonic() - task_t0
+
+    outcome = await asyncio.to_thread(store_usages, api_params, coefficients)
+
+    marznode.operations.send_user_update(outcome.node_updates)
+    for action, user in outcome.notifications:
+        fire_and_forget(notify(action=action, user=user))
+
     log_task_duration(
-        "record_user_usages", total,
-        details=(
-            f"phase1_devices={phase1_dur:.1f}s phase2_logs={phase2_dur:.1f}s "
-            f"phase3_traffic={phase3_dur:.1f}s nodes={len(api_params)} users={len(users_usage)}"
-        ),
+        "record_user_usages", time.monotonic() - task_t0,
+        details=f"stats={stats_dur:.1f}s {outcome.details}",
     )

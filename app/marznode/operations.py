@@ -20,6 +20,22 @@ def update_user(
     db: "_Session | None" = None,
 ):
     """Updates a user on all related nodes."""
+    send_user_update(plan_user_update(user, old_inbounds, remove, db))
+
+
+def plan_user_update(
+    user: "DBUser",
+    old_inbounds: set | None = None,
+    remove: bool = False,
+    db: "_Session | None" = None,
+) -> list[tuple[int, dict]]:
+    """Database half of :func:`update_user`: what each node must receive.
+
+    Reads ``user.inbounds`` and the user's devices, so it belongs wherever
+    the session lives, a worker thread included. The result is plain
+    pydantic data, detached from the session; hand it to
+    :func:`send_user_update` on the event loop.
+    """
     if old_inbounds is None:
         old_inbounds = set()
 
@@ -40,17 +56,27 @@ def update_user(
 
     allowed_fingerprints = _get_allowed_fingerprints(user.id, db=db)
 
-    for node_id, tags in node_inbounds.items():
+    return [
+        (
+            node_id,
+            {
+                "user": User.model_validate(user),
+                "inbounds": tags,
+                "device_limit": user.device_limit,
+                "allowed_fingerprints": allowed_fingerprints,
+            },
+        )
+        for node_id, tags in node_inbounds.items()
+        if node_registry.get(node_id)
+    ]
+
+
+def send_user_update(plan: list[tuple[int, dict]]) -> None:
+    """Push a :func:`plan_user_update` result to the nodes."""
+    for node_id, update in plan:
         node = node_registry.get(node_id)
         if node:
-            fire_and_forget(
-                node.update_user(
-                    user=User.model_validate(user),
-                    inbounds=tags,
-                    device_limit=user.device_limit,
-                    allowed_fingerprints=allowed_fingerprints,
-                )
-            )
+            fire_and_forget(node.update_user(**update))
 
 
 async def _resync_node(node_id: int, node) -> None:
@@ -129,6 +155,8 @@ async def add_node(db_node, certificate, start_delay: float = 0.0):
 
 __all__ = [
     "update_user",
+    "plan_user_update",
+    "send_user_update",
     "remove_user_from_nodes",
     "resync_nodes",
     "add_node",

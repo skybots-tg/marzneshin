@@ -3,16 +3,18 @@ from sqlalchemy.orm import Session
 
 from app.config import NOTIFY_REACHED_USAGE_PERCENT
 from app.db.models import User
-from app.models.notification import UserNotification
 from app.models.user import UserResponse
-from app.notification.notifiers import notify
-from app.utils.async_utils import fire_and_forget
 
 
-async def data_usage_percent_reached(db: Session, users_usage: list) -> None:
+def data_usage_percent_reached(
+    db: Session, users_usage: list
+) -> list[UserResponse]:
     """
-    Monitors data usage of active users and sends a notification if usage
-    crosses NOTIFY_REACHED_USAGE_PERCENT of their data limit on this tick.
+    Finds active users whose data usage crosses NOTIFY_REACHED_USAGE_PERCENT
+    of their data limit on this tick and returns them for notification.
+
+    Runs in the worker thread of ``record_user_usages``, so it only reads;
+    the caller sends the notifications from the event loop.
 
     Hot path: this runs every ``record_user_usages_interval`` seconds for
     every user that produced traffic. To keep it cheap we first read only
@@ -25,7 +27,7 @@ async def data_usage_percent_reached(db: Session, users_usage: list) -> None:
 
     users_usage_dict = {user["id"]: user["value"] for user in users_usage}
     if not users_usage_dict:
-        return
+        return []
 
     rows = db.execute(
         select(User.id, User.used_traffic, User.data_limit).where(
@@ -44,17 +46,14 @@ async def data_usage_percent_reached(db: Session, users_usage: list) -> None:
             crossed_ids.append(uid)
 
     if not crossed_ids:
-        return
+        return []
 
+    crossed = []
     for user in db.query(User).filter(User.id.in_(crossed_ids)):
         # Reflect the post-update total in the notification payload without
         # persisting it here (phase 3 of record_user_usages owns the write).
         user.used_traffic += users_usage_dict[user.id]
-        fire_and_forget(
-            notify(
-                action=UserNotification.Action.reached_usage_percent,
-                user=UserResponse.model_validate(user),
-            )
-        )
+        crossed.append(UserResponse.model_validate(user))
 
     db.expunge_all()
+    return crossed
