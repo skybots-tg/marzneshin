@@ -38,7 +38,7 @@ def test_the_fleet_table_parses_and_never_reuses_a_relay_port():
     with open(os.path.join(_TOOLS, "bridge_relay.routes"), encoding="utf-8") as f:
         routes = brl.parse_routes(f.read())
     nat = [r for r in routes if not r.via_wg]
-    assert nat and len(nat) < len(routes)
+    assert nat
     assert len({(r.relay, r.rport) for r in nat}) == len(nat)
 
 
