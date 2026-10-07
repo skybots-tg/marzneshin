@@ -16,6 +16,13 @@
 Почему два раза. Между запросом отпечатка и выборкой из БД проходит время, и
 любое обновление, пойманное на лету, честно даёт расхождение. Один тик — это
 подозрение, два подряд — состояние.
+
+Отпечатков два. Первый — набор юзеров и их инбаундов — смену ключа не видит, и
+перевыпущенная ссылка, не доехавшая до ноды, жила там вечно: нода пускала по
+старому ключу и сверку проходила. Второй учитывает и ключ. Ноды на старом
+образе его не отдают (поле приходит пустым) — их сверяем по первому, иначе
+каждая такая нода получала бы полную выгрузку каждые десять минут, так и не
+сойдясь.
 """
 
 import asyncio
@@ -49,7 +56,7 @@ _unsupported: dict[int, float] = {}
 _seen: set[int] = set()
 
 
-def _expected(node_id: int) -> tuple[int, str]:
+def _expected(node_id: int) -> tuple[int, str, str]:
     with GetDB() as db:
         return digest_of_node_users(crud.get_node_users(db, node_id))
 
@@ -72,7 +79,7 @@ async def check_node_drift() -> None:
 
 async def _check_one(node_id: int, node) -> None:
     try:
-        node_count, node_digest = await node.get_users_digest()
+        node_count, node_digest, node_keyed = await node.get_users_digest()
     except NotImplementedError:
         first_time = node_id not in _unsupported
         _unsupported[node_id] = time.time()
@@ -93,19 +100,27 @@ async def _check_one(node_id: int, node) -> None:
         _seen.add(node_id)
         logger.info("node %d: сверка набора юзеров включилась", node_id)
 
-    want_count, want_digest = await asyncio.to_thread(_expected, node_id)
+    want_count, want_digest, want_keyed = await asyncio.to_thread(
+        _expected, node_id
+    )
 
-    if node_digest == want_digest:
+    if node_keyed:
+        agrees = node_keyed == want_keyed
+    else:
+        agrees = node_digest == want_digest
+    if agrees:
         if _streak.pop(node_id, None):
             logger.info("node %d: расхождение не подтвердилось", node_id)
         return
 
     streak = _streak.get(node_id, 0) + 1
     _streak[node_id] = streak
+    # Набор совпал, а с ключами нет — значит, на ноде старые ключи.
+    keys_only = node_digest == want_digest
     logger.warning(
-        "node %d: набор юзеров разошёлся (на ноде %d, ожидается %d), "
-        "подтверждение %d из %d",
+        "node %d: %s (на ноде %d, ожидается %d), подтверждение %d из %d",
         node_id,
+        "ключи юзеров разошлись" if keys_only else "набор юзеров разошёлся",
         node_count,
         want_count,
         streak,
@@ -121,13 +136,21 @@ async def _check_one(node_id: int, node) -> None:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("node %d: сверка не удалась: %s", node_id, exc)
-        await _notify(node_id, node_count, want_count, repaired=False)
+        await _notify(
+            node_id, node_count, want_count, repaired=False, keys_only=keys_only
+        )
         return
-    await _notify(node_id, node_count, want_count, repaired=True)
+    await _notify(
+        node_id, node_count, want_count, repaired=True, keys_only=keys_only
+    )
 
 
 async def _notify(
-    node_id: int, node_count: int, want_count: int, repaired: bool
+    node_id: int,
+    node_count: int,
+    want_count: int,
+    repaired: bool,
+    keys_only: bool = False,
 ) -> None:
     now = time.time()
     if now - _last_alert.get(node_id, 0) < ALERT_COOLDOWN:
@@ -144,12 +167,19 @@ async def _notify(
         if repaired
         else "Выгрузку отправить не удалось — набор на ноде остался прежним."
     )
+    keys_note = (
+        "<b>Разошлись ключи:</b> нода пускает по старым, перевыпущенные "
+        "ссылки на ней не работают\n"
+        if keys_only
+        else ""
+    )
     text = (
         f"⚠️ <b>#NodeDrift — на ноде не те юзеры</b>\n"
         f"➖➖➖➖➖➖➖➖➖\n"
         f"{build_node_lines(node_id, address, node_name(node_id))}\n"
         f"<b>На ноде:</b> {node_count}\n"
         f"<b>Ожидается:</b> {want_count}\n"
+        f"{keys_note}"
         f"➖➖➖➖➖➖➖➖➖\n"
         f"{tail} Если это повторяется на одной и той же ноде, теряются "
         f"обновления по пути, а не разово."

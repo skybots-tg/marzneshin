@@ -15,9 +15,13 @@ from app.tasks import node_drift
 class _Node:
     """Нода, чей отпечаток задаётся тестом."""
 
-    def __init__(self, digest: str, count: int = 1, supports: bool = True):
+    def __init__(
+        self, digest: str, count: int = 1, supports: bool = True, keyed: str = ""
+    ):
+        """``keyed`` пустой — нода на старом образе, отпечатка с ключами нет."""
         self.synced = True
         self._digest = digest
+        self._keyed = keyed
         self._count = count
         self._supports = supports
         self.resyncs = 0
@@ -25,7 +29,7 @@ class _Node:
     async def get_users_digest(self):
         if not self._supports:
             raise NotImplementedError("old marznode")
-        return self._count, self._digest
+        return self._count, self._digest, self._keyed
 
     async def resync_users(self):
         self.resyncs += 1
@@ -39,13 +43,13 @@ def fleet(monkeypatch):
     node_drift._unsupported.clear()
     node_drift._seen.clear()
 
-    expected = {"value": (1, "expected-digest")}
+    expected = {"value": (1, "expected-digest", "expected-keyed")}
     monkeypatch.setattr(node_drift, "_expected", lambda node_id: expected["value"])
 
     sent = []
 
-    async def _fake_notify(node_id, node_count, want_count, repaired):
-        sent.append((node_id, node_count, want_count, repaired))
+    async def _fake_notify(node_id, node_count, want_count, repaired, keys_only=False):
+        sent.append((node_id, node_count, want_count, repaired, keys_only))
 
     monkeypatch.setattr(node_drift, "_notify", _fake_notify)
 
@@ -96,7 +100,7 @@ async def test_two_in_a_row_get_repaired_and_reported(fleet):
     await node_drift.check_node_drift()
 
     assert node.resyncs == 1
-    assert sent == [(77, 4, 1, True)]
+    assert sent == [(77, 4, 1, True, False)]
 
 
 @pytest.mark.asyncio
@@ -105,9 +109,9 @@ async def test_a_streak_broken_by_agreement_starts_over(fleet):
     node = register(_Node("something-else"))
 
     await node_drift.check_node_drift()
-    expected["value"] = (1, "something-else")  # догнало
+    expected["value"] = (1, "something-else", "expected-keyed")  # догнало
     await node_drift.check_node_drift()
-    expected["value"] = (1, "expected-digest")  # и разошлось снова
+    expected["value"] = (1, "expected-digest", "expected-keyed")  # и разошлось снова
     await node_drift.check_node_drift()
 
     assert node.resyncs == 0
@@ -127,7 +131,7 @@ async def test_a_failed_repair_is_reported_as_such(fleet):
     await node_drift.check_node_drift()
     await node_drift.check_node_drift()
 
-    assert sent == [(77, 9, 1, False)]
+    assert sent == [(77, 9, 1, False, False)]
 
 
 @pytest.mark.asyncio
@@ -204,3 +208,83 @@ async def test_a_node_announces_itself_once(fleet, caplog):
 
     said = [r for r in caplog.records if "сверка набора юзеров включилась" in r.message]
     assert len(said) == 1
+
+
+# --- отпечаток с ключами ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_keys_on_a_new_node_get_repaired(fleet):
+    """07.10.2026: набор тот же, а ключ на ноде старый — перевыпуск не доехал."""
+    register, sent, _ = fleet
+    node = register(_Node("expected-digest", keyed="stale-keys"))
+
+    await node_drift.check_node_drift()
+    await node_drift.check_node_drift()
+
+    assert node.resyncs == 1
+    assert sent == [(77, 1, 1, True, True)]
+
+
+@pytest.mark.asyncio
+async def test_a_new_node_that_agrees_with_keys_is_left_alone(fleet):
+    register, sent, _ = fleet
+    node = register(_Node("expected-digest", keyed="expected-keyed"))
+
+    await node_drift.check_node_drift()
+    await node_drift.check_node_drift()
+
+    assert node.resyncs == 0
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_an_old_image_node_is_judged_by_the_plain_digest(fleet):
+    """Нода без keyed_digest не должна получать выгрузку каждые десять минут.
+
+    Ключи на ней могут и разойтись — выгрузка их всё равно не поменяет,
+    пока там старый marznode, а сойтись отпечатку с ключами там нечем.
+    """
+    register, sent, _ = fleet
+    node = register(_Node("expected-digest", keyed=""))
+
+    for _ in range(4):
+        await node_drift.check_node_drift()
+
+    assert node.resyncs == 0
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_an_old_image_node_still_gets_a_lost_inbound_repaired(fleet):
+    register, sent, _ = fleet
+    node = register(_Node("something-else", keyed=""))
+
+    await node_drift.check_node_drift()
+    await node_drift.check_node_drift()
+
+    assert node.resyncs == 1
+    assert sent == [(77, 1, 1, True, False)]
+
+
+def test_the_expectation_carries_both_digests(monkeypatch):
+    """_expected отдаёт то же, что посчитает нода: и набор, и ключи."""
+    from app.marznode.users_digest import keyed_users_digest, users_digest
+
+    rows = [{"id": 5, "key": "k5", "inbounds": ["a", "b"]}]
+    monkeypatch.setattr(node_drift.crud, "get_node_users", lambda db, node_id: rows)
+
+    class _DB:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(node_drift, "GetDB", _DB)
+
+    assert node_drift._expected(77) == (
+        1,
+        users_digest([(5, ["a", "b"])]),
+        keyed_users_digest([(5, "k5", ["a", "b"])]),
+    )

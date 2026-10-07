@@ -352,8 +352,8 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
                 ) from e
             raise
 
-    async def get_users_digest(self) -> tuple[int, str]:
-        """(сколько юзеров, отпечаток) по хранилищу ноды.
+    async def get_users_digest(self) -> tuple[int, str, str]:
+        """(сколько юзеров, отпечаток, отпечаток с ключами) по хранилищу ноды.
 
         См. grpclib.py — один хэш вместо выгрузки всего списка, поэтому
         сверять можно часто.
@@ -370,7 +370,8 @@ class MarzNodeGRPCIO(MarzNodeBase, MarzNodeDB):
                     "Node does not support GetUsersDigest — update the node software"
                 ) from e
             raise
-        return response.count, response.digest
+        # keyed_digest пуст у нод на старом образе: поля 3 они не знают.
+        return response.count, response.digest, response.keyed_digest
 
     async def resync_users(self) -> None:
         """Force resync all users with the node"""
