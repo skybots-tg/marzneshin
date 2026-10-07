@@ -263,10 +263,25 @@ def disable_user(db: Session, db_user: User, admin: Admin) -> User:
     return db_user
 
 
+def _held_on_nodes(user: User) -> bool:
+    """Стоит ли пользователь на нодах прямо сейчас.
+
+    ``is_active`` ложно и у того, кто упёрся только в ``data_limit``, но
+    такой пользователь остаётся на нодах с ``usage_coefficient = 0`` (см.
+    ``plan_user_update``), а значит, и ему нужно пушить смену ключа.
+    """
+    return user.is_active or (
+        user.data_limit_reached
+        and user.enabled
+        and not user.expired
+        and not user.removed
+    )
+
+
 def revoke_subscription(db: Session, db_user: User, admin: Admin) -> User:
     db_user = crud.revoke_user_sub(db, db_user)
 
-    if db_user.is_active:
+    if _held_on_nodes(db_user):
         node_ops.update_user(db_user, remove=True, db=db)
         node_ops.update_user(db_user, db=db)
 
