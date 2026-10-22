@@ -99,6 +99,8 @@
   "remark": "Описание",
   "loading": "Загрузка",
   "split_http": "Split HTTP",
+  "xhttp_post_interval": "Пауза между POST, мс",
+  "xhttp_post_bytes": "Потолок POST, байт",
   "wireguard": "WireGuard",
   "noise": "Шум",
   "mode": "Режим",

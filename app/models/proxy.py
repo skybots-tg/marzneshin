@@ -93,6 +93,14 @@ class SplitHttpSettings(BaseModel):
     no_grpc_header: bool | None = None
     padding_bytes: str | None = None
     xmux: XMuxSettings | None = None
+    # Клиентский темп packet-up: пауза между POST одной сессии и потолок
+    # тела POST (не больше scMaxEachPostBytes сервера, по умолчанию 1000000)
+    sc_min_posts_interval_ms: str | None = Field(
+        None, pattern=r"^\d{1,10}(-\d{1,10})?$"
+    )
+    sc_max_each_post_bytes: str | None = Field(
+        None, pattern=r"^\d{1,10}(-\d{1,10})?$"
+    )
 
 
 class SingBoxMuxSettings(BaseModel):

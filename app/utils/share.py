@@ -15,14 +15,12 @@ from v2share import (
     SingBoxConfig,
     ClashConfig,
     ClashMetaConfig,
-    XrayConfig,
     WireGuardConfig,
 )
 from v2share.base import BaseConfig
 from v2share.data import MuxCoolSettings as V2MuxCoolSettings
 from v2share.data import MuxSettings as V2MuxSettings
 from v2share.data import SingBoxMuxSettings as V2SingBoxMuxSettings
-from v2share.data import SplitHttpSettings as V2SplitHttpSettings
 from v2share.data import XMuxSettings as V2XMuxSettings
 from v2share.data import XrayNoise
 from v2share.links import LinksConfig
@@ -46,6 +44,11 @@ from app.templates import render_template
 from app.utils.fleet_taxonomy import flag_to_iso
 from app.utils.keygen import gen_uuid, gen_password, generate_curve25519_pbk
 from app.utils.system import get_public_ip, readable_size
+from app.utils.xhttp_share import (
+    ShareData,
+    ShareXrayConfig,
+    SplitHttpSettings as V2SplitHttpSettings,
+)
 
 SERVER_IP = get_public_ip()
 
@@ -56,7 +59,7 @@ ACTIVITY_EMOJIS = {
 
 subscription_handlers: dict[str, Type[BaseConfig]] = {
     "links": LinksConfig,
-    "xray": XrayConfig,
+    "xray": ShareXrayConfig,
     "clash-meta": ClashMetaConfig,
     "clash": ClashConfig,
     "sing-box": SingBoxConfig,
@@ -66,7 +69,7 @@ subscription_handlers: dict[str, Type[BaseConfig]] = {
 handlers_templates = {
     LinksConfig: None,
     WireGuardConfig: None,
-    XrayConfig: XRAY_SUBSCRIPTION_TEMPLATE
+    ShareXrayConfig: XRAY_SUBSCRIPTION_TEMPLATE
     or resources.files("app.templates") / "xray.json",
     ClashConfig: CLASH_SUBSCRIPTION_TEMPLATE,
     ClashMetaConfig: CLASH_SUBSCRIPTION_TEMPLATE,
@@ -551,7 +554,7 @@ def create_config(
     else:
         chosen_address = host.address
 
-    data = V2Data(
+    data = ShareData(
         host.inbound.protocol.value if host.inbound else host.host_protocol,
         remark,
         chosen_address.format_map(format_variables),
@@ -591,6 +594,10 @@ def create_config(
                 mode=splithttp_settings.mode,
                 no_grpc_header=splithttp_settings.no_grpc_header,
                 padding_bytes=splithttp_settings.padding_bytes,
+                sc_min_posts_interval_ms=(
+                    splithttp_settings.sc_min_posts_interval_ms
+                ),
+                sc_max_each_post_bytes=splithttp_settings.sc_max_each_post_bytes,
                 xmux=(
                     V2XMuxSettings(**splithttp_settings.xmux.model_dump())
                     if splithttp_settings.xmux

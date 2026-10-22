@@ -9,6 +9,7 @@ import { useFormContext, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { SplitHttpModeField } from "./mode";
 import { SplitHttpPaddingBytesField } from "./padding-bytes";
+import { SplitHttpPostPacingFields } from "./post-pacing";
 import { SplitHttpXmuxFields } from "./xmux";
 
 export const SplitHttpFields = () => {
@@ -50,6 +51,9 @@ export const SplitHttpFields = () => {
                                     updater={updateFieldValue}
                                 />
                                 <SplitHttpPaddingBytesField
+                                    updater={updateFieldValue}
+                                />
+                                <SplitHttpPostPacingFields
                                     updater={updateFieldValue}
                                 />
                                 <CheckboxField
