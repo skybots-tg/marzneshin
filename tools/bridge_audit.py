@@ -57,6 +57,11 @@ QUICK_ROUNDS_PER_SWEEP = 4
 # `failure_rate` for why the population matters more than the number.
 MAX_VISIBLE_FAIL_PCT = 30
 
+# ...unless at least this share of the probed visible hosts still answered. A
+# panel that lost egress reaches next to nothing; a real outage, however wide,
+# leaves the rest of the fleet answering. See `apply_report`.
+MIN_VISIBLE_REACHED_PCT = 20
+
 
 # --------------------------------------------------------------------------
 # scan
@@ -659,16 +664,46 @@ def failure_rate(report) -> tuple[int, int]:
     return sum(1 for h in visible if h["verdict"] == "fail"), len(visible)
 
 
+def reach_rate(report) -> tuple[int, int]:
+    """Visible hosts that answered from somewhere, and how many were probed.
+
+    ``wrong_geo`` counts as answered: the probe got through, it only came out
+    in the wrong country. Hosts a quick run stood down for carry no evidence
+    either way and stay out of both numbers.
+    """
+    probed = [h for h in report["hosts"]
+              if not h["is_disabled"] and h["verdict"] != "skip"]
+    return sum(1 for h in probed if h["verdict"] in ("pass", "wrong_geo")), len(probed)
+
+
 def apply_report(report, targets, args) -> int:
+    """Write the run's hides and restores, unless the run looks blind.
+
+    The failure share alone cannot tell a blind panel from a real outage, and
+    acting on it alone deadlocked: 21.10.2026 Russian entries lost FR, FR-2,
+    FI-2 and NL, a genuine 55% of the visible hosts went dark, and every run
+    after that was refused. Refused runs do not save their streaks, so the dead
+    hosts stayed in subscriptions and kept the share above the line for days.
+    What a blind panel does that an outage does not is stop reaching the hosts
+    that are fine, so the refusal also needs the survivors to have gone quiet.
+    """
     ch = report["changes"]
     fails, visible = failure_rate(report)
+    reached, probed = reach_rate(report)
     if (visible >= MIN_HOSTS_FOR_GUARD
-            and fails * 100 // visible > args.max_fail_pct and not args.force):
+            and fails * 100 // visible > args.max_fail_pct
+            and reached * 100 < MIN_VISIBLE_REACHED_PCT * max(probed, 1)
+            and not args.force):
         print(f"\nREFUSING TO APPLY: {fails} of {visible} visible host(s) "
-              f"failed (> {args.max_fail_pct}%). That usually means the panel "
-              f"itself lost egress, not that the fleet died. Re-run, or pass "
-              f"--force if the outage is real.")
+              f"failed (> {args.max_fail_pct}%) and only {reached} of {probed} "
+              f"probed answered (< {MIN_VISIBLE_REACHED_PCT}%). That usually "
+              f"means the panel itself lost egress, not that the fleet died. "
+              f"Re-run, or pass --force if the outage is real.")
         return 3
+    if visible >= MIN_HOSTS_FOR_GUARD and fails * 100 // visible > args.max_fail_pct:
+        print(f"\n{fails} of {visible} visible host(s) failed, but {reached} of "
+              f"{probed} probed still answered — an outage, not a blind panel; "
+              f"applying under the usual rate limits.")
     if not ch["disable"] and not ch["enable"]:
         print("\nnothing to change")
         return 0
