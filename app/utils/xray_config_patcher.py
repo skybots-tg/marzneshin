@@ -18,6 +18,18 @@ _SNIFFING_BLOCK = {
     "destOverride": ["http", "tls"],
 }
 
+# Xray routes its own DNS queries like user traffic. A node that blocks private
+# addresses (127.0.0.0/8 on GE-2) then drops the queries to a local AdGuard, and
+# every new connection waits out the 4 s DNS timeout before xray falls back to
+# the system resolver. Tagged queries go straight out instead.
+_DNS_TAG = "dns-internal"
+
+# The bridge audit tells a working exit by asking these for its country (GEO in
+# tools/bridge_runner.py). category-ads-all and AdGuard's lists count
+# api.country.is as a tracker, so an ad-blocking exit failed every probe that
+# drew it, and the audit kept DE-2 hidden behind a healthy bridge.
+_AUDIT_GEO_DOMAINS = ["full:ipinfo.io", "full:api.country.is", "full:ip-api.com"]
+
 
 def _dns_servers_for_provider(
     provider: DnsProvider,
@@ -70,6 +82,34 @@ def _ensure_sniffing_on_inbounds(inbounds: list[dict]) -> list[dict]:
     return inbounds
 
 
+def _freedom_tag(config: dict) -> str | None:
+    return next((ob["tag"] for ob in config.get("outbounds", [])
+                 if ob.get("protocol") == "freedom" and ob.get("tag")), None)
+
+
+def _allow_audit_lookups(config: dict, direct: str | None) -> None:
+    """Let the audit's geo lookups through, right ahead of the ads rule."""
+    rules = [r for r in config["routing"].get("rules", [])
+             if r.get("domain") != _AUDIT_GEO_DOMAINS]
+    ads = next((i for i, r in enumerate(rules)
+                if "geosite:category-ads-all" in r.get("domain", [])), None)
+    if direct is not None and ads is not None:
+        rules.insert(ads, {"type": "field", "domain": list(_AUDIT_GEO_DOMAINS),
+                           "outboundTag": direct})
+    config["routing"]["rules"] = rules
+
+
+def _route_dns_direct(config: dict, direct: str | None) -> None:
+    """Send xray's own DNS queries out the freedom outbound, ahead of any block."""
+    if direct is None:
+        return
+    tag = config["dns"].setdefault("tag", _DNS_TAG)
+    rules = [r for r in config["routing"].get("rules", [])
+             if r.get("inboundTag") != [tag]]
+    config["routing"]["rules"] = [
+        {"type": "field", "inboundTag": [tag], "outboundTag": direct}] + rules
+
+
 def patch_config_enable(
     config_str: str,
     provider: DnsProvider,
@@ -97,6 +137,9 @@ def patch_config_enable(
     # Ad-blocking is a toggle; P2P blocking is not. Re-assert it on every write
     # so flipping this switch can never be what drops it (see app/utils/p2p_guard).
     p2p_guard.ensure(config)
+    direct = _freedom_tag(config)
+    _allow_audit_lookups(config, direct)
+    _route_dns_direct(config, direct)
 
     return json.dumps(config, indent=4, ensure_ascii=False)
 
@@ -116,5 +159,8 @@ def patch_config_disable(config_str: str) -> str:
 
     # Turning ad-blocking off must not turn P2P blocking off with it.
     p2p_guard.ensure(config)
+    direct = _freedom_tag(config)
+    _allow_audit_lookups(config, direct)
+    _route_dns_direct(config, direct)
 
     return json.dumps(config, indent=4, ensure_ascii=False)

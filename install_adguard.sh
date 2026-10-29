@@ -134,7 +134,12 @@ filtering:
       name: OONI Probe list
       id: 4
   whitelist_filters: []
-  user_rules: []
+  # Geo lookups of the bridge audit (tools/bridge_runner.py); the lists above
+  # count api.country.is as a tracker.
+  user_rules:
+    - '@@||ipinfo.io^'
+    - '@@||api.country.is^'
+    - '@@||ip-api.com^'
 querylog:
   ignored: []
   interval: 24h
