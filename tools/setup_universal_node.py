@@ -13,7 +13,7 @@ nodes, so they are copied verbatim from the reference node.
 Idempotent: existing inbounds/hosts (matched by tag/remark) are left untouched.
 
 usage:
-  setup_universal_node.py --node-id 43 --uni 2 --ip 45.81.33.150 [--ref-ip ...] [--apply]
+  setup_universal_node.py --node-id 43 --uni 2 --ip 45.81.33.150 [--ref-ip ...] [--hidden] [--apply]
 """
 import argparse
 import copy
@@ -50,7 +50,7 @@ def branding(tag, uni):
     return mc.universal_remark(uni, entry["iso"], entry["label"]), weight
 
 
-def hosts_only(node_id, uni, ip, apply):
+def hosts_only(node_id, uni, ip, apply, hidden=False):
     """Create the user-visible hosts for the UNIVERSAL inbounds already present
     on the node (idempotent, per-inbound)."""
     rows = mc.db_query(
@@ -61,7 +61,8 @@ def hosts_only(node_id, uni, ip, apply):
         remark, w = branding(tag, uni)
         if remark is None:
             continue
-        sql.append(mc.insert_host_sql(node_id, tag, remark, ip, w))
+        sql.append(mc.insert_host_sql(node_id, tag, remark, ip, w,
+                                      disabled=hidden))
         plan.append(f"  {tag:30s} w={w}  {remark}")
     print(f"== UNIVERSAL {uni} hosts-only on node {node_id} ({ip}) ==")
     print("\n".join(plan))
@@ -88,12 +89,14 @@ def main():
     ap.add_argument("--hosts-only", action="store_true",
                     help="(re)create user-visible hosts for inbounds already on "
                          "the node; no node deploy")
+    ap.add_argument("--hidden", action="store_true",
+                    help="create the hosts hidden, to show them once checked")
     args = ap.parse_args()
 
     node_id, uni, ip = args.node_id, args.uni, args.ip
 
     if args.hosts_only:
-        return hosts_only(node_id, uni, ip, args.apply)
+        return hosts_only(node_id, uni, ip, args.apply, args.hidden)
     ref = mc.node_cfg(args.ref_ip)
     cur = mc.node_cfg(ip)
     have_tags = {ib["tag"] for ib in cur.get("inbounds", [])}
@@ -184,13 +187,15 @@ def main():
         remark, w = branding(tag, uni)
         if remark is None:
             continue
-        sql.append(mc.insert_host_sql(node_id, tag, remark, ip, w))
+        sql.append(mc.insert_host_sql(node_id, tag, remark, ip, w,
+                                      disabled=args.hidden))
     r = mc.db("SET NAMES utf8mb4;\n" + "\n".join(sql) + "\n")
     print("DB:", "OK" if r.returncode == 0 else "FAILED")
     if r.returncode != 0:
         print(r.stderr[:800])
         sys.exit(3)
-    print(f"done: UNIVERSAL {uni} node {node_id} configured.")
+    print(f"done: UNIVERSAL {uni} node {node_id} configured"
+          + (", hosts hidden." if args.hidden else "."))
 
 
 if __name__ == "__main__":

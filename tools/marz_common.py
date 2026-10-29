@@ -372,7 +372,7 @@ def link_service_sql(node_id, tag, service_id=SVC1):
 
 
 def insert_host_sql(node_id, tag, remark, address, weight, sni="api-maps.yandex.ru",
-                    fingerprint="firefox", port="NULL"):
+                    fingerprint="firefox", port="NULL", disabled=False):
     """Create a host bound to (node_id, tag) inbound, idempotent per-inbound.
 
     ``fingerprint`` is the TLS hello the *client* sends. Firefox, as on every
@@ -398,13 +398,17 @@ def insert_host_sql(node_id, tag, remark, address, weight, sni="api-maps.yandex.
 
     ``sni=None`` writes NULL: the host inherits the inbound's name, so the next
     front rotation edits one place instead of chasing literals (see the
-    2026-08-28 note)."""
+    2026-08-28 note).
+
+    ``disabled=True`` creates the host hidden: service 1 reaches every user,
+    so a host nobody has checked yet would otherwise land in every
+    subscription the moment the row exists."""
     sni_sql = "NULL" if sni is None else sqlstr(sni)
     return (
         "INSERT INTO hosts (remark, address, port, sni, security, fingerprint, "
         "inbound_id, is_disabled, weight, universal, mlkem_enabled) "
         f"SELECT {sqlstr(remark)}, {sqlstr(address)}, {port}, {sni_sql}, "
-        f"'inbound_default', {sqlstr(fingerprint)}, i.id, 0, {weight}, 0, 0 "
+        f"'inbound_default', {sqlstr(fingerprint)}, i.id, {int(disabled)}, {weight}, 0, 0 "
         f"FROM inbounds i WHERE i.node_id={node_id} AND i.tag={sqlstr(tag)} "
         f"AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM hosts) h "
         f"WHERE h.inbound_id = i.id);")
