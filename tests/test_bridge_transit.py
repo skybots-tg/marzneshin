@@ -5,7 +5,7 @@ without a single machine: a broken leg moves only after BAD_RUNS bad runs and
 only to a relay that measured GOOD and that the source reaches; the better
 share wins, load spreads equal relays; a leg nobody reaches stays put; an
 automatic row gives the leg back once its baseline has held for HEAL_RUNS
-runs; machines are pushed relay first, source second, old relay last.
+runs; the new relay is pushed before the source, the old one drains.
 """
 from __future__ import annotations
 
@@ -151,11 +151,12 @@ def test_a_panel_leg_brings_its_ssh_twin_on_free_automatic_ports():
     assert back == {}
 
 
-def test_relays_gaining_rows_go_first_and_relays_losing_them_last():
+def test_the_new_relay_goes_first_and_the_old_one_is_left_to_drain():
     k = (SRC, EXIT, 49443)
     old = {k: route(SRC, R40, 47201)}
     new = {k: route(SRC, R50, 48000)}
-    assert bt.install_order(old, new, {k}) == [R50, SRC, R40]
+    assert bt.install_order(old, new, {k}) == [R50, SRC]
+    assert bt.install_order(new, {}, {k}) == [SRC]       # back to direct
 
 
 def test_the_automatic_table_round_trips_through_the_overlay():

@@ -15,9 +15,9 @@ This does it on a timer:
    RELAY_POOL measures the same ``dst:dport`` itself, and the source checks
    it can reach the relay;
 3. the best candidate that clears GOOD becomes an automatic row in
-   bridge_relay.auto.routes, laid over the hand-kept table; machines are
-   updated relay first, source second, old relay last, the leg is measured
-   again from the source and rolled back if it did not get better;
+   bridge_relay.auto.routes, laid over the hand-kept table; the new relay is
+   updated first, the source second (the old relay drains), the leg is
+   measured again from the source and rolled back if it did not get better;
 4. a leg on an automatic row goes back to its baseline (the hand-kept row, or
    the direct path) once that baseline has been good for HEAL_RUNS runs.
 
@@ -134,19 +134,21 @@ def free_port(relay: str, taken: set, listening: set) -> int:
 
 
 def install_order(old: dict, new: dict, keys) -> list[str]:
-    """Relays that gain rows, then the sources, then relays that lose them.
+    """Relays that gain rows, then the sources -- and not the old relays.
 
     A source switching before its new relay has the rows would send the leg
-    into nothing; an old relay dropping its rows first would cut a leg that
-    may still be the only one working. Every machine gets the whole table, so
-    the order is the only thing that matters.
+    into nothing. The old relay is left as it is on purpose: the source decides
+    where new connections go, so its stale rows only carry the sessions that
+    were already open, and they drain on their own. Pulling the rows instead
+    makes docker's FORWARD drop those packets without a reset, and clients hang
+    until they time out. The stale rows go the next time that relay gains a
+    row: every machine always gets the whole table.
     """
     def relays(table):
         return {table[k].relay for k in keys if k in table}
     gaining = sorted(relays(new) - relays(old))
-    losing = sorted(relays(old) - relays(new))
     out: list[str] = []
-    for ip in gaining + sorted({k[0] for k in keys}) + losing:
+    for ip in gaining + sorted({k[0] for k in keys}):
         if ip not in out:
             out.append(ip)
     return out
@@ -566,7 +568,34 @@ def apply_changes(base_text, changes, auto, merged, static, legs, listening,
         if why == "gone":
             events.append({"kind": "gone", "leg": f"{k[0]}>{k[1]}:{k[2]}",
                            "src": names.get(k[0], k[0]), "tag": auto[k].tag if k in auto else ""})
+    resync([k[1] for k, *_ in changes if k[0] == PANEL_IP and k not in rollback], names)
     return events
+
+
+def resync(addresses, names) -> None:
+    """Make the panel re-send users to nodes whose gRPC leg just moved.
+
+    The panel reopens a dead transport on its own, but learns that the update
+    stream died only on the next update; until then the node keeps whatever
+    user list it had (25 and 31 sat on stale lists for a week in October).
+    """
+    if not addresses:
+        return
+    import p2p_guard as pg
+    try:
+        tok = pg.token()
+    except BaseException as exc:  # noqa: BLE001 - SystemExit from token() too
+        print(f"  resync skipped: no admin token ({exc})")
+        return
+    for address in addresses:
+        node_id = names.get(address, "").split(" ", 1)[0]
+        if not node_id.isdigit():
+            continue
+        try:
+            pg.api("POST", f"/nodes/{node_id}/resync", tok)
+            print(f"  resync node {node_id}: OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  resync node {node_id}: {type(exc).__name__}: {str(exc)[:120]}")
 
 
 def status() -> int:
