@@ -15,6 +15,7 @@ from app.tasks import (
     review_users,
     expire_days_reached,
 )
+from app.tasks.bridge_transit_monitor import check_bridge_transit
 from app.tasks.bridge_watchdog_monitor import check_bridge_watchdog
 from app.tasks.front_reach_monitor import check_front_reach
 from app.tasks.node_drift import check_node_drift
@@ -72,6 +73,7 @@ _check_bridge_watchdog = single_instance(check_bridge_watchdog)
 _check_traffic_collapse = single_instance(check_node_traffic_collapse)
 _check_reality_fronts = single_instance(check_reality_fronts)
 _check_front_reach = single_instance(check_front_reach)
+_check_bridge_transit = single_instance(check_bridge_transit)
 _check_node_drift = single_instance(check_node_drift)
 
 
@@ -167,6 +169,15 @@ def create_scheduler() -> AsyncIOScheduler:
     # one more interval on top of its ten minutes.
     scheduler.add_job(
         _check_front_reach,
+        "interval",
+        seconds=120,
+        coalesce=True,
+        max_instances=1,
+    )
+    # Reads what marz-bridge-transit.timer writes every 30 minutes: one
+    # message per run that moved something, a few minutes after it lands.
+    scheduler.add_job(
+        _check_bridge_transit,
         "interval",
         seconds=120,
         coalesce=True,
