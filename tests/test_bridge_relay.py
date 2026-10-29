@@ -56,9 +56,27 @@ def test_the_source_only_redirects_its_own_connections():
     rules = brl.ruleset(brl.parse_routes(TABLE), ENTRY)
     added = [ln for ln in rules.splitlines() if ln.startswith("-A ")]
     assert added == [
+        f'-A {brl.OUT} -p tcp -m tcp --sport {brl.PROBE_BYPASS} '
+        f'-m comment --comment "bridge-relay probe bypass" -j RETURN',
         f'-A {brl.OUT} -d {EXIT}/32 -p tcp -m tcp --dport 49443 '
         f'-m comment --comment "bridge-relay dc15 nl-1-out" -j DNAT --to-destination {RELAY}:47201',
     ]
+
+
+def test_a_machine_that_redirects_nothing_gets_no_bypass_rule():
+    rules = brl.ruleset(brl.parse_routes(TABLE), RELAY)
+    assert not [ln for ln in rules.splitlines() if ln.startswith(f"-A {brl.OUT} ")]
+
+
+def test_an_automatic_row_shadows_the_hand_kept_one_for_the_same_leg():
+    auto = f"{ENTRY}  10.0.0.3  48000  {EXIT}  49443  auto n15 nl-1-out\n"
+    merged = brl.overlay(TABLE, auto)
+    routes = brl.parse_routes(merged)
+    legs = [(r.src, r.relay, r.rport) for r in routes if r.dst == EXIT]
+    assert legs == [(ENTRY, "10.0.0.3", 48000)]
+    assert f"# replaced by bridge_transit: {ENTRY}  {RELAY}  47201" in merged
+    assert any(r.dst == ENTRY and r.dport == 22 for r in routes)   # untouched rows stay
+    assert brl.overlay(TABLE, "# nothing yet\n") == TABLE
 
 
 def test_the_relay_forwards_only_for_the_listed_sources():

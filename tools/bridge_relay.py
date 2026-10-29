@@ -58,6 +58,10 @@ COMMENT = "bridge-relay"
 
 OUT, PRE, POST, FWD = ("BRIDGE_RELAY_OUT", "BRIDGE_RELAY_PRE",
                        "BRIDGE_RELAY_POST", "BRIDGE_RELAY_FWD")
+# Connections from these source ports skip the DNAT, so bridge_transit.py can
+# measure the direct path of a relayed leg. Below the ephemeral range
+# (32768-60999), so nothing else ever binds them.
+PROBE_BYPASS = "61900:61999"
 NAT_JUMPS = (("OUTPUT", OUT), ("PREROUTING", PRE), ("POSTROUTING", POST))
 
 
@@ -152,6 +156,30 @@ def parse_routes(text: str) -> list[Route]:
     return parse_table(text)[0]
 
 
+def overlay(base_text: str, auto_text: str) -> str:
+    """The hand-kept table with bridge_transit.py's rows laid over it.
+
+    An automatic row replaces the hand-kept row for the same ``src dst dport``
+    (DNAT is first match, so both cannot stay); every other line, comments
+    included, is kept as written. Both halves must parse on their own.
+    """
+    auto = parse_routes(auto_text)
+    if not auto:
+        return base_text
+    taken = {(r.src, r.dst, r.dport) for r in auto}
+    kept = []
+    for raw in base_text.splitlines():
+        parts = raw.split("#", 1)[0].split()
+        if (len(parts) >= 6 and parts[0] != "tunnel"
+                and (parts[0], parts[3], int(parts[4])) in taken):
+            kept.append(f"# replaced by bridge_transit: {raw}")
+            continue
+        kept.append(raw)
+    return ("\n".join(kept).rstrip("\n")
+            + "\n\n# ── bridge_transit (automatic, /var/lib/marzneshin) ──\n"
+            + auto_text.strip("\n") + "\n")
+
+
 def machines(routes: list[Route], tunnels: list[Tunnel] = ()) -> set[str]:
     """Everything that needs rules: sources and relays, never the far ends."""
     return ({r.src for r in routes} | {r.relay for r in routes}
@@ -194,6 +222,9 @@ def ruleset(routes: list[Route], self_ip: str, tunnels: list[Tunnel] = ()) -> st
                        f"--dport {r.dport} {_c(r.tag)} -j ACCEPT")
             if r.src not in back:
                 back.append(r.src)
+    if out:
+        out.insert(0, f"-A {OUT} -p tcp -m tcp --sport {PROBE_BYPASS} "
+                      f"{_c('probe bypass')} -j RETURN")
     fwd += [f"-A {FWD} -d {src}/32 -m conntrack --ctstate RELATED,ESTABLISHED "
             f"{_c('back')} -j ACCEPT" for src in back]
     return "\n".join(["*nat", f":{OUT} - [0:0]", f":{PRE} - [0:0]", f":{POST} - [0:0]",

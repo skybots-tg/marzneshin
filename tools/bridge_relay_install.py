@@ -7,6 +7,10 @@ panel (locally), then relays cut off from the panel, then the sources. Idempoten
 table reaches the fleet; rows, routes and tunnels dropped from the table
 disappear from the machines too.
 
+What ships is ``bridge_relay.routes`` with bridge_transit.py's automatic rows
+(``AUTO_ROUTES``) laid over it, so a hand run never undoes what the automation
+set up; both take ``LOCK`` while they push.
+
 Tunnels need each end's WireGuard public key. Every machine keeps its own
 private key (``/etc/bridge-relay/wg.key``, made on first use); the installer
 collects the public halves first and ships them as ``bridge-relay.peers``.
@@ -37,6 +41,12 @@ import marz_common as mc
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "bridge_relay.py")
 ROUTES = os.path.join(HERE, "bridge_relay.routes")
+# Rows bridge_transit.py chose itself. Not in git: they follow the network,
+# and the hand-kept table stays what a human wrote.
+AUTO_ROUTES = "/var/lib/marzneshin/bridge_relay.auto.routes"
+# One writer at a time: a hand run and bridge_transit.py would otherwise ship
+# two different tables to the same machine in the same minute.
+LOCK = "/var/lib/marzneshin/bridge_relay.lock"
 PANEL_IP = "195.54.170.162"
 
 UNIT = """[Unit]
@@ -133,6 +143,46 @@ def run_on(ip, script, inp=None, timeout=90):
     return r
 
 
+def table_text(auto_path: str = AUTO_ROUTES) -> str:
+    """What every machine gets: the hand-kept table plus the automatic rows."""
+    with open(ROUTES, encoding="utf-8") as f:
+        base = f.read()
+    try:
+        with open(auto_path, encoding="utf-8") as f:
+            auto = f.read()
+    except FileNotFoundError:
+        return base
+    return brl.overlay(base, auto)
+
+
+def lock(blocking: bool = True):
+    """Hold the relay lock for as long as the returned file stays open."""
+    import fcntl
+    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    f = open(LOCK, "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+    except BlockingIOError:
+        f.close()
+        return None
+    return f
+
+
+def push(ip, routes_text, peers_text, script):
+    """Ship the table to one machine and bring its rules up: (ok, state line)."""
+    b64 = lambda s: base64.b64encode(s.encode()).decode()  # noqa: E731
+    try:
+        r = run_on(ip, INSTALL % {"routes_b64": b64(routes_text),
+                                  "peers_b64": b64(peers_text), "self": ip,
+                                  "unit": UNIT % {"self": ip}},
+                   inp=script, timeout=120)
+    except Exception as exc:  # noqa: BLE001 - one machine must not stop the rest
+        return False, f"FAILED: {type(exc).__name__}: {str(exc)[:100]}"
+    state = next((ln for ln in r.stdout.splitlines() if ln.startswith(("STATE", "NO_PYTHON"))),
+                 (r.stderr or r.stdout).strip()[-160:] or f"rc={r.returncode}")
+    return r.returncode == 0 and state.startswith("STATE"), state
+
+
 def collect_peers(tunnels, script):
     peers = {}
     for ip in sorted({t.src for t in tunnels} | {t.relay for t in tunnels}):
@@ -153,7 +203,13 @@ def main() -> int:
     ap.add_argument("--uninstall", action="store_true")
     args = ap.parse_args()
 
-    routes_text = open(ROUTES, encoding="utf-8").read()
+    held = None
+    if not (args.dry_run or args.status):
+        held = lock(blocking=False)
+        if held is None:
+            print("bridge_transit is applying a change, waiting for it ...", flush=True)
+            held = lock()
+    routes_text = table_text()
     routes, tunnels = brl.parse_table(routes_text)
     script = open(SCRIPT, encoding="utf-8").read()
     only = {x.strip() for x in args.only.split(",") if x.strip()}
@@ -175,19 +231,17 @@ def main() -> int:
             for iface, dsts in brl.wg_routes(routes, tunnels, ip).items():
                 print(f"# route via {iface}: {' '.join(sorted(dsts))}")
             continue
+        if not (args.status or args.uninstall):
+            ok, state = push(ip, routes_text, peers_text, script)
+            failed += 0 if ok else 1
+            print(f"{label} {'OK  ' if ok else 'FAIL'} {state}")
+            continue
         try:
             if args.status:
                 r = run_on(ip, STATUS, timeout=40)
                 print(f"{label}\n{r.stdout.rstrip() or '  (no rules)'}")
                 continue
-            if args.uninstall:
-                r = run_on(ip, UNINSTALL, timeout=60)
-            else:
-                b64 = lambda s: base64.b64encode(s.encode()).decode()  # noqa: E731
-                r = run_on(ip, INSTALL % {"routes_b64": b64(routes_text),
-                                          "peers_b64": b64(peers_text), "self": ip,
-                                          "unit": UNIT % {"self": ip}},
-                           inp=script, timeout=120)
+            r = run_on(ip, UNINSTALL, timeout=60)
         except Exception as exc:  # noqa: BLE001 - one machine must not stop the rest
             print(f"{label} FAILED: {type(exc).__name__}: {str(exc)[:100]}")
             failed += 1
