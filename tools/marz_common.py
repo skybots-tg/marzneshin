@@ -77,8 +77,13 @@ BOLT = "\u26A1\uFE0F"   # ⚡️ fast glyph
 
 
 def ssh(ip, cmd, inp=None, timeout=90):
+    # Sessions between Norway and RU nodes now and then go silent mid-run (the
+    # far end gone, our bytes never acked). Without keepalives ssh waits out
+    # TCP retransmission, ~15 min, and a bridge audit vantage holds the whole
+    # run that long; with them a dead session ends in about a minute.
     return subprocess.run(
         ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+         "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
          "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
          "-i", KEY, f"root@{ip}", cmd],
         input=inp, capture_output=True, text=True, timeout=timeout)
