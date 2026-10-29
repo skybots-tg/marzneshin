@@ -3,7 +3,7 @@
 
 Order matters: a source that is cut off from the panel is only reachable once
 its relay and the panel itself carry the rows, so relays go first, then the
-panel (locally), then the sources. Idempotent -- re-running is how a changed
+panel (locally), then relays cut off from the panel, then the sources. Idempotent -- re-running is how a changed
 table reaches the fleet; rows, routes and tunnels dropped from the table
 disappear from the machines too.
 
@@ -105,13 +105,19 @@ for i in $(ip -o link show type wireguard 2>/dev/null | grep -oE 'brwg[0-9]+'); 
 
 
 def order(routes, tunnels=()):
-    """Relays, then the panel, then the remaining sources."""
+    """Relays, then the panel, then the remaining sources.
+
+    A relay the panel itself reaches only through another relay (43, 47 carry
+    bridges but are cut off from the panel) goes after the panel.
+    """
     relays = sorted({r.relay for r in routes} | {t.relay for t in tunnels})
+    cut_off = {r.dst for r in routes if r.src == PANEL_IP}
     sources = sorted(({r.src for r in routes} | {t.src for t in tunnels})
                      - set(relays) - {PANEL_IP})
     panel = ([PANEL_IP] if PANEL_IP in brl.machines(routes, tunnels) and PANEL_IP not in relays
              else [])
-    return relays + panel + sources
+    return ([ip for ip in relays if ip not in cut_off] + panel
+            + [ip for ip in relays if ip in cut_off] + sources)
 
 
 def run_on(ip, script, inp=None, timeout=90):
