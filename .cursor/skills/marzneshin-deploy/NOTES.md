@@ -1,5 +1,31 @@
 # Operational notes
 
+## 2026-11-01 (вечер) — EE-1: postimees забанил ноду, фронт → www.kaup24.ee; Elite 1 → US-3 через 50
+
+**EE-1 (нода 48).** С ~18:00 UTC все EE-хосты красные: с ноды 456 SYN-SENT к 185.154.221.53
+(`www.postimees.ee`, dest), рукопожатие с SNI postimees/elisa висит, ESTAB копятся (5,7k → 9,1k),
+reaper закрывал по 1,7 тыс. за проход. Тот же механизм, что у Elisa 01.10: каждое соединение моста
+(25 — 1261, 185.219.41.121 — 535, 50 — 246, Elite 1 — 130) = рукопожатие с фронтом; после чистки
+зависших на RU-входах трафик к EE вырос, и через ~30 мин сайт забанил IP. Кандидаты с ноды с SNI
+postimees и elisa: TLS 1.3 + h2 на оба имени дал только `www.kaup24.ee` (Cloudflare 104.19.150/151.49,
+на чужое имя — свой сертификат `ssl972893.cloudflaressl.com`; в TLS 1.3 сертификат шифрован). rimi/coop
+(CloudFront) — только на postimees; остальные — без TLS 1.3 или alert. `reality_front_apply.py` фаза 1
+(+kaup24), фаза 3 планом с `--keep-name www.postimees.ee --keep-name www.elisa.ee` → dest kaup24,
+serverNames [kaup24, postimees, elisa]; входы не трогали.
+
+Две ловушки. (1) `mc.deploy` перезапускал **первый** контейнер с «marz» — на EE-1 это `marznode2`
+(шлюз IHC): конфиг ноды 48 записан, а работала старая версия. Исправлено (5574a5b): контейнер,
+смонтировавший `/var/lib/marznode`, общий сниппет `tools/marz_container.py`. (2) В инбаунде Estonia-1
+жил VLESS `fallbacks` → `www.elisa.ee:443` (xver 1): соединения с неизвестным ключом (первые секунды
+после рестарта, старые ключи) шли в забаненную Elisa — 263 SYN-SENT после рестарта. Fallback снят.
+После: SYN к фронтам 0, EE-хосты 6/6 OK. У остальных выходов fallback → www.apple.com (NL-3 —
+leiden.edu): ловит только чужие ключи, оставлен.
+
+**Elite 1 → US-3.** Мост us3-out волнами 0–1 из 3 при TCP 8/8 и живом TLS (автотранзит плечо не
+видит); на US-3 висели hello Elite 1, обрезанные на 1400 байтах. fp ios на us3-out не помог (1/3) —
+плечо переведено строкой `el1 us3-out` через 50 (rport 47004) в `bridge_relay.routes`: 3/3 дважды.
+fp ios на us3-out Elite 1 оставлен.
+
 ## 2026-11-01 — зависшие соединения REALITY и `reality-reaper` на нодах
 
 **Симптом.** IHC RU-1 (47): TCP до входа из РФ 8/8, мосты с ноды работают, ключи и юзер на ноде верные,
