@@ -258,7 +258,7 @@ systemctl enable --now UNIT.timer >/dev/null 2>&1
 python3 INSTALL_DIR/reality_reaper.py run --dry-run || true
 systemctl start UNIT.service || true
 echo INSTALLED
-journalctl -u UNIT.service -n 3 --no-pager -o cat | grep reality-reaper || true
+journalctl -u UNIT.service -n 5 --no-pager -o cat | grep 'reality-reaper:' || true
 """
 
 
@@ -311,7 +311,7 @@ def cmd_status(args) -> int:
     import marz_common as mc
 
     cmd = (f"systemctl is-active {UNIT}.timer; "
-           f"journalctl -u {UNIT}.service --since '-1 hour' --no-pager -o short-iso | grep reality-reaper | tail -3")
+           f"journalctl -u {UNIT}.service --since '-1 hour' --no-pager -o short-iso | grep 'reality-reaper:' | tail -3")
     for nid, name, ip, status in _nodes(args.node):
         if status == "disabled" and not args.node:
             continue
