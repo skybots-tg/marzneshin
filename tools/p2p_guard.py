@@ -27,6 +27,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import marz_common as mc  # noqa: E402
+from marz_container import MARZ_CONTAINER_SH
 
 guard = mc.p2p_guard  # app/utils/p2p_guard.py — one definition of "blocked"
 
@@ -37,8 +38,7 @@ LOCK = "/var/lib/marzneshin/p2p_guard.lock"
 
 _TEST = r'''
 set -u
-c=$(docker ps --format '{{.Names}}' | grep -i marz | head -1)
-[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
+''' + MARZ_CONTAINER_SH + r'''[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
 cat > /tmp/xray_p2p_test.json
 docker cp /tmp/xray_p2p_test.json "$c:/tmp/xray_p2p_test.json" >/dev/null
 ASSET=$(docker exec "$c" sh -lc 'd=$(dirname $(find / -name geoip.dat 2>/dev/null | head -1)); echo ${d:-/usr/local/lib/xray}')

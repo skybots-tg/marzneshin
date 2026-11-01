@@ -16,6 +16,7 @@ usage: fix_reality_sni.py [--apply] <ip> [ip...]
 import json
 import subprocess
 import sys
+from marz_container import MARZ_CONTAINER_SH
 
 KEY = "/root/.ssh/vpn_node_default"
 GOOD_HOST = "api-maps.yandex.ru"
@@ -77,8 +78,7 @@ def main():
         new_json = json.dumps(cfg, ensure_ascii=False, indent=2)
         deploy = r'''
 set -u
-c=$(docker ps --format '{{.Names}}' | grep -i marz | head -1)
-[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
+''' + MARZ_CONTAINER_SH + r'''[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
 cat > /tmp/xray_new.json
 docker cp /tmp/xray_new.json "$c:/tmp/xray_new.json" >/dev/null
 if docker exec "$c" xray run -test -c /tmp/xray_new.json >/tmp/t.log 2>&1 \

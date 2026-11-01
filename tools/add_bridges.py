@@ -9,6 +9,7 @@ canonical bridge set on canonical ports with the proven yandex masking.
 Dry-run unless --apply. usage: add_bridges.py [--apply] <U4|U5>
 """
 import copy, json, os, re, subprocess, sys
+from marz_container import MARZ_CONTAINER_SH
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -76,7 +77,7 @@ def find(seq, tag):
 
 def gen_keys(ip, n):
     """Generate n x25519 keypairs inside the marznode container."""
-    cmd = ('c=$(docker ps --format "{{.Names}}" | grep -i marz | head -1); '
+    cmd = (MARZ_CONTAINER_SH +
            f'for i in $(seq 1 {n}); do docker exec "$c" xray x25519; echo "==="; done')
     r = ssh(ip, cmd)
     pairs = []
@@ -193,8 +194,7 @@ def main():
     # 1) deploy node config
     deploy = r'''
 set -u
-c=$(docker ps --format '{{.Names}}' | grep -i marz | head -1)
-[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
+''' + MARZ_CONTAINER_SH + r'''[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
 cat > /tmp/xray_new.json
 docker cp /tmp/xray_new.json "$c:/tmp/xray_new.json" >/dev/null
 if docker exec "$c" xray run -test -c /tmp/xray_new.json >/tmp/t.log 2>&1 \

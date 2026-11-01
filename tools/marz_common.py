@@ -24,6 +24,7 @@ import re
 import secrets
 import subprocess
 import sys
+from marz_container import MARZ_CONTAINER_SH
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -211,7 +212,7 @@ def rand_sid():
 
 def gen_keys(ip, n):
     """Generate n x25519 keypairs inside the marznode container on `ip`."""
-    cmd = ('c=$(docker ps --format "{{.Names}}" | grep -i marz | head -1); '
+    cmd = (MARZ_CONTAINER_SH +
            f'for i in $(seq 1 {n}); do docker exec "$c" xray x25519; '
            'echo "==="; done')
     r = ssh(ip, cmd)
@@ -248,8 +249,7 @@ def pubkeys(ip, privs):
         return {}
     lines = "\n".join(f'echo "KEY {p}"; docker exec "$c" xray x25519 -i {p}'
                       for p in uniq)
-    cmd = ('c=$(docker ps --format "{{.Names}}" | grep -i marz | head -1)\n'
-           + lines)
+    cmd = MARZ_CONTAINER_SH + lines
     r = ssh(ip, cmd)
     pub_re = re.compile(
         r'^(?:Password \(PublicKey\)|Password|Public\s*[Kk]ey|PublicKey):\s*(\S+)')
@@ -268,8 +268,7 @@ def pubkeys(ip, privs):
 
 _DEPLOY = r'''
 set -u
-c=$(docker ps --format '{{.Names}}' | grep -i marz | head -1)
-[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
+''' + MARZ_CONTAINER_SH + r'''[ -n "$c" ] || { echo FATAL_NO_CONTAINER; exit 1; }
 cat > /tmp/xray_new.json
 docker cp /tmp/xray_new.json "$c:/tmp/xray_new.json" >/dev/null
 # locate xray asset dir (geoip.dat/geosite.dat) so -test can resolve geoip:* rules
