@@ -170,6 +170,48 @@ def test_a_node_failing_everywhere_while_busy_is_not_believed():
     assert decisions["links"][LINK]["reason"] == "node_unreachable_but_busy"
 
 
+def _hidden_then_contested():
+    """Host 1 is hidden for a real failure, then the whole node starts failing
+    the probe while it keeps carrying traffic."""
+    before = [FakeTarget(1, "fail"), FakeTarget(2, "pass", link="25>DE/tcp")]
+    _, state, _ = run(before)
+    _, state, decisions = run(before, state)
+    assert decisions["disable"] == [1]
+    after = [FakeTarget(1, "fail", is_disabled=True),
+             FakeTarget(2, "fail", link="25>DE/tcp"),
+             FakeTarget(3, "fail", link="25>NL/tcp")]
+    return state, after
+
+
+def test_a_busy_node_brings_back_what_it_hid_earlier():
+    """Yandex.Cloud Elite 1, 08.11.2026: twelve bridges hidden as link_down,
+    then three days of node_unreachable_but_busy with the hosts still hidden."""
+    state, after = _hidden_then_contested()
+    _, state, decisions = run(after, state)
+    assert decisions["links"][LINK]["reason"] == "node_unreachable_but_busy"
+    assert decisions["enable"] == []
+    _, state, decisions = run(after, state)
+    assert decisions["enable"] == [1]
+    assert decisions["disable"] == []
+    assert "1" not in state["auto_disabled"]
+
+
+def test_one_contested_run_brings_nothing_back():
+    state, after = _hidden_then_contested()
+    _, state, decisions = run(after, state)
+    assert decisions["enable"] == []
+    assert state["links"][LINK]["contested_streak"] == 1
+
+
+def test_a_busy_node_keeps_hosts_hidden_by_hand():
+    by_hand = [FakeTarget(9, "fail", is_disabled=True),
+               FakeTarget(2, "fail", link="25>DE/tcp"),
+               FakeTarget(3, "fail", link="25>NL/tcp")]
+    _, state, _ = run(by_hand)
+    _, _, decisions = run(by_hand, state)
+    assert decisions["enable"] == []
+
+
 def test_a_node_failing_everywhere_and_silent_is_believed():
     targets = [FakeTarget(1, "fail"), FakeTarget(2, "fail", link="25>DE/tcp")]
     _, _, decisions = run(targets, traffic={25: 0, 14: 0},

@@ -515,6 +515,27 @@ def _node_is_silent(node_id, traffic: dict[int, int], status: str) -> bool:
     return traffic.get(int(node_id), 0) < SILENT_NODE_BYTES
 
 
+def _restore_hidden(link, auto: dict, remark_of: dict,
+                    visible_by_remark: dict) -> list[int]:
+    """Bring back the hosts of ``link`` that this module hid; return their ids.
+
+    Hosts hidden by hand are not in ``auto`` and stay hidden. A host whose name
+    a visible twin already answers to stays hidden too -- un-hiding it would put
+    two identical entries in every subscription.
+    """
+    restored = []
+    for host_id in link.host_ids:
+        if auto.get(str(host_id)) is None:
+            continue  # hidden by hand, or never hidden: leave it
+        remark = remark_of.get(host_id)
+        if remark and visible_by_remark.get(remark):
+            continue  # a visible twin already carries this name
+        restored.append(host_id)
+    for host_id in restored:
+        auto.pop(str(host_id), None)
+    return restored
+
+
 def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
            node_status: dict[int, str], visible_by_remark=None,
            remark_of=None, confirmed_links=None, node_wide_rule=True,
@@ -593,6 +614,20 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             far_end = exit_condition.get(link.exit_node_id)
             exit_contested = not silent and far_end == "busy"
             contested = node_contested or exit_contested
+            # The rule that stops a hide has to be able to undo one, too. Hosts
+            # hidden before the traffic began contradicting the probe otherwise
+            # wait for a passing probe the panel can no longer produce: on
+            # 08.11.2026 twelve Yandex.Cloud Elite 1 bridges went down as
+            # link_down, and for three days every run called the node
+            # node_unreachable_but_busy -- users kept moving ~250k minutes a day
+            # through it -- while the hosts stayed out of every subscription.
+            contested_streak = (prev.get("contested_streak", 0) + 1
+                                if contested else 0)
+            released = []
+            if contested_streak >= PASS_STREAK_TO_RESTORE:
+                released = _restore_hidden(link, auto, remark_of,
+                                           visible_by_remark)
+                enable.extend(released)
             confirmed = confirmed_links is None or key in confirmed_links
             # Silence is only evidence when someone other than the panel saw
             # the failure too — the byte counter and the health flag both come
@@ -627,6 +662,8 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             notes[key] = {
                 "verdict": "down", "fail_streak": fail_streak,
                 "pass_streak": 0, "reason": reason, "contested": contested,
+                "contested_streak": contested_streak,
+                "released": released,
                 "confirmed": confirmed, "entry_bytes": entry_bytes,
                 "witnesses": link.witnesses,
                 "exit_ratio": traffic_ratio.get(link.exit_node_id),
@@ -675,17 +712,9 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             ready = pass_streak >= PASS_STREAK_TO_RESTORE and not quiet
             restored = []
             if ready:
-                for host_id in link.host_ids:
-                    record = auto.get(str(host_id))
-                    if record is None:
-                        continue  # hidden by hand, or never hidden: leave it
-                    remark = remark_of.get(host_id)
-                    if remark and visible_by_remark.get(remark):
-                        continue  # a visible twin already carries this name
-                    enable.append(host_id)
-                    restored.append(host_id)
-            for host_id in restored:
-                auto.pop(str(host_id), None)
+                restored = _restore_hidden(link, auto, remark_of,
+                                           visible_by_remark)
+                enable.extend(restored)
             notes[key] = {
                 "verdict": "up", "fail_streak": 0, "pass_streak": pass_streak,
                 "reason": "restored" if restored else
@@ -726,6 +755,7 @@ def decide(links: dict[str, LinkView], state: dict, traffic: dict[int, int],
             "verdict": note["verdict"],
             "confirmed": note.get("confirmed", True),
             "reason": note["reason"],
+            "contested_streak": note.get("contested_streak", 0),
             "deferred": note.get("deferred"),
             "updated_at": now,
         }
